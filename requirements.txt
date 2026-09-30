@@ -1,0 +1,6 @@
+numpy
+pyvista
+pyacvd
+vtk
+itk-elastix
+scipy

@@ -1,0 +1,47 @@
+{
+  "_comment": "data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
+  "patient": "patient_2",
+  "data_dir": "../Input_Data/patient_2",
+  "output_dir": "../results/patient_2",
+  "steps": ["surface_mesh", "registration"],
+
+  "surface_mesh": {
+    "input": "lung_left_collapsed.vtk",
+    "output": "model_left_collapsed_mesh.vtp",
+    "input_space": "auto",
+    "output_space": "LPS",
+    "merge_tolerance": 1e-5,
+    "pre_smooth_iters": 15,
+    "post_smooth_iters": 5,
+    "smooth_pass_band": 0.1,
+    "target_nodes": 480,
+    "max_faces": 1000,
+    "shrink_factor": 0.9,
+    "max_remesh_attempts": 6,
+    "min_points_per_cluster": 12,
+    "max_subdivisions": 4,
+    "hole_size": 1e4
+  },
+
+  "registration": {
+    "_comment": "inflated/collapsed: labelmap or closed surface; collapsed null = rasterise the step-2 surface. direction: forward (fixed = collapsed, no inversion) | inverse (fixed = inflated, as in Slicer)",
+    "inflated": "lung_left.vtk",
+    "inflated_label": null,
+    "collapsed": null,
+    "collapsed_label": null,
+    "surface": null,
+    "surface_space": "auto",
+    "direction": "inverse",
+    "output": "transformed_left_lung.vtp",
+    "output_space": "LPS",
+    "raster_spacing_mm": 1.0,
+    "crop_margin_mm": 20.0,
+    "parameter_maps": ["rigid", "bspline"],
+    "parameter_files": ["elastix/Parameters_Rigid.txt", "elastix/Parameters_BSpline.txt"],
+    "parameter_overrides": {},
+    "random_seed": 42,
+    "inversion_tol_mm": 1e-3,
+    "inversion_max_iter": 100,
+    "inversion_samples": 200000
+  }
+}
