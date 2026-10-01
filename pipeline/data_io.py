@@ -180,6 +180,18 @@ def read_fiducials(path):
     return out
 
 
+def read_fiducial_radii(path):
+    """{label: radius [mm]} for the points of lists drawn as absolute-size spheres (fiducial_list
+    with sphere_mm), i.e. the sphere visible in Slicer; other points are left out."""
+    out = {}
+    for mk in json.loads(Path(path).read_text())["markups"]:
+        disp = mk.get("display", {})
+        if disp.get("glyphType") == "Sphere3D" and disp.get("useGlyphScale") is False:
+            for cp in mk.get("controlPoints", []):
+                out[cp["label"]] = float(disp["glyphSize"]) / 2.0
+    return out
+
+
 def write_image(img, path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -11,10 +11,12 @@ The pipeline is being rewritten step by step in [`pipeline/`](pipeline/). The or
 | Step | Status |
 |---|---|
 | 1 Segmentation | manual, 3D Slicer (nnInteractive + manual correction) |
+| 1b Input check | ✅ `pipeline/check_inputs.py` (sanity check of the input surfaces) |
 | 2 Surface meshing | ✅ `pipeline/surface_mesh.py` |
 | 3 Hilum anchor | ✅ `pipeline/hilum.py` (computed from the airway / vessel segmentations) |
 | 4 Registration | ✅ `pipeline/registration.py` (replaces the Slicer Elastix workflow) |
-| 5–8 Correspondence, inverse FEM, sequence, visualisation | still in `pipeline_codes_v1/` |
+| 5 Inverse FEM | `pipeline/collapse/`: `fem_setup` ✅, `fem_fit` ported, GetFEM core not yet run in the new pipeline |
+| 6–7 Sequence, visualisation | still in `pipeline_codes_v1/` |
 
 ## Repository layout
 
@@ -22,13 +24,20 @@ The pipeline is being rewritten step by step in [`pipeline/`](pipeline/). The or
 main.py               entry point, runs the steps listed in a config
 configs/
   patient_<N>.json    one config per patient, one section per step
-  elastix/            elastix parameter files (SlicerElastix default preset)
+  elastix/            elastix parameter files (SlicerElastix default preset + an affine stage)
 pipeline/
   config.py           config loading (dataclass per step, path resolution)
   data_io.py          surfaces (LPS/RAS aware), labelmaps, Slicer markups
+  check_inputs.py     step 1b
   surface_mesh.py     step 2
   hilum.py            step 3
   registration.py     step 4
+  collapse/           step 5, inverse FEM
+    setup.py          fem_setup: clamp, alignment, regions, volume mesh (no FEM library)
+    fit.py            fem_fit: coarse-to-fine pressure fit, talks only to solvers/base.py
+    problem.py        CollapseProblem, the arrays passed from setup to fit and to the core
+    anchor.py, regions.py, volume_mesh.py, geometry.py, run_control.py
+    solvers/          FEM cores: base.py (interface), getfem_solver.py
 Input_Data/           patient data (not in git)
 results/              pipeline outputs (not in git)
 pipeline_codes_v1/    original scripts
@@ -42,14 +51,19 @@ pip install -r requirements.txt
 
 Requires Python ≥ 3.10.
 
+`fem_fit` also needs the library of the FEM core selected in the config, which is not on PyPI and is imported only by that step:
+
+- **GetFEM:** `conda install -c conda-forge getfem` (linux-64, osx-64, win-64), or on Ubuntu `apt install python3-getfem` with the system Python (built against `numpy<2`).
+
 ## Running
 
 ```bash
 python main.py --config configs/patient_10.json                      # steps listed in the config
 python main.py --config configs/patient_10.json --steps hilum        # only some steps
+python main.py --config configs/patient_10.json --steps fem_fit      # e.g. on the machine with GetFEM
 ```
 
-Steps always run in pipeline order: `surface_mesh` → `hilum` → `registration`. The hilum step runs before the registration because the registration uses it as landmarks. If a step fails, the error is written to `logs/pipeline.log` and the run stops.
+Steps always run in pipeline order: `check_inputs` → `surface_mesh` → `hilum` → `registration` → `fem_setup` → `fem_fit`. The hilum step runs before the registration because the registration uses it as landmarks. If a step fails, the error is written to `logs/pipeline.log` and the run stops.
 
 ## Input data
 
@@ -74,6 +88,17 @@ Path rules:
 An unknown key raises an error, so a typo cannot be silently ignored. Keys starting with `_` are comments.
 
 ## Steps
+
+### 1b · Input check (`check_inputs`)
+
+Runs first, on the raw surfaces (by default the files named in the other sections), so segmentation problems show up before registration and Gmsh fail on them. Findings are warnings with the position in LPS and RAS (as shown in Slicer) and a hint on how to fix them; with `fail_on_warning: true` they stop the pipeline.
+
+- **Integrity:** readable, space tag, closed, number of pieces and volume. Extra pieces of a lung (islands, internal holes) are a finding; the following checks use the largest piece. Airway and vessel trees are normally in many pieces, so for them this is only logged.
+- **Same scan:** every structure overlaps the collapsed lung.
+- **Containment:** the collapsed lung must lie inside the inflated one. Points more than `outside_tol_mm` outside are flagged, warning above `max_outside_fraction`. Fix in Segment Editor: *Logical operators → Add* the collapsed segment to the inflated one, after smoothing.
+- **Narrow notches** (folds, open fissures), in both lungs: the mask is closed with a ball of `notch_radius_mm`; points deeper than `notch_depth_mm` inside the closed volume are flagged, warning above `max_notch_fraction`. They cause the flipped triangles in the registration and the self-intersections Gmsh refuses. Fix: *Smoothing → Closing*.
+- **Volume ratio** inflated / collapsed above `max_volume_ratio`.
+- **Output:** `checks/collapsed_check.vtp` (point data `DistanceToInflated_mm`, `NotchDepth_mm`), `checks/inflated_check.vtp` (`NotchDepth_mm`), `checks/check_summary.json`. Colour them in Slicer to find the spots to fix.
 
 ### 2 · Surface meshing (`surface_mesh`)
 
@@ -103,13 +128,38 @@ An unknown key raises an error, so a typo cannot be silently ignored. Keys start
 - **Output:** `lung_inflated_mesh.vtp`. It has the same nodes and faces as `lung_collapsed_mesh.vtp`, moved to the inflated shape, so node *i* of the two meshes corresponds. The point array `RegistrationDisplacement_mm` holds the per-node displacement.
 - **Method:**
   - elastix rigid + B-spline with the SlicerElastix default preset (`configs/elastix/`), fixed = inflated, moving = collapsed, as in the Slicer workflow;
+  - for a large volume ratio (patient_2, ×7.2) an affine stage goes between them (`Parameters_Affine.txt`, the rigid file with `AffineTransform`): the rigid stage cannot scale, and a B-spline doing the whole expansion folds. On patient_10 (×1.9) it is not needed and slightly worse;
+  - both lungs are rasterised on one grid covering both (as the CT grid in Slicer); with separate tight grids the initial alignment can move samples outside the smaller image and elastix stops;
   - elastix returns the fixed → moving (resampling) transform, so every node is mapped through its inverse. The inverse is solved per node: lookup start point + damped Gauss-Newton. This is what Slicer does when hardening a transform on a model.
   - `direction: "forward"` (fixed = collapsed, no inversion) is available but gave worse registrations on the test patients.
   - **Hilum landmarks.** Collapsed and inflated lung come from the same scan, and the hilum is assumed fixed, so the four points of `hilum_anchor.mrk.json` should map onto themselves. They are added to elastix through the `CorrespondingPointsEuclideanDistanceMetric` (keys `landmarks`, `landmark_points`, `landmark_weight`; weight 0 = QA only).
     - On patient_10, weight 0.001 keeps the shape match unchanged (Dice 0.977) while the hilum moves 0.4 mm instead of 12.9 mm.
     - Weights ≥ 0.01 pin the points but spoil the shape match (Dice 0.94 → 0.70), because the landmark term dominates the optimiser.
   - **Non-converged nodes.** Where the transform is near-singular, the inverse may not converge at some nodes. Up to `max_interpolated_nodes` (default 10) of them get their displacement by harmonic interpolation from the neighbouring nodes on the mesh. They are listed in the log and flagged in the point array `Interpolated`. With more of them, the step fails.
+  - **Flipped triangles.** Where the transform folds, some warped triangles turn over (normal rotated by more than 90°) and the surface intersects itself, which Gmsh refuses. The displacement of their nodes is re-interpolated from the neighbours in the same way, growing the region by one ring of nodes until no triangle is flipped. Up to `max_unflip_nodes` (default 40) nodes; with more, the registration folds over a large region and the step fails. These nodes have `Interpolated` = 2 (1 = inversion not converged, 0 = registration).
 - **QA in the log:** image and mesh Dice, volume, displacement, flipped triangles, inversion residual, landmark error, and mean displacement of the nodes near the hilum.
+
+### 5 · Inverse FEM (`fem_setup`, `fem_fit`)
+
+Finds the regional pleural pressures that deform the inflated lung (reference) onto the collapsed one (target), with the hilum clamped. Port of `pipeline_codes_v1/6.1_lung_inverse_fem_fit.py` and of its wall variant `6.2_…_wall.py`, split in two steps so the FEM core can be exchanged.
+
+**`fem_setup`** (seconds, no FEM library):
+
+- **Inputs:** `lung_inflated_mesh.vtp` (reference), `lung_collapsed_mesh.vtp` (target) and `hilum_anchor.mrk.json`. Reference and target must have the same nodes and triangles, i.e. the registration output.
+- **Clamped region:** surface triangles within `hilum sphere radius × anchor_radius_factor` of the hilum (default 2.0 → ~30 mm on patient_10). The radius grows while the region has fewer than `anchor_min_points` points or is nearly flat, otherwise rigid motions would stay free.
+- **Alignment:** `align: "hilum_rigid"` moves the target rigidly so that its clamped points best match the reference ones (consistent with u = 0 there); `rigid` uses all points, `none` keeps it as is.
+- **Cavity wall (optional, `wall`, default `lung_left.vtk`):** closed surface the lung may not leave during the collapse (the chest cavity). A point may go at most `wall_tol_mm` (2 mm, registration noise) beyond it, plus however far it is already outside in the reference. The log reports how many reference and target points lie outside: target points beyond the wall are an error the fit cannot remove. `wall: null` = no wall (as 6.1).
+- **Pressure regions:** connectivity-constrained Ward clustering of the displacement with the rigid part removed (`cluster_field`), for every level in `levels` (1 → 40 regions). The regions do not depend on the pressures, so they are all computed here.
+- **Volume mesh:** Gmsh tetrahedra (`mesh_size_mm` inside), with the surface points and triangles unchanged (checked).
+- **Output:** `fem/setup/problem.npz`, read by `fem_fit` and passed to the core, plus files to inspect: `reference.vtp` (cell data `Clamped`, `Regions_K*`; point data `WallDistance_mm`), `target_aligned.vtp`, `volume.vtu`, `setup_summary.json`.
+
+**`fem_fit`** (hours with GetFEM):
+
+- **FEM core:** `solver` names a class in `pipeline/collapse/solvers/` (`"getfem"`) or any `"module:Class"`; `solver_options` go to that class. Every core implements `ForwardSolver` (`solvers/base.py`): compressible Neo-Hookean with E = 1 (so the unknowns are p/E per region and ν), u = 0 on the clamp, follower pressure on the other triangles, positive pressure pushing inward, and the wall as rigid contact if the problem has one; `solve(q, nu)` returns the surface displacement. A core without wall support refuses a problem with a wall. To add a core (e.g. NVIDIA Warp), write one file in `solvers/` and register it in `solvers/__init__.py`.
+- **GetFEM wall contact:** penalty force on the pressure faces, zero inside the wall and growing smoothly beyond it (`wall_stiffness`, `wall_eps`); the gap is re-linearised between Newton solves until it settles (`wall_max_updates`, `wall_settle_mm`). Warm start: from the last converged state towards the new pressures in 1, `load_steps`, 3×`load_steps` sub-steps, then a ramp from zero (from 6.2).
+- **Method:** one sign check (q > 0 must collapse), then the levels coarse → fine, each warm-started from the best so far. Per level: bounded least squares (`lsq`, finite-difference Jacobian) on the point-to-point error plus a smoothness penalty between adjacent regions (`reg`), or Nelder-Mead (`nm`); ν optionally free.
+- **Stops** on `target_error_mm`, `time_budget_min`, plateau (`patience`, `min_improve`), end of the levels, or Ctrl+C / SIGTERM. The best result is checkpointed on improvement, and a watchdog kills the run at budget + `hard_grace_min`, so a forced stop keeps the best solution.
+- **Output:** `lung_fem_fit.vtp` (reference triangles at the fitted positions; point data `Displacement_mm`, `Error_mm`; cell data `PressureRegion`, `Pressure_Pa`, `Clamped`; with a wall, point data `WallPenetration_mm`, > 0 = beyond the allowed position) and `fem/fit/`: `result_summary.json`, `history.csv`, `best_state.npz`, `best_params.json`, `volume_best.vtk` (if the core can export it).
 
 ## Outputs
 
@@ -118,9 +168,12 @@ results/patient_<N>/
 ├── lung_collapsed_mesh.vtp     collapsed lung, remeshed
 ├── lung_inflated_mesh.vtp      inflated lung, same nodes (registration)
 ├── hilum_anchor.mrk.json       3 ring centres + hilum, each a sphere with its radius
+├── lung_fem_fit.vtp            inflated lung deformed by the fitted pressures (fem_fit)
 ├── logs/                       pipeline.log, config_used.json
+├── checks/                     input check: collapsed_check.vtp, inflated_check.vtp, check_summary.json
 ├── registration/               masks, elastix log and transforms (TransformParameters.*-Composite.h5 loads in Slicer)
-└── hilum/                      rings.vtp (all rings, cell data Structure / Hilar), hilum_anchor.json
+├── hilum/                      rings.vtp (all rings, cell data Structure / Hilar), hilum_anchor.json
+└── fem/                        setup/ (problem.npz, reference.vtp, target_aligned.vtp, volume.vtu, gmsh/), fit/
 ```
 
 All surfaces are in LPS, with the space stored in the file.
@@ -129,13 +182,13 @@ To view in 3D Slicer, drag and drop `lung_collapsed_mesh.vtp`, `lung_inflated_me
 
 ## Known issues
 
-- **patient_2 registration is unreliable.** The lung goes from 712 to 5351 mL (×7.5).
-  - The inflated → collapsed transform is near-singular at 4 of 480 nodes; these are now interpolated.
-  - The warped mesh still has flipped triangles (7 with landmarks, 2 without), mostly within 30 mm of the hilum.
-  - The nodes near the hilum move ~90–100 mm.
-  - Bending-energy regularisation, the forward direction and signed distance maps did not help. Still open.
+- **patient_2 registration is still approximate** (segmentations corrected on 2026-10-01; ×7.2 in volume, rigid + affine + B-spline):
+  - Dice 0.953 on the mesh, volume 5342 / 5350 mL; 6 nodes where the inverse does not converge are interpolated.
+  - 7 flipped triangles, removed by re-interpolating 25 nodes 5–38 mm from the hilum (moved up to 138 mm: the registration had folded them far out). The surface then meshes cleanly, with small tetrahedra (min 4 mm³ against ~20 mm³ on patient_10).
+  - The hilum region is poorly matched: nodes within 30 mm of the hilum move ~88 mm; after `hilum_rigid` alignment the clamped points are ~23 mm from their target, and 49 target points lie beyond the wall (up to 15 mm).
+  - Bending-energy regularisation, the forward direction and signed distance maps did not help on the old segmentations. Next to try: a larger `landmark_weight` for this patient only, `align: "none"`.
 - **Node correspondence is not anatomical.** Mask registration only matches the boundaries, so nodes can slide tangentially along the surface. Keep this in mind for the point-to-point loss of the inverse FEM.
 
-## Inverse FEM pressure fitting (step 6 detail, legacy code)
+## Inverse FEM pressure fitting (step 5 detail, legacy code)
 
 ![Inverse FEM detail](inverse_fem_pressure_fit_detail.svg)

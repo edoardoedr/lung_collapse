@@ -13,14 +13,18 @@ import shutil
 import sys
 import time
 
-from pipeline import hilum, registration, surface_mesh
+from pipeline import check_inputs, hilum, registration, surface_mesh
+from pipeline.collapse import fit, setup
 from pipeline.config import load_config
 
 # step name -> run(step_config), in pipeline order
 STEPS = {
+    "check_inputs": check_inputs.run,      # step 1b, sanity check of the input surfaces
     "surface_mesh": surface_mesh.run,      # step 2
-    "hilum": hilum.run,                    # step 4, before registration: provides its landmarks
-    "registration": registration.run,      # step 3
+    "hilum": hilum.run,                    # step 3, before registration: provides its landmarks
+    "registration": registration.run,      # step 4
+    "fem_setup": setup.run,                # step 5a, independent of the FEM core
+    "fem_fit": fit.run,                    # step 5b, FEM core chosen in the config
 }
 
 log = logging.getLogger("pipeline")

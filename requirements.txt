@@ -4,3 +4,9 @@ pyacvd
 vtk
 itk-elastix
 scipy
+scikit-learn    # fem_setup: pressure regions (Ward)
+gmsh            # fem_setup: tetrahedral mesh
+
+# FEM cores for fem_fit, only the one selected in the config is needed. Not on PyPI:
+#   getfem  conda install -c conda-forge getfem    (linux-64, osx-64, win-64; 5.4.4)
+#           or Ubuntu: apt install python3-getfem  (system Python, built against numpy<2)

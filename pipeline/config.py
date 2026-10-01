@@ -17,6 +17,23 @@ SPACES = ("LPS", "RAS")
 
 
 @dataclass
+class CheckInputsConfig:
+    """Step 1b: sanity check of the input surfaces (output_dir/checks)."""
+    collapsed: Path | None = None      # collapsed lung (data_dir); None = surface_mesh.input
+    inflated: Path | None = None       # inflated lung (data_dir); None = registration.inflated
+    structures: dict | None = None     # {name: surface} (data_dir); None = hilum.structures
+    outside_tol_mm: float = 1.0        # collapsed points farther outside the inflated lung are flagged
+    max_outside_fraction: float = 0.01 # warn above this fraction of flagged points
+    notch_radius_mm: float = 5.0       # closing ball: notches narrower than ~2x this are found
+    notch_depth_mm: float = 3.0        # points deeper than this in a notch are flagged
+    max_notch_fraction: float = 0.005  # warn above this fraction of flagged points
+    max_volume_ratio: float = 5.0      # warn if inflated / collapsed volume is larger
+    raster_spacing_mm: float = 1.0     # voxel size of the notch check
+    fail_on_warning: bool = False      # stop the pipeline on any finding
+    workdir: Path | None = None        # set to output_dir/checks
+
+
+@dataclass
 class SurfaceMeshConfig:
     """Step 2: Slicer segmentation surface -> uniform, watertight triangle mesh."""
     input: Path
@@ -69,6 +86,7 @@ class RegistrationConfig:
     inversion_max_iter: int = 100
     inversion_samples: int = 200000    # lookup grid for the inversion start points
     max_interpolated_nodes: int = 10   # non-converged nodes interpolated from neighbours; more -> fail
+    max_unflip_nodes: int = 40         # nodes re-interpolated to remove flipped triangles; more -> fail
     output_space: str = "LPS"
     workdir: Path | None = None        # elastix files; set to output_dir/registration
 
@@ -91,15 +109,83 @@ class HilumConfig:
 
 
 @dataclass
+class FemSetupConfig:
+    """Step 5a: solver-independent preparation of the inverse FEM (output_dir/fem/setup)."""
+    reference: Path | None = None      # inflated surface (data_dir); None = registration output
+    target: Path | None = None         # collapsed surface, same nodes (data_dir); None = surface_mesh output
+    anchor: Path | None = None         # .mrk.json (data_dir); None = hilum output
+    anchor_point: str = "hilum"        # point whose sphere centres the clamped region
+    anchor_radius_factor: float = 2.0  # clamp radius = sphere radius of anchor_point x this
+    anchor_min_points: int = 20        # clamp radius grows until it holds this many points (rank 3)
+    anchor_growth: float = 1.1
+    anchor_max_growth_steps: int = 10
+    wall: Path | None = None           # closed cavity surface the lung may not leave (data_dir); None = no wall
+    wall_tol_mm: float = 2.0           # allowed motion beyond the wall (registration noise margin)
+    align: str = "hilum_rigid"        # rigid alignment of the target: hilum_rigid | rigid | none
+    cluster_field: str = "rigid_residual"   # field clustered into regions: rigid_residual | hilum_rigid | raw
+    feature: str = "normal"            # Ward feature: normal (u.n) | vector (u)
+    pos_weight: float = 0.3            # spatial compactness in Ward
+    levels: list = field(default_factory=lambda: [1, 4, 8, 14, 25, 40])   # regions, coarse -> fine
+    mesh_size_mm: float = 8.0          # Gmsh MeshSizeMax (interior; the surface is kept)
+    gmsh_timeout_s: int = 300
+    workdir: Path | None = None        # set to output_dir/fem/setup
+
+    def __post_init__(self):
+        if self.align not in ("hilum_rigid", "rigid", "none"):
+            raise ValueError("fem_setup.align must be hilum_rigid, rigid or none")
+        if self.cluster_field not in ("rigid_residual", "hilum_rigid", "raw"):
+            raise ValueError("fem_setup.cluster_field must be rigid_residual, hilum_rigid or raw")
+        if self.feature not in ("normal", "vector"):
+            raise ValueError("fem_setup.feature must be normal or vector")
+
+
+@dataclass
+class FemFitConfig:
+    """Step 5b: regional pressures fitted with an exchangeable FEM core (reads fem_setup output)."""
+    output: Path                       # fitted surface (output_dir)
+    solver: str = "getfem"             # core in pipeline/collapse/solvers, or "module:Class"
+    solver_options: dict = field(default_factory=dict)   # passed to the core (see its docstring)
+    E_Pa: float = 3000.0               # only scales the reported pressures: shapes fix p/E only
+    nu: float = 0.30                   # Poisson's ratio (start value if free_nu)
+    free_nu: bool = True               # optimise nu too
+    nu_bounds: list = field(default_factory=lambda: [0.05, 0.40])
+    levels: list | None = None         # subset of the fem_setup levels (K values); None = all
+    optimizer: str = "lsq"             # lsq (bounded least squares, TRF) | nm (Nelder-Mead)
+    lsq_diff_step: float = 5e-3        # lsq: relative finite-difference step for the Jacobian
+    lsq_ftol: float = 1e-6             # lsq: stop on relative change of the cost
+    lsq_xtol: float = 1e-6             # lsq: stop on relative change of the parameters
+    lsq_gtol: float = 1e-8             # lsq: stop on the gradient norm
+    q0: float = 0.5                    # initial p/E
+    q_bounds: list = field(default_factory=lambda: [-1.0, 3.0])
+    reg: float = 1.0                   # smoothness between adjacent regions [mm per unit p/E]
+    sign_check_q: float = 0.2          # p/E of the initial check that q > 0 collapses
+    target_error_mm: float = 2.5       # stop when the mean error reaches this
+    time_budget_min: float = 240.0
+    hard_grace_min: float = 10.0       # watchdog kills the run at budget + grace
+    level_max_evals: int = 600         # forward solves per level (finite differences included)
+    patience: int = 2                  # stop after this many levels improving less than min_improve
+    min_improve: float = 0.02
+    setup: Path | None = None          # set to output_dir/fem/setup
+    workdir: Path | None = None        # set to output_dir/fem/fit
+
+    def __post_init__(self):
+        if self.optimizer not in ("lsq", "nm"):
+            raise ValueError("fem_fit.optimizer must be lsq or nm")
+
+
+@dataclass
 class PipelineConfig:
     patient: str
     data_dir: Path
     output_dir: Path
     steps: list
     source: Path                       # the JSON file this was read from
+    check_inputs: CheckInputsConfig | None = None
     surface_mesh: SurfaceMeshConfig | None = None
     registration: RegistrationConfig | None = None
     hilum: HilumConfig | None = None
+    fem_setup: FemSetupConfig | None = None
+    fem_fit: FemFitConfig | None = None
 
 
 def _section(cls, raw, name):
@@ -158,6 +244,42 @@ def load_config(path):
         elif hilum is not None:
             registration.landmarks = hilum.output
 
+    fem_setup = None
+    if "fem_setup" in raw:
+        fem_setup = s = _section(FemSetupConfig, raw["fem_setup"], "fem_setup")
+        s.workdir = output_dir / "fem" / "setup"
+        if s.wall is not None:
+            s.wall = data_dir / s.wall
+        for key, previous in (("reference", registration), ("target", surface_mesh), ("anchor", hilum)):
+            value = getattr(s, key)
+            if value is not None:
+                setattr(s, key, data_dir / value)
+            elif previous is not None:
+                setattr(s, key, previous.output)
+            else:
+                raise ValueError("fem_setup.%s is required when there is no step providing it" % key)
+
+    check_inputs = None
+    if "check_inputs" in raw:
+        check_inputs = c = _section(CheckInputsConfig, raw["check_inputs"], "check_inputs")
+        c.workdir = output_dir / "checks"
+        c.collapsed = data_dir / c.collapsed if c.collapsed is not None else (surface_mesh and surface_mesh.input)
+        c.inflated = data_dir / c.inflated if c.inflated is not None else (registration and registration.inflated)
+        if c.structures is not None:
+            c.structures = {k: data_dir / v for k, v in c.structures.items()}
+        else:
+            c.structures = dict(hilum.structures) if hilum is not None else {}
+        if c.collapsed is None or c.inflated is None:
+            raise ValueError("check_inputs: collapsed and inflated are required without surface_mesh / registration")
+
+    fem_fit = None
+    if "fem_fit" in raw:
+        fem_fit = _section(FemFitConfig, raw["fem_fit"], "fem_fit")
+        fem_fit.output = output_dir / fem_fit.output
+        fem_fit.setup = output_dir / "fem" / "setup"
+        fem_fit.workdir = output_dir / "fem" / "fit"
+
     return PipelineConfig(patient=raw["patient"], data_dir=data_dir, output_dir=output_dir,
-                          steps=list(raw.get("steps", [])), source=path,
-                          surface_mesh=surface_mesh, registration=registration, hilum=hilum)
+                          steps=list(raw.get("steps", [])), source=path, check_inputs=check_inputs,
+                          surface_mesh=surface_mesh, registration=registration, hilum=hilum,
+                          fem_setup=fem_setup, fem_fit=fem_fit)

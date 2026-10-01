@@ -3,7 +3,22 @@
   "patient": "patient_2",
   "data_dir": "../Input_Data/patient_2",
   "output_dir": "../results/patient_2",
-  "steps": ["surface_mesh", "hilum", "registration"],
+  "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
+
+  "check_inputs": {
+    "_comment": "inputs null = taken from the other sections (surface_mesh.input, registration.inflated, hilum.structures). Findings are warnings unless fail_on_warning",
+    "collapsed": null,
+    "inflated": null,
+    "structures": null,
+    "outside_tol_mm": 1.0,
+    "max_outside_fraction": 0.01,
+    "notch_radius_mm": 5.0,
+    "notch_depth_mm": 3.0,
+    "max_notch_fraction": 0.005,
+    "max_volume_ratio": 5.0,
+    "raster_spacing_mm": 1.0,
+    "fail_on_warning": false
+  },
 
   "surface_mesh": {
     "input": "lung_left_collapsed.vtk",
@@ -40,14 +55,15 @@
     "output_space": "LPS",
     "raster_spacing_mm": 1.0,
     "crop_margin_mm": 20.0,
-    "parameter_maps": ["rigid", "bspline"],
-    "parameter_files": ["elastix/Parameters_Rigid.txt", "elastix/Parameters_BSpline.txt"],
+    "parameter_maps": ["rigid", "affine", "bspline"],
+    "parameter_files": ["elastix/Parameters_Rigid.txt", "elastix/Parameters_Affine.txt", "elastix/Parameters_BSpline.txt"],
     "parameter_overrides": {},
     "random_seed": 42,
     "inversion_tol_mm": 1e-3,
     "inversion_max_iter": 100,
     "inversion_samples": 200000,
-    "max_interpolated_nodes": 10
+    "max_interpolated_nodes": 10,
+    "max_unflip_nodes": 40
   },
   "hilum": {
     "_comment": "per structure the largest intersection ring with the lung surface; hilum = centroid of the ring centres. lung must be from the same scan as the trees",
@@ -59,5 +75,54 @@
     },
     "output": "hilum_anchor.mrk.json",
     "max_ring_distance_mm": 50.0
+  },
+
+  "fem_setup": {
+    "_comment": "inputs null = previous steps (reference: registration, target: surface_mesh, anchor: hilum). wall: cavity the lung may not leave, null = none. clamp radius = sphere radius of anchor_point x anchor_radius_factor",
+    "reference": null,
+    "target": null,
+    "anchor": null,
+    "anchor_point": "hilum",
+    "anchor_radius_factor": 2.0,
+    "anchor_min_points": 20,
+    "anchor_growth": 1.1,
+    "anchor_max_growth_steps": 10,
+    "wall": "lung_left.vtk",
+    "wall_tol_mm": 2.0,
+    "align": "hilum_rigid",
+    "cluster_field": "rigid_residual",
+    "feature": "normal",
+    "pos_weight": 0.3,
+    "levels": [1, 4, 8, 14, 25, 40],
+    "mesh_size_mm": 8.0,
+    "gmsh_timeout_s": 300
+  },
+
+  "fem_fit": {
+    "_comment": "solver: name in pipeline/collapse/solvers or 'module:Class'; solver_options go to the core",
+    "output": "lung_fem_fit.vtp",
+    "solver": "getfem",
+    "solver_options": {"order": 1, "load_steps": 4, "newton_tol": 1e-7, "newton_maxit": 30,
+                       "wall_stiffness": 20.0, "wall_eps": 0.5, "wall_max_updates": 6, "wall_settle_mm": 0.05},
+    "E_Pa": 3000.0,
+    "nu": 0.30,
+    "free_nu": true,
+    "nu_bounds": [0.05, 0.40],
+    "levels": null,
+    "optimizer": "lsq",
+    "lsq_diff_step": 5e-3,
+    "lsq_ftol": 1e-6,
+    "lsq_xtol": 1e-6,
+    "lsq_gtol": 1e-8,
+    "q0": 0.5,
+    "q_bounds": [-1.0, 3.0],
+    "reg": 1.0,
+    "sign_check_q": 0.2,
+    "target_error_mm": 2.5,
+    "time_budget_min": 240.0,
+    "hard_grace_min": 10.0,
+    "level_max_evals": 600,
+    "patience": 2,
+    "min_improve": 0.02
   }
 }

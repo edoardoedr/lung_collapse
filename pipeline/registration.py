@@ -59,9 +59,10 @@ def crop_to_mask(img, margin_mm):
 
 
 def grid_around(surf, spacing, margin_mm):
-    """Empty axis-aligned image covering the surface plus margin."""
-    b = np.array(surf.bounds).reshape(3, 2)
-    lo, hi = b[:, 0] - margin_mm, b[:, 1] + margin_mm
+    """Empty axis-aligned image covering the surface(s) plus margin."""
+    surfs = surf if isinstance(surf, (list, tuple)) else [surf]
+    b = np.array([s.bounds for s in surfs]).reshape(-1, 3, 2)
+    lo, hi = b[:, :, 0].min(0) - margin_mm, b[:, :, 1].max(0) + margin_mm
     size = np.ceil((hi - lo) / spacing).astype(int) + 1
     return make_image(np.zeros(size[::-1]), lo, spacing, np.eye(3))
 
@@ -89,17 +90,17 @@ def rasterize(surf, ref):
 IMAGE_SUFFIXES = (".nrrd", ".nii", ".nii.gz", ".mha", ".mhd")
 
 
-def surface_mask(surf, cfg):
-    """Rasterise a closed LPS surface on an axis-aligned grid around it."""
+def surface_mask(surf, cfg, grid_surfs=None):
+    """Rasterise a closed LPS surface on an axis-aligned grid around it, or around grid_surfs."""
     spacing = np.full(3, float(cfg.raster_spacing_mm))
-    return rasterize(surf, grid_around(surf, spacing, cfg.crop_margin_mm))
+    return rasterize(surf, grid_around(grid_surfs or surf, spacing, cfg.crop_margin_mm))
 
 
-def load_mask(path, label, cfg):
+def load_mask(path, label, cfg, grid_surfs=None):
     """Cropped float mask from a labelmap, or from a closed surface (rasterised)."""
     if path.name.lower().endswith(IMAGE_SUFFIXES):
         return crop_to_mask(read_mask(path, label), cfg.crop_margin_mm)
-    return surface_mask(read_surface(path, space="LPS"), cfg)
+    return surface_mask(read_surface(path, space="LPS"), cfg, grid_surfs)
 
 
 def mask_volume_ml(img):
@@ -243,6 +244,32 @@ def tri_normals(surf):
     return np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
 
 
+def flipped_triangles(X_ref, X, tris):
+    """Triangles whose normal turned by more than 90 degrees from X_ref to X."""
+    def n(P):
+        t = P[tris]
+        return np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+    return np.einsum("ij,ij->i", n(X_ref), n(X)) <= 0
+
+
+def unflip(X_ref, X, tris, max_nodes):
+    """Remove flipped triangles: the displacement of their nodes is interpolated from the
+    neighbours, growing the region by one ring of nodes until nothing is flipped.
+    Returns (X, mask of the re-interpolated nodes); fails beyond max_nodes nodes."""
+    u = X - X_ref
+    bad = np.zeros(len(X), dtype=bool)
+    flip = flipped_triangles(X_ref, X, tris)
+    while flip.any():
+        bad[np.unique(tris[np.isin(tris, np.where(bad)[0]).any(1)])] = True   # one more ring
+        bad[np.unique(tris[flip])] = True
+        if bad.sum() > max_nodes:
+            raise RuntimeError("removing the flipped triangles needs more than max_unflip_nodes=%d "
+                               "nodes: the registration folds over a large region" % max_nodes)
+        X = X_ref + interpolate_displacement(u, tris, bad)
+        flip = flipped_triangles(X_ref, X, tris)
+    return X, bad
+
+
 # ----------------------------------------------------------------------------------------------
 # step
 # ----------------------------------------------------------------------------------------------
@@ -252,11 +279,17 @@ def run(cfg):
     workdir.mkdir(parents=True, exist_ok=True)
 
     surf = read_surface(cfg.surface, space="LPS", input_space=cfg.surface_space)
-    inflated = load_mask(cfg.inflated, cfg.inflated_label, cfg)
+    # surfaces are rasterised on one grid covering both lungs (as the CT grid in Slicer): with
+    # separate tight grids the initial alignment can move samples outside the smaller image
+    grid = [read_surface(p, space="LPS") for p in (cfg.inflated, cfg.collapsed)
+            if p is not None and not p.name.lower().endswith(IMAGE_SUFFIXES)]
+    if cfg.collapsed is None:
+        grid.append(surf)
+    inflated = load_mask(cfg.inflated, cfg.inflated_label, cfg, grid)
     if cfg.collapsed is not None:
-        collapsed = load_mask(cfg.collapsed, cfg.collapsed_label, cfg)
+        collapsed = load_mask(cfg.collapsed, cfg.collapsed_label, cfg, grid)
     else:
-        collapsed = surface_mask(surf, cfg)
+        collapsed = surface_mask(surf, cfg, grid)
         log.info("collapsed mask rasterised from %s", cfg.surface.name)
     log.info("inflated %.1f mL, collapsed %.1f mL, surface %.1f mL",
              mask_volume_ml(inflated), mask_volume_ml(collapsed), surf.volume / 1000.0)
@@ -307,6 +340,20 @@ def run(cfg):
     else:
         X_inf = transform_points(T, X_col)
 
+    # flipped triangles: the transform folds there and the warped surface self-intersects
+    tris = faces_of(surf)
+    n_flip = int(flipped_triangles(X_col, X_inf, tris).sum())
+    unflipped = np.zeros(len(X_col), dtype=bool)
+    if n_flip:
+        X_old = X_inf
+        X_inf, unflipped = unflip(X_col, X_inf, tris, cfg.max_unflip_nodes)
+        moved = np.linalg.norm(X_inf - X_old, axis=1)[unflipped]
+        where = ("; %.0f-%.0f mm from the hilum" % tuple(np.percentile(
+            np.linalg.norm(X_col[unflipped] - fid["hilum"], axis=1), [0, 100]))) if P is not None else ""
+        log.warning("%d flipped triangle(s): displacement of %d node(s) re-interpolated from the "
+                    "neighbours (moved mean %.1f, max %.1f mm%s)", n_flip, unflipped.sum(),
+                    moved.mean(), moved.max(), where)
+
     if P is not None:
         near = np.linalg.norm(X_col - fid["hilum"], axis=1) < cfg.hilum_region_mm
         log.info("nodes within %.0f mm of the hilum: %d, mean displacement %.2f mm",
@@ -315,18 +362,17 @@ def run(cfg):
     warped.points = X_inf
 
     u = np.linalg.norm(X_inf - X_col, axis=1)
-    flipped = int((np.einsum("ij,ij->i", tri_normals(surf), tri_normals(warped)) <= 0).sum())
     log.info("node displacement mean %.2f, max %.2f mm", u.mean(), u.max())
-    log.info("warped surface %.1f mL, Dice vs inflated mask %.3f, flipped triangles %d",
-             warped.volume / 1000.0, dice(inflated, rasterize(warped, inflated)), flipped)
-    if flipped:
-        log.warning("%d triangles flipped orientation: the warped mesh self-intersects", flipped)
+    log.info("warped surface %.1f mL, Dice vs inflated mask %.3f, flipped triangles %d before / %d after",
+             warped.volume / 1000.0, dice(inflated, rasterize(warped, inflated)), n_flip,
+             flipped_triangles(X_col, X_inf, tris).sum())
 
     # convert both before differencing so the displacement vectors are in the output space
     out_col = convert_space(surf, "LPS", cfg.output_space)
     out = convert_space(warped, "LPS", cfg.output_space)
     out.point_data["RegistrationDisplacement_mm"] = np.asarray(out.points) - np.asarray(out_col.points)
-    out.point_data["Interpolated"] = interpolated.astype(np.uint8)
+    # 0 = registration, 1 = inversion not converged, 2 = re-interpolated to remove flipped triangles
+    out.point_data["Interpolated"] = np.where(unflipped, 2, interpolated.astype(np.uint8)).astype(np.uint8)
     write_surface(out, cfg.output, cfg.output_space)
     log.info("wrote %s (%s)", cfg.output, cfg.output_space)
     return cfg.output
