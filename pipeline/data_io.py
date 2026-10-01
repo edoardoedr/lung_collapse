@@ -8,6 +8,7 @@ way 3D Slicer writes it ("... SPACE=LPS").
 Images are itk images; ITK physical coordinates are always LPS.
 """
 
+import json
 import logging
 from pathlib import Path
 
@@ -132,6 +133,33 @@ def read_mask(path, label=None):
              "x".join(map(str, arr.shape[::-1])), np.round(tuple(img.GetSpacing()), 3),
              mask.sum() * np.prod(tuple(img.GetSpacing())) / 1000.0)
     return out
+
+
+MARKUPS_SCHEMA = ("https://raw.githubusercontent.com/slicer/slicer/master/Modules/Loadable/"
+                  "Markups/Resources/Schema/markups-schema-v1.0.3.json#")
+
+
+def write_fiducials(points, path, descriptions=None):
+    """Slicer point list (.mrk.json) from {label: LPS position}, optional {label: description}."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptions = descriptions or {}
+    cps = [dict(id=str(i + 1), label=label, description=descriptions.get(label, ""),
+                position=[float(v) for v in pos], locked=True, visibility=True,
+                positionStatus="defined")
+           for i, (label, pos) in enumerate(points.items())]
+    doc = {"@schema": MARKUPS_SCHEMA,
+           "markups": [dict(type="Fiducial", coordinateSystem="LPS", coordinateUnits="mm",
+                            locked=True, controlPoints=cps)]}
+    path.write_text(json.dumps(doc, indent=2))
+    return path
+
+
+def read_fiducials(path):
+    """{label: LPS position} from a Slicer .mrk.json (first markup)."""
+    mk = json.loads(Path(path).read_text())["markups"][0]
+    flip = np.array([-1.0, -1.0, 1.0]) if mk.get("coordinateSystem", "LPS").upper() == "RAS" else 1.0
+    return {cp["label"]: np.asarray(cp["position"], dtype=float) * flip for cp in mk["controlPoints"]}
 
 
 def write_image(img, path):

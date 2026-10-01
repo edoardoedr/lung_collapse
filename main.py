@@ -13,13 +13,14 @@ import shutil
 import sys
 import time
 
-from pipeline import registration, surface_mesh
+from pipeline import hilum, registration, surface_mesh
 from pipeline.config import load_config
 
 # step name -> run(step_config), in pipeline order
 STEPS = {
     "surface_mesh": surface_mesh.run,      # step 2
     "registration": registration.run,      # step 3
+    "hilum": hilum.run,                    # step 4
 }
 
 log = logging.getLogger("pipeline")

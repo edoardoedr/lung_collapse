@@ -77,6 +77,15 @@ class RegistrationConfig:
 
 
 @dataclass
+class HilumConfig:
+    """Step 4: hilum = centroid of the rings where airways, arteries and veins enter the lung."""
+    lung: Path                         # lung surface the trees enter (data_dir), same scan as the trees
+    structures: dict                   # {name: surface file} (data_dir), e.g. airways/arteries/veins
+    output: Path                       # Slicer .mrk.json (output_dir)
+    max_ring_distance_mm: float = 50.0 # warn if a hilar ring centre is farther than this from the hilum
+
+
+@dataclass
 class PipelineConfig:
     patient: str
     data_dir: Path
@@ -85,6 +94,7 @@ class PipelineConfig:
     source: Path                       # the JSON file this was read from
     surface_mesh: SurfaceMeshConfig | None = None
     registration: RegistrationConfig | None = None
+    hilum: HilumConfig | None = None
 
 
 def _section(cls, raw, name):
@@ -130,6 +140,13 @@ def load_config(path):
             raise ValueError("registration.surface is required when there is no surface_mesh section")
         r.parameter_files = [base / f for f in r.parameter_files]   # relative to the JSON file
 
+    hilum = None
+    if "hilum" in raw:
+        hilum = _section(HilumConfig, raw["hilum"], "hilum")
+        hilum.lung = data_dir / hilum.lung
+        hilum.structures = {k: data_dir / v for k, v in hilum.structures.items()}
+        hilum.output = output_dir / hilum.output
+
     return PipelineConfig(patient=raw["patient"], data_dir=data_dir, output_dir=output_dir,
                           steps=list(raw.get("steps", [])), source=path,
-                          surface_mesh=surface_mesh, registration=registration)
+                          surface_mesh=surface_mesh, registration=registration, hilum=hilum)
