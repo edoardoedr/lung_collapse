@@ -23,7 +23,7 @@ import numpy as np
 from vtkmodules.util.numpy_support import vtk_to_numpy
 from vtkmodules.vtkImagingStencil import vtkImageStencilToImage, vtkPolyDataToImageStencil
 
-from .data_io import convert_space, read_mask, read_surface, write_image, write_surface
+from .data_io import convert_space, read_fiducials, read_mask, read_surface, write_image, write_surface
 
 log = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def dice(a, b):
 # ----------------------------------------------------------------------------------------------
 # elastix
 # ----------------------------------------------------------------------------------------------
-def parameter_object(cfg):
+def parameter_object(cfg, landmarks=False):
     po = itk.ParameterObject.New()
     if cfg.parameter_files:
         for f in cfg.parameter_files:
@@ -122,18 +122,38 @@ def parameter_object(cfg):
     else:
         for name in cfg.parameter_maps:
             po.AddParameterMap(po.GetDefaultParameterMap(name))
-    overrides = {"RandomSeed": cfg.random_seed, **cfg.parameter_overrides}
     for i in range(po.GetNumberOfParameterMaps()):
+        if landmarks:
+            # image metric(s) + landmark distance, weighted
+            metrics = list(po.GetParameterMap(i)["Metric"])
+            po.SetParameter(i, "Registration", ["MultiMetricMultiResolutionRegistration"])
+            po.SetParameter(i, "Metric", metrics + ["CorrespondingPointsEuclideanDistanceMetric"])
+            for k in range(len(metrics)):
+                po.SetParameter(i, "Metric%dWeight" % k, ["1.0"])
+            po.SetParameter(i, "Metric%dWeight" % len(metrics), [str(cfg.landmark_weight)])
+        overrides = {"RandomSeed": cfg.random_seed, **cfg.parameter_overrides}
         for key, value in overrides.items():
             po.SetParameter(i, key, [str(v) for v in np.atleast_1d(value)])
     return po
 
 
-def register(fixed, moving, cfg, workdir):
-    """Run elastix; returns (T: fixed -> moving as itk transform, moving resampled on fixed)."""
-    po = parameter_object(cfg)
+def write_point_set(points, path):
+    """elastix point-set file, physical (LPS) coordinates."""
+    lines = ["point", str(len(points))] + ["%.6f %.6f %.6f" % tuple(p) for p in points]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def register(fixed, moving, cfg, workdir, landmarks=None):
+    """Run elastix; returns (T: fixed -> moving as itk transform, moving resampled on fixed).
+
+    landmarks: (fixed points, moving points) in LPS, pulled together by an extra metric."""
+    po = parameter_object(cfg, landmarks=landmarks is not None)
     reg = itk.ElastixRegistrationMethod.New(fixed, moving)
     reg.SetParameterObject(po)
+    if landmarks is not None:
+        reg.SetFixedPointSetFileName(str(write_point_set(landmarks[0], workdir / "landmarks_fixed.txt")))
+        reg.SetMovingPointSetFileName(str(write_point_set(landmarks[1], workdir / "landmarks_moving.txt")))
     reg.SetOutputDirectory(str(workdir))
     reg.SetLogToConsole(False)
     reg.SetLogToFile(True)
@@ -196,6 +216,28 @@ def invert_points(T, y, x0, tol, max_iter):
     return x, err
 
 
+def faces_of(surf):
+    return surf.faces.reshape(-1, 4)[:, 1:]
+
+
+def interpolate_displacement(u, tris, bad):
+    """Replace u at the `bad` nodes by a harmonic interpolation over the mesh graph: each bad
+    node gets the mean displacement of its neighbours, the good nodes are kept as they are.
+    Works for clusters of adjacent bad nodes too."""
+    from scipy.sparse import coo_matrix, diags
+    from scipy.sparse.linalg import spsolve
+    n = len(u)
+    e = np.vstack([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
+    A = coo_matrix((np.ones(2 * len(e)), (np.r_[e[:, 0], e[:, 1]], np.r_[e[:, 1], e[:, 0]])),
+                   shape=(n, n)).tocsr()
+    A.data[:] = 1.0                                         # edges shared by two faces
+    L = diags(np.asarray(A.sum(axis=1)).ravel()) - A        # graph Laplacian
+    b, g = np.where(bad)[0], np.where(~bad)[0]
+    out = u.copy()
+    out[b] = spsolve(L[b][:, b].tocsc(), A[b][:, g] @ u[g]).reshape(len(b), -1)
+    return out
+
+
 def tri_normals(surf):
     tri = np.asarray(surf.points)[surf.faces.reshape(-1, 4)[:, 1:]]
     return np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
@@ -221,26 +263,54 @@ def run(cfg):
     write_image(inflated, workdir / "inflated_mask.nrrd")
     write_image(collapsed, workdir / "collapsed_mask.nrrd")
 
-    log.info("elastix (%s): %s", cfg.direction,
-             ", ".join(map(str, cfg.parameter_files or cfg.parameter_maps)))
+    # landmarks: same scan and fixed hilum -> each one should map onto itself
+    P = None
+    if cfg.landmarks is not None:
+        fid = read_fiducials(cfg.landmarks)
+        P = np.array([fid[k] for k in cfg.landmark_points])
+    use_lm = P is not None and cfg.landmark_weight > 0
+    log.info("elastix (%s%s): %s", cfg.direction,
+             ", landmarks %s weight %g" % ("/".join(cfg.landmark_points), cfg.landmark_weight)
+             if use_lm else "", ", ".join(map(str, cfg.parameter_files or cfg.parameter_maps)))
+    lm = (P, P) if use_lm else None
+
     X_col = np.asarray(surf.points, dtype=float)
+    # inverse: T inflated -> collapsed (Slicer) | forward: T collapsed -> inflated
+    fixed, moving = (inflated, collapsed) if cfg.direction == "inverse" else (collapsed, inflated)
+    T, registered = register(fixed, moving, cfg, workdir, lm)
+    write_image(registered, workdir / "registered.nrrd")
+    log.info("image Dice after registration: %.3f", dice(fixed, registered))
+    if P is not None:
+        err = np.linalg.norm(transform_points(T, P) - P, axis=1)
+        log.info("landmark error |T(p) - p|: %s",
+                 ", ".join("%s %.1f mm" % kv for kv in zip(cfg.landmark_points, err)))
+
+    interpolated = np.zeros(len(X_col), dtype=bool)
     if cfg.direction == "inverse":
-        # T: inflated -> collapsed; the collapsed nodes need T^-1
-        T, registered = register(inflated, collapsed, cfg, workdir)
-        log.info("image Dice after registration: %.3f", dice(inflated, registered))
+        # the collapsed nodes need T^-1
         x0 = lookup_start(T, X_col, inflated, cfg.inversion_samples)
         X_inf, res = invert_points(T, X_col, x0, cfg.inversion_tol_mm, cfg.inversion_max_iter)
-        log.info("inverse residual max %.2e mm", res.max())
-        if res.max() > cfg.inversion_tol_mm:
-            raise RuntimeError("transform inversion did not converge: max residual %.3g mm "
-                               "(%d nodes) - the transform folds or is near-singular there"
-                               % (res.max(), (res > cfg.inversion_tol_mm).sum()))
+        interpolated = res > cfg.inversion_tol_mm
+        if interpolated.sum() > cfg.max_interpolated_nodes:
+            raise RuntimeError("transform inversion did not converge at %d nodes (max residual "
+                               "%.3g mm), more than max_interpolated_nodes=%d - the transform "
+                               "folds or is near-singular there"
+                               % (interpolated.sum(), res.max(), cfg.max_interpolated_nodes))
+        log.info("inverse residual max %.2e mm over the converged nodes",
+                 res[~interpolated].max())
+        if interpolated.any():
+            X_inf = X_col + interpolate_displacement(X_inf - X_col, faces_of(surf), interpolated)
+            log.warning("inversion did not converge at %d node(s) %s (residual %s mm): "
+                        "displacement interpolated from the neighbours",
+                        interpolated.sum(), np.where(interpolated)[0].tolist(),
+                        np.round(res[interpolated], 2).tolist())
     else:
-        # T: collapsed -> inflated, applied to the nodes directly
-        T, registered = register(collapsed, inflated, cfg, workdir)
-        log.info("image Dice after registration: %.3f", dice(collapsed, registered))
         X_inf = transform_points(T, X_col)
-    write_image(registered, workdir / "registered.nrrd")
+
+    if P is not None:
+        near = np.linalg.norm(X_col - fid["hilum"], axis=1) < cfg.hilum_region_mm
+        log.info("nodes within %.0f mm of the hilum: %d, mean displacement %.2f mm",
+                 cfg.hilum_region_mm, near.sum(), np.linalg.norm(X_inf - X_col, axis=1)[near].mean())
     warped = surf.copy()
     warped.points = X_inf
 
@@ -256,6 +326,7 @@ def run(cfg):
     out_col = convert_space(surf, "LPS", cfg.output_space)
     out = convert_space(warped, "LPS", cfg.output_space)
     out.point_data["RegistrationDisplacement_mm"] = np.asarray(out.points) - np.asarray(out_col.points)
+    out.point_data["Interpolated"] = interpolated.astype(np.uint8)
     write_surface(out, cfg.output, cfg.output_space)
     log.info("wrote %s (%s)", cfg.output, cfg.output_space)
     return cfg.output

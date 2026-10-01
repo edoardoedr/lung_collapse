@@ -49,7 +49,7 @@ python main.py --config configs/patient_10.json                      # steps lis
 python main.py --config configs/patient_10.json --steps hilum        # only some steps
 ```
 
-Steps always run in pipeline order. If a step fails, the error is written to `logs/pipeline.log` and the run stops.
+Steps always run in pipeline order: `surface_mesh` → `hilum` → `registration`. The hilum step runs before the registration because the registration uses it as landmarks. If a step fails, the error is written to `logs/pipeline.log` and the run stops.
 
 ## Input data
 
@@ -95,7 +95,11 @@ An unknown key raises an error, so a typo cannot be silently ignored. Keys start
   - elastix rigid + B-spline with the SlicerElastix default preset (`configs/elastix/`), fixed = inflated, moving = collapsed, as in the Slicer workflow;
   - elastix returns the fixed → moving (resampling) transform, so every node is mapped through its inverse. The inverse is solved per node: lookup start point + damped Gauss-Newton. This is what Slicer does when hardening a transform on a model.
   - `direction: "forward"` (fixed = collapsed, no inversion) is available but gave worse registrations on the test patients.
-- **QA in the log:** image and mesh Dice, volume, displacement, flipped triangles, inversion residual. The step fails if the inversion does not converge.
+  - **Hilum landmarks.** Collapsed and inflated lung come from the same scan, and the hilum is assumed fixed, so the four points of `hilum_anchor.mrk.json` should map onto themselves. They are added to elastix through the `CorrespondingPointsEuclideanDistanceMetric` (keys `landmarks`, `landmark_points`, `landmark_weight`; weight 0 = QA only).
+    - On patient_10, weight 0.001 keeps the shape match unchanged (Dice 0.977) while the hilum moves 0.4 mm instead of 12.9 mm.
+    - Weights ≥ 0.01 pin the points but spoil the shape match (Dice 0.94 → 0.70), because the landmark term dominates the optimiser.
+  - **Non-converged nodes.** Where the transform is near-singular, the inverse may not converge at some nodes. Up to `max_interpolated_nodes` (default 10) of them get their displacement by harmonic interpolation from the neighbouring nodes on the mesh. They are listed in the log and flagged in the point array `Interpolated`. With more of them, the step fails.
+- **QA in the log:** image and mesh Dice, volume, displacement, flipped triangles, inversion residual, landmark error, and mean displacement of the nodes near the hilum.
 
 ### 4 · Hilum anchor (`hilum`)
 
@@ -123,7 +127,11 @@ To view in 3D Slicer, drag and drop `lung_collapsed_mesh.vtp`, `lung_inflated_me
 
 ## Known issues
 
-- **patient_2 registration fails.** The lung goes from 712 to 5351 mL (×7.5). The inflated → collapsed transform is near-singular at 4 of 480 nodes, so the inverse is undefined there. Bending-energy regularisation, the forward direction and signed distance maps did not fix it. Still open.
+- **patient_2 registration is unreliable.** The lung goes from 712 to 5351 mL (×7.5).
+  - The inflated → collapsed transform is near-singular at 4 of 480 nodes; these are now interpolated.
+  - The warped mesh still has flipped triangles (7 with landmarks, 2 without), mostly within 30 mm of the hilum.
+  - The nodes near the hilum move ~90–100 mm.
+  - Bending-energy regularisation, the forward direction and signed distance maps did not help. Still open.
 - **Node correspondence is not anatomical.** Mask registration only matches the boundaries, so nodes can slide tangentially along the surface. Keep this in mind for the point-to-point loss of the inverse FEM.
 
 ## Inverse FEM pressure fitting (step 6 detail, legacy code)

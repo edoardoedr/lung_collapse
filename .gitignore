@@ -3,3 +3,4 @@ pipeline_codes_v1/Result/*
 Input_Data/*
 results/*
 __pycache__/
+.DS_Store

@@ -55,6 +55,10 @@ class RegistrationConfig:
     inflated_label: int | None = None  # label value in a labelmap; None = any voxel > 0
     collapsed_label: int | None = None
     direction: str = "inverse"         # inverse: fixed = inflated (Slicer) | forward: fixed = collapsed
+    landmarks: Path | None = None      # .mrk.json; None = output of the hilum step (if any)
+    landmark_points: list = field(default_factory=lambda: ["hilum"])   # labels used as landmarks
+    landmark_weight: float = 0.0       # weight of the landmark metric; 0 = landmarks only for QA
+    hilum_region_mm: float = 30.0      # QA: displacement of the nodes this close to the hilum
     raster_spacing_mm: float = 1.0     # grid for rasterised surfaces
     crop_margin_mm: float = 20.0
     parameter_maps: list = field(default_factory=lambda: ["rigid", "bspline"])  # elastix defaults
@@ -64,6 +68,7 @@ class RegistrationConfig:
     inversion_tol_mm: float = 1e-3
     inversion_max_iter: int = 100
     inversion_samples: int = 200000    # lookup grid for the inversion start points
+    max_interpolated_nodes: int = 10   # non-converged nodes interpolated from neighbours; more -> fail
     output_space: str = "LPS"
     workdir: Path | None = None        # elastix files; set to output_dir/registration
 
@@ -146,6 +151,12 @@ def load_config(path):
         hilum.lung = data_dir / hilum.lung
         hilum.structures = {k: data_dir / v for k, v in hilum.structures.items()}
         hilum.output = output_dir / hilum.output
+
+    if registration is not None:
+        if registration.landmarks is not None:
+            registration.landmarks = data_dir / registration.landmarks
+        elif hilum is not None:
+            registration.landmarks = hilum.output
 
     return PipelineConfig(patient=raw["patient"], data_dir=data_dir, output_dir=output_dir,
                           steps=list(raw.get("steps", [])), source=path,

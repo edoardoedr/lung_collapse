@@ -3,7 +3,7 @@
   "patient": "patient_10",
   "data_dir": "../Input_Data/patient_10",
   "output_dir": "../results/patient_10",
-  "steps": ["surface_mesh", "registration", "hilum"],
+  "steps": ["surface_mesh", "hilum", "registration"],
 
   "surface_mesh": {
     "input": "lung_left_collapsed.vtk",
@@ -32,6 +32,10 @@
     "surface": null,
     "surface_space": "auto",
     "direction": "inverse",
+    "landmarks": null,
+    "landmark_points": ["airways", "arteries", "veins", "hilum"],
+    "landmark_weight": 0.001,
+    "hilum_region_mm": 30.0,
     "output": "lung_inflated_mesh.vtp",
     "output_space": "LPS",
     "raster_spacing_mm": 1.0,
@@ -42,7 +46,8 @@
     "random_seed": 42,
     "inversion_tol_mm": 1e-3,
     "inversion_max_iter": 100,
-    "inversion_samples": 200000
+    "inversion_samples": 200000,
+    "max_interpolated_nodes": 10
   },
   "hilum": {
     "_comment": "per structure the largest intersection ring with the lung surface; hilum = centroid of the ring centres. lung must be from the same scan as the trees",

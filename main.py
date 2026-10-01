@@ -19,8 +19,8 @@ from pipeline.config import load_config
 # step name -> run(step_config), in pipeline order
 STEPS = {
     "surface_mesh": surface_mesh.run,      # step 2
+    "hilum": hilum.run,                    # step 4, before registration: provides its landmarks
     "registration": registration.run,      # step 3
-    "hilum": hilum.run,                    # step 4
 }
 
 log = logging.getLogger("pipeline")
