@@ -26,12 +26,12 @@ STEPS = {
 log = logging.getLogger("pipeline")
 
 
-def setup_logging(output_dir):
-    output_dir.mkdir(parents=True, exist_ok=True)
+def setup_logging(log_dir):
+    log_dir.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S")
     root = logging.getLogger()
     root.setLevel(logging.INFO)
-    for h in (logging.StreamHandler(sys.stdout), logging.FileHandler(output_dir / "pipeline.log")):
+    for h in (logging.StreamHandler(sys.stdout), logging.FileHandler(log_dir / "pipeline.log")):
         h.setFormatter(fmt)
         root.addHandler(h)
 
@@ -48,8 +48,10 @@ def main():
     if unknown:
         sys.exit("unknown step(s): %s (available: %s)" % (", ".join(unknown), ", ".join(STEPS)))
 
-    setup_logging(cfg.output_dir)
-    shutil.copy(cfg.source, cfg.output_dir / "config_used.json")
+    # main results go in output_dir, everything else in sub-folders
+    log_dir = cfg.output_dir / "logs"
+    setup_logging(log_dir)
+    shutil.copy(cfg.source, log_dir / "config_used.json")
     log.info("patient %s, config %s", cfg.patient, cfg.source)
 
     for name, run in STEPS.items():
@@ -60,7 +62,11 @@ def main():
             sys.exit("step '%s' requested but the config has no '%s' section" % (name, name))
         log.info("=== %s ===", name)
         t0 = time.time()
-        run(step_cfg)
+        try:
+            run(step_cfg)
+        except Exception:
+            log.exception("=== %s FAILED ===", name)
+            sys.exit(1)
         log.info("=== %s done in %.1f s ===", name, time.time() - t0)
 
 

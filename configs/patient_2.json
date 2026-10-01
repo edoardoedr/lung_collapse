@@ -7,7 +7,7 @@
 
   "surface_mesh": {
     "input": "lung_left_collapsed.vtk",
-    "output": "model_left_collapsed_mesh.vtp",
+    "output": "lung_collapsed_mesh.vtp",
     "input_space": "auto",
     "output_space": "LPS",
     "merge_tolerance": 1e-5,
@@ -32,7 +32,7 @@
     "surface": null,
     "surface_space": "auto",
     "direction": "inverse",
-    "output": "transformed_left_lung.vtp",
+    "output": "lung_inflated_mesh.vtp",
     "output_space": "LPS",
     "raster_spacing_mm": 1.0,
     "crop_margin_mm": 20.0,
