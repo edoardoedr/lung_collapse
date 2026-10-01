@@ -1,4 +1,4 @@
-"""Step 3 - registration (replaces the 3D Slicer "General Registration (Elastix)" workflow).
+"""Step 4 - registration (replaces the 3D Slicer "General Registration (Elastix)" workflow).
 
 Collapsed surface mesh (step 2) -> inflated-space surface with the SAME nodes and faces.
 

@@ -1,4 +1,4 @@
-"""Step 4 - hilum from the airway and vessel segmentations.
+"""Step 3 - hilum from the airway and vessel segmentations.
 
 Each tree (airways, arteries, veins) pierces the lung surface in closed rings. The exact
 surface-surface intersection gives these rings; per structure the largest one (perimeter)
@@ -6,9 +6,10 @@ is where it enters the lung at the hilum, the others are small peripheral branch
 
   1. rings: exact intersection tree / lung surface, split into connected closed curves
   2. per structure: largest ring -> centre and mean radius (weighted by segment length)
-  3. hilum = centroid of the ring centres
-  4. write hilum_anchor.mrk.json with the ring centres + hilum (LPS; radius in the point
-     description) for Slicer, plus hilum/ with the numbers (json) and the rings (vtp).
+  3. hilum = centroid of the ring centres, radius = mean of the ring radii
+  4. write hilum_anchor.mrk.json (LPS) with one point list per ring + one for the hilum, each
+     drawn in Slicer as a sphere with its diameter (radius also in the point description),
+     plus hilum/ with the numbers (json) and all the rings (vtp).
 
 The trees and the lung must be in the same scan space.
 """
@@ -23,9 +24,12 @@ from scipy.sparse.csgraph import connected_components
 from vtkmodules.vtkCommonCore import vtkLogger
 from vtkmodules.vtkFiltersGeneral import vtkIntersectionPolyDataFilter
 
-from .data_io import read_surface, write_fiducials, write_surface
+from .data_io import fiducial_list, read_surface, write_markups, write_surface
 
 log = logging.getLogger(__name__)
+
+COLORS = {"airways": (0.6, 0.9, 1.0), "arteries": (0.85, 0.2, 0.2), "veins": (0.2, 0.35, 0.9),
+          "hilum": (1.0, 0.85, 0.0)}
 
 
 def intersection_segments(a, b):
@@ -81,25 +85,32 @@ def run(cfg):
                  "perimeter %.1f mm", name, len(rings), *r["center"], r["radius"], r["perimeter"])
 
     hilum = np.mean([r["center"] for r in chosen.values()], axis=0)
+    hilum_radius = float(np.mean([r["radius"] for r in chosen.values()]))
     dist = {k: float(np.linalg.norm(r["center"] - hilum)) for k, r in chosen.items()}
     _, closest = lung.find_closest_cell(hilum[None], return_closest_point=True)
     surf_dist = float(np.linalg.norm(closest[0] - hilum))
-    log.info("hilum LPS [%.1f, %.1f, %.1f], %.1f mm from the %s surface; ring centres at %s",
-             *hilum, surf_dist, cfg.lung.name, ", ".join("%s %.1f mm" % kv for kv in dist.items()))
+    log.info("hilum LPS [%.1f, %.1f, %.1f], radius %.1f mm (mean of the rings), %.1f mm from "
+             "the %s surface; ring centres at %s", *hilum, hilum_radius, surf_dist, cfg.lung.name,
+             ", ".join("%s %.1f mm" % kv for kv in dist.items()))
     if max(dist.values()) > cfg.max_ring_distance_mm:
         log.warning("a ring centre is > %.0f mm from the hilum: check the rings in hilum/rings.vtp",
                     cfg.max_ring_distance_mm)
 
-    points = {k: r["center"] for k, r in chosen.items()}
-    points["hilum"] = hilum
-    desc = {k: "radius_mm=%.2f" % r["radius"] for k, r in chosen.items()}
-    desc["hilum"] = "centroid of the ring centres"
-    write_fiducials(points, cfg.output, descriptions=desc)
+    # one list per point: Slicer sizes glyphs per list, so each sphere shows its own radius
+    lists = [fiducial_list(k, {k: r["center"]}, {k: "radius_mm=%.2f" % r["radius"]},
+                           sphere_mm=2 * r["radius"], color=COLORS[k])
+             for k, r in chosen.items()]
+    lists.append(fiducial_list("hilum", {"hilum": hilum},
+                               {"hilum": "radius_mm=%.2f (mean of the rings); centroid of the "
+                                         "ring centres" % hilum_radius},
+                               sphere_mm=2 * hilum_radius, color=COLORS["hilum"]))
+    write_markups(lists, cfg.output)
 
     qa = cfg.output.parent / "hilum"
     qa.mkdir(parents=True, exist_ok=True)
     (qa / "hilum_anchor.json").write_text(json.dumps(dict(
-        hilum_lps=hilum.tolist(), lung=str(cfg.lung), distance_to_lung_surface_mm=surf_dist,
+        hilum_lps=hilum.tolist(), hilum_radius_mm=hilum_radius, lung=str(cfg.lung),
+        distance_to_lung_surface_mm=surf_dist,
         rings={k: dict(center_lps=r["center"].tolist(), radius_mm=r["radius"],
                        perimeter_mm=r["perimeter"], distance_to_hilum_mm=dist[k],
                        n_rings_found=len(all_rings[k][1])) for k, r in chosen.items()}), indent=2))

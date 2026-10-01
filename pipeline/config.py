@@ -44,7 +44,7 @@ class SurfaceMeshConfig:
 
 @dataclass
 class RegistrationConfig:
-    """Step 3: elastix mask registration, collapsed surface -> inflated space (same topology).
+    """Step 4: elastix mask registration, collapsed surface -> inflated space (same topology).
 
     inflated / collapsed: labelmap (.nrrd, .nii, .nii.gz, .mha, .mhd) or closed surface (rasterised)."""
     inflated: Path                     # inflated lung (data_dir)
@@ -83,7 +83,7 @@ class RegistrationConfig:
 
 @dataclass
 class HilumConfig:
-    """Step 4: hilum = centroid of the rings where airways, arteries and veins enter the lung."""
+    """Step 3: hilum = centroid of the rings where airways, arteries and veins enter the lung."""
     lung: Path                         # lung surface the trees enter (data_dir), same scan as the trees
     structures: dict                   # {name: surface file} (data_dir), e.g. airways/arteries/veins
     output: Path                       # Slicer .mrk.json (output_dir)

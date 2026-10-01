@@ -139,27 +139,45 @@ MARKUPS_SCHEMA = ("https://raw.githubusercontent.com/slicer/slicer/master/Module
                   "Markups/Resources/Schema/markups-schema-v1.0.3.json#")
 
 
-def write_fiducials(points, path, descriptions=None):
-    """Slicer point list (.mrk.json) from {label: LPS position}, optional {label: description}."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+def fiducial_list(name, points, descriptions=None, sphere_mm=None, color=None):
+    """One Slicer point list from {label: LPS position}, optional {label: description}.
+
+    Slicer draws every point of a list with the same glyph, so per-point sizes need one list
+    per point: sphere_mm draws the points as 3D spheres of that absolute size (diameter) [mm];
+    color is RGB in 0..1."""
     descriptions = descriptions or {}
     cps = [dict(id=str(i + 1), label=label, description=descriptions.get(label, ""),
                 position=[float(v) for v in pos], locked=True, visibility=True,
                 positionStatus="defined")
            for i, (label, pos) in enumerate(points.items())]
-    doc = {"@schema": MARKUPS_SCHEMA,
-           "markups": [dict(type="Fiducial", coordinateSystem="LPS", coordinateUnits="mm",
-                            locked=True, controlPoints=cps)]}
-    path.write_text(json.dumps(doc, indent=2))
+    markup = dict(type="Fiducial", name=name, coordinateSystem="LPS", coordinateUnits="mm",
+                  locked=True, controlPoints=cps)
+    display = {}
+    if sphere_mm is not None:
+        display.update(glyphType="Sphere3D", useGlyphScale=False, glyphSize=float(sphere_mm), opacity=0.6)
+    if color is not None:
+        display.update(color=list(color), selectedColor=list(color))
+    if display:
+        markup["display"] = display
+    return markup
+
+
+def write_markups(markups, path):
+    """.mrk.json with several lists; Slicer loads each one as its own node."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"@schema": MARKUPS_SCHEMA, "markups": list(markups)}, indent=2))
     return path
 
 
 def read_fiducials(path):
-    """{label: LPS position} from a Slicer .mrk.json (first markup)."""
-    mk = json.loads(Path(path).read_text())["markups"][0]
-    flip = np.array([-1.0, -1.0, 1.0]) if mk.get("coordinateSystem", "LPS").upper() == "RAS" else 1.0
-    return {cp["label"]: np.asarray(cp["position"], dtype=float) * flip for cp in mk["controlPoints"]}
+    """{label: LPS position} over all point lists of a Slicer .mrk.json."""
+    out = {}
+    for mk in json.loads(Path(path).read_text())["markups"]:
+        flip = np.array([-1.0, -1.0, 1.0]) if mk.get("coordinateSystem", "LPS").upper() == "RAS" else 1.0
+        for cp in mk.get("controlPoints", []):
+            out[cp["label"]] = np.asarray(cp["position"], dtype=float) * flip
+    return out
 
 
 def write_image(img, path):

@@ -12,8 +12,8 @@ The pipeline is being rewritten step by step in [`pipeline/`](pipeline/). The or
 |---|---|
 | 1 Segmentation | manual, 3D Slicer (nnInteractive + manual correction) |
 | 2 Surface meshing | ✅ `pipeline/surface_mesh.py` |
-| 3 Registration | ✅ `pipeline/registration.py` (replaces the Slicer Elastix workflow) |
-| 4 Hilum anchor | ✅ `pipeline/hilum.py` (computed from the airway / vessel segmentations) |
+| 3 Hilum anchor | ✅ `pipeline/hilum.py` (computed from the airway / vessel segmentations) |
+| 4 Registration | ✅ `pipeline/registration.py` (replaces the Slicer Elastix workflow) |
 | 5–8 Correspondence, inverse FEM, sequence, visualisation | still in `pipeline_codes_v1/` |
 
 ## Repository layout
@@ -27,8 +27,8 @@ pipeline/
   config.py           config loading (dataclass per step, path resolution)
   data_io.py          surfaces (LPS/RAS aware), labelmaps, Slicer markups
   surface_mesh.py     step 2
-  registration.py     step 3
-  hilum.py            step 4
+  hilum.py            step 3
+  registration.py     step 4
 Input_Data/           patient data (not in git)
 results/              pipeline outputs (not in git)
 pipeline_codes_v1/    original scripts
@@ -57,9 +57,9 @@ One folder per patient in `Input_Data/`. All files are surface models exported f
 
 | File | Used by |
 |---|---|
-| `lung_left_collapsed.vtk` | collapsed left lung, steps 2 and 4 |
-| `lung_left.vtk` | assumed inflated left lung, step 3 |
-| `lung_airways.vtk`, `lung_arteries.vtk`, `lung_veins.vtk` | step 4 |
+| `lung_left_collapsed.vtk` | collapsed left lung, steps 2 and 3 |
+| `lung_left.vtk` | assumed inflated left lung, step 4 |
+| `lung_airways.vtk`, `lung_arteries.vtk`, `lung_veins.vtk` | step 3 |
 
 ## Configuration
 
@@ -85,7 +85,17 @@ An unknown key raises an error, so a typo cannot be silently ignored. Keys start
   - light post-smoothing and a watertightness check.
 - **Result:** the node set used by every later step.
 
-### 3 · Registration (`registration`)
+### 3 · Hilum anchor (`hilum`)
+
+- **Inputs:** collapsed lung surface + airway, artery and vein surfaces.
+- **Output:** `hilum_anchor.mrk.json` (LPS) with 4 point lists of one point each:
+  - `airways`, `arteries`, `veins`: centre and radius of the ring where that tree enters the lung;
+  - `hilum`: centroid of the three ring centres, with radius = mean of the three ring radii.
+
+  Slicer gives every point of a list the same glyph size, so each point is its own list. In Slicer each one shows as a sphere with its diameter, and the radius is also in the point description (`radius_mm=…`).
+- **Method:** exact surface–surface intersection of each tree with the lung surface. This gives closed rings, and per structure the largest ring (by perimeter) is the hilar one. The others are small peripheral branches.
+
+### 4 · Registration (`registration`)
 
 - **Inputs:**
   - the inflated lung (`lung_left.vtk`), rasterised to a mask;
@@ -101,21 +111,13 @@ An unknown key raises an error, so a typo cannot be silently ignored. Keys start
   - **Non-converged nodes.** Where the transform is near-singular, the inverse may not converge at some nodes. Up to `max_interpolated_nodes` (default 10) of them get their displacement by harmonic interpolation from the neighbouring nodes on the mesh. They are listed in the log and flagged in the point array `Interpolated`. With more of them, the step fails.
 - **QA in the log:** image and mesh Dice, volume, displacement, flipped triangles, inversion residual, landmark error, and mean displacement of the nodes near the hilum.
 
-### 4 · Hilum anchor (`hilum`)
-
-- **Inputs:** collapsed lung surface + airway, artery and vein surfaces.
-- **Output:** `hilum_anchor.mrk.json` (Slicer point list, LPS) with 4 points:
-  - `airways`, `arteries`, `veins`: centre of the ring where that tree enters the lung; the ring radius is in the point description (`radius_mm=…`);
-  - `hilum`: centroid of the three ring centres.
-- **Method:** exact surface–surface intersection of each tree with the lung surface. This gives closed rings, and per structure the largest ring (by perimeter) is the hilar one. The others are small peripheral branches.
-
 ## Outputs
 
 ```
 results/patient_<N>/
 ├── lung_collapsed_mesh.vtp     collapsed lung, remeshed
 ├── lung_inflated_mesh.vtp      inflated lung, same nodes (registration)
-├── hilum_anchor.mrk.json       3 ring centres + hilum
+├── hilum_anchor.mrk.json       3 ring centres + hilum, each a sphere with its radius
 ├── logs/                       pipeline.log, config_used.json
 ├── registration/               masks, elastix log and transforms (TransformParameters.*-Composite.h5 loads in Slicer)
 └── hilum/                      rings.vtp (all rings, cell data Structure / Hilar), hilum_anchor.json
@@ -123,7 +125,7 @@ results/patient_<N>/
 
 All surfaces are in LPS, with the space stored in the file.
 
-To view in 3D Slicer, drag and drop `lung_collapsed_mesh.vtp`, `lung_inflated_mesh.vtp`, `hilum_anchor.mrk.json` and `hilum/rings.vtp` (colour by `Hilar`).
+To view in 3D Slicer, drag and drop `lung_collapsed_mesh.vtp`, `lung_inflated_mesh.vtp`, `hilum_anchor.mrk.json` (loads as 4 point lists) and `hilum/rings.vtp` (colour by `Hilar`).
 
 ## Known issues
 
