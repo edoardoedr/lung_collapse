@@ -68,7 +68,9 @@ def check(cfg, args):
 
     t0 = time.time()
     if solver.solve(q, nu) is None:
-        raise SystemExit("solve(q, nu) did not converge")
+        raise SystemExit("solve(q, nu) did not converge with newton_tol %g%s" % (
+            args.newton_tol, "; with a wall try --newton-tol 1e-8 --h 1e-4 (the contact penalty is "
+            "only C1, Newton may not reach very tight tolerances) or a smaller --q" if problem.has_wall else ""))
     t_solve = time.time() - t0
     U0 = solver.get_state()
     t0 = time.time()

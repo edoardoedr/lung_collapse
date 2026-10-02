@@ -11,7 +11,8 @@ problem without it and (b) on the problem as is.
   a. no wall: same mesh, several (q, nu) up to large collapse, solved from the reference by both
      -> max / mean nodal |U_warp - U_getfem| (relative to max |U|), Newton iterations of both
   b. wall: same, plus the residual penetration of both
-  c. WarpSolver.jacobian vs central finite differences of its own solve() (newton_tol 1e-11),
+  c. WarpSolver.jacobian vs central finite differences of its own solve() (newton_tol 1e-11;
+     with a wall 1e-8 and h >= 1e-4, the contact penalty being only C1),
      and vs GetFEMSolver.jacobian
   d. full fit with each core (analytic Jacobian): errors, stop reasons, solves, time, pressures
   e. Warp timing per forward solve and per Jacobian, for linear_solver cudss / pardiso / scipy,
@@ -115,11 +116,13 @@ def compare_forward(tag, problem, fc, K, labels, sign):
 
 
 def compare_jacobian(problem, fc, K, labels, sign, h):
-    print("\n[c] Jacobian, wall %s, newton_tol 1e-11, h %g" % ("on" if problem.has_wall else "off", h))
+    # the contact penalty is only C1: with a wall Newton cannot reach 1e-11, so tol and h are relaxed
+    tol, h = (1e-8, max(h, 1e-4)) if problem.has_wall else (1e-11, h)
+    print("\n[c] Jacobian, wall %s, newton_tol %g, h %g" % ("on" if problem.has_wall else "off", tol, h))
     q, nu = sign * pressures(K, 0.5), fc.nu
     J = {}
     for name in ("warp", "getfem"):
-        s = make(name, problem, fc, newton_tol=1e-11)
+        s = make(name, problem, fc, newton_tol=tol)
         s.set_regions(labels, K)
         if s.solve(q, nu) is None:
             raise SystemExit("%s: solve(q, nu) did not converge" % name)
