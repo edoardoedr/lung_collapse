@@ -24,6 +24,7 @@ The pipeline is being rewritten step by step in [`pipeline/`](pipeline/). The or
 main.py               entry point, runs the steps listed in a config
 configs/
   patient_<N>.json    one config per patient, one section per step
+  README.md           every config key: meaning and range
   elastix/            elastix parameter files (SlicerElastix default preset + an affine stage)
 pipeline/
   config.py           config loading (dataclass per step, path resolution)
@@ -79,7 +80,7 @@ One folder per patient in `Input_Data/`. All files are surface models exported f
 
 ## Configuration
 
-`configs/patient_<N>.json` has the top-level keys `patient`, `data_dir`, `output_dir` and `steps`, plus one section per step. Each key is documented in the step's dataclass in [`pipeline/config.py`](pipeline/config.py).
+`configs/patient_<N>.json` has the top-level keys `patient`, `data_dir`, `output_dir` and `steps`, plus one section per step. **Every key, with its purpose and range, is explained in [`configs/README.md`](configs/README.md).**
 
 Path rules:
 
@@ -150,7 +151,7 @@ Finds the regional pleural pressures that deform the inflated lung (reference) o
 - **Inputs:** `lung_inflated_mesh.vtp` (reference), `lung_collapsed_mesh.vtp` (target) and `hilum_anchor.mrk.json`. Reference and target must have the same nodes and triangles, i.e. the registration output.
 - **Clamped region:** surface triangles within `hilum sphere radius × anchor_radius_factor` of the hilum (default 2.0 → ~30 mm on patient_10). The radius grows while the region has fewer than `anchor_min_points` points or is nearly flat, otherwise rigid motions would stay free.
 - **Alignment:** `align: "hilum_rigid"` moves the target rigidly so that its clamped points best match the reference ones (consistent with u = 0 there); `rigid` uses all points, `none` keeps it as is.
-- **Cavity wall (optional, `wall`, default `lung_left.vtk`):** closed surface the lung may not leave during the collapse (the chest cavity). A point may go at most `wall_tol_mm` (2 mm, registration noise) beyond it, plus however far it is already outside in the reference. The log reports how many reference and target points lie outside: target points beyond the wall are an error the fit cannot remove. `wall: null` = no wall (as 6.1).
+- **Cavity wall (optional, `wall`):** closed surface the lung may not leave during the collapse (the chest cavity). `"reference"` (used in the configs) takes the registered inflated surface itself, so every point starts on it; a file name (e.g. `lung_left.vtk`) takes that surface. A point may go at most `wall_tol_mm` (2 mm) beyond it, plus however far it is already outside in the reference. The log reports how many target points lie beyond: those are an error the fit cannot remove. `wall: null` = no wall (as 6.1).
 - **Pressure regions:** connectivity-constrained Ward clustering of the displacement with the rigid part removed (`cluster_field`), for every level in `levels` (1 → 40 regions). The regions do not depend on the pressures, so they are all computed here.
 - **Volume mesh:** Gmsh tetrahedra (`mesh_size_mm` inside), with the surface points and triangles unchanged (checked).
 - **Output:** `fem/setup/problem.npz`, read by `fem_fit` and passed to the core, plus files to inspect: `reference.vtp` (cell data `Clamped`, `Regions_K*`; point data `WallDistance_mm`), `target_aligned.vtp`, `volume.vtu`, `setup_summary.json`.
@@ -158,6 +159,7 @@ Finds the regional pleural pressures that deform the inflated lung (reference) o
 **`fem_fit`** (hours with GetFEM):
 
 - **FEM core:** `solver` names a class in `pipeline/collapse/solvers/` (`"getfem"`) or any `"module:Class"`; `solver_options` go to that class. Every core implements `ForwardSolver` (`solvers/base.py`): compressible Neo-Hookean with E = 1 (so the unknowns are p/E per region and ν), u = 0 on the clamp, follower pressure on the other triangles, positive pressure pushing inward, and the wall as rigid contact if the problem has one; `solve(q, nu)` returns the surface displacement. A core without wall support refuses a problem with a wall. To add a core (e.g. NVIDIA Warp), write one file in `solvers/` and register it in `solvers/__init__.py`.
+- **Wall contact, `wall_update`:** `"outer"` (both cores) alternates Newton solves with the wall linearisation fixed and re-linearisations, up to `wall_max_updates` rounds until the gap changes less than `wall_settle_mm`; each solve is several Newton runs, which is why the fit with a wall is much slower. `"newton"` (Warp only) re-linearises the wall at every residual evaluation, so the contact is part of a single Newton solve; at convergence it solves the same equations. With a wall the configs also set `warm_substeps: true`, so a failed step is retried in sub-steps before restarting the ramp from zero.
 - **GetFEM wall contact:** penalty force on the pressure faces, zero inside the wall and growing smoothly beyond it (`wall_stiffness`, `wall_eps`); the gap is re-linearised between Newton solves until it settles (`wall_max_updates`, `wall_settle_mm`). Warm start as in 6.1: one direct step from the last converged state, then a ramp from zero. `warm_substeps: true` adds, before the ramp, `load_steps` and 3×`load_steps` sub-steps from the last state (as 6.2): useful with contact, but each failed attempt costs Newton runs up to `newton_maxit`.
 - **Method:** one sign check (q > 0 must collapse), then the levels coarse → fine, each warm-started from the best so far. Per level: bounded least squares (`lsq`; Jacobian from the core when `jacobian: "analytic"` and the core provides one, i.e. one linear solve per region instead of one nonlinear solve; `"2-point"` = finite differences as before) on the point-to-point error plus a smoothness penalty between adjacent regions (`reg`), or Nelder-Mead (`nm`); ν optionally free.
 - **Stops:**

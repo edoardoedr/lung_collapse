@@ -42,7 +42,7 @@ def linear_solvers():
     out = {}
     for name in ("mumps", "superlu"):
         try:
-            getattr(gf, "linsolve_" + name)(A, np.ones(3))
+            gf.linsolve(name, A, np.ones(3))
             out[name] = "available"
         except Exception as e:
             out[name] = "not available (%s)" % str(e).splitlines()[0][:60]

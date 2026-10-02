@@ -6,7 +6,8 @@ GetFEM 'Compressible_Neo_Hookean', non-dimensional (E = 1):
 
 # solver_options of the GetFEM-equivalent cores (documented in getfem_solver.py)
 DEFAULTS = dict(order=1, load_steps=4, newton_tol=1e-7, newton_maxit=30, pressure_sign=1.0, warm_substeps=False,
-                wall_stiffness=20.0, wall_eps=0.5, wall_max_updates=6, wall_settle_mm=0.05, linear_solver=None)
+                wall_stiffness=20.0, wall_eps=0.5, wall_max_updates=6, wall_settle_mm=0.05, wall_update="outer",
+                linear_solver=None)
 
 
 def mat_params(nu):

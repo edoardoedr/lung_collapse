@@ -4,8 +4,9 @@
      nodes, outward triangles, watertight
   2. clamped hilum region: triangles within (hilum sphere radius x anchor_radius_factor)
   3. rigid alignment of the target (default: on the clamped points, consistent with u = 0 there)
-  4. optional cavity wall: closed surface the lung may not leave during the collapse
-     (allowed outward margin per point = wall_tol_mm + how far the point is already outside)
+  4. optional cavity wall: closed surface the lung may not leave during the collapse, "reference"
+     = the registered inflated surface itself (allowed outward margin per point = wall_tol_mm +
+     how far the point is already outside)
   5. clean displacement field (rigid part removed) -> Ward pressure regions for every level
   6. tetrahedral volume mesh (Gmsh), surface nodes and triangles unchanged
   7. output_dir/fem/setup/: problem.npz (read by fem_fit) + files to inspect in Slicer / ParaView
@@ -86,19 +87,24 @@ def run(cfg):
     # 4. cavity wall (optional)
     wall_pts, wall_tris, wall_allow, phi0 = np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), np.zeros(0), None
     if cfg.wall is not None:
-        w = read_surface(cfg.wall, space="LPS")
-        wall_pts, wall_tris = np.asarray(w.points, float), faces_of(w)
-        if face_adjacency(wall_tris)[1]:
-            raise RuntimeError("wall %s is not watertight" % cfg.wall.name)
-        if signed_volume(wall_pts, wall_tris) < 0:
-            wall_tris = wall_tris[:, ::-1].copy()
+        if cfg.wall == "reference":                   # the registered inflated surface (outward, closed)
+            wall_name, wall_pts, wall_tris = "reference surface", X_ref.copy(), tris.copy()
+        else:
+            w = read_surface(cfg.wall, space="LPS")
+            wall_name, wall_pts, wall_tris = cfg.wall.name, np.asarray(w.points, float), faces_of(w)
+            if face_adjacency(wall_tris)[1]:
+                raise RuntimeError("wall %s is not watertight" % cfg.wall.name)
+            if signed_volume(wall_pts, wall_tris) < 0:
+                wall_tris = wall_tris[:, ::-1].copy()
         wall = WallDistance(wall_pts, wall_tris)
         phi0, phit = wall(X_ref)[0], wall(X_tgt)[0]
+        if cfg.wall == "reference":
+            phi0 = np.zeros(len(X_ref))               # the reference points lie on it
         wall_allow = cfg.wall_tol_mm + np.maximum(phi0, 0.0)   # points already outside may not go further
         excess = phit - wall_allow
         log.info("wall %s (%.1f mL), tolerance %.1f mm: reference %d/%d points outside (median %.2f, "
                  "max %.2f mm); aligned target %d points beyond their allowed position (max %.2f mm "
-                 "beyond, the fit cannot reach these)", cfg.wall.name,
+                 "beyond, the fit cannot reach these)", wall_name,
                  signed_volume(wall_pts, wall_tris) / 1000, cfg.wall_tol_mm, (phi0 > 0).sum(), len(phi0),
                  np.median(phi0), max(phi0.max(), 0.0), (excess > 0).sum(), max(excess.max(), 0.0))
 
@@ -149,7 +155,7 @@ def run(cfg):
         align=cfg.align, rigid_full_deg=ang, rigid_clamp_deg=ang_h,
         baseline_mean_error_mm=float(d0.mean()), baseline_assd_mm=assd(X_ref, X_tgt, tris),
         cluster_field=cfg.cluster_field, feature=cfg.feature, levels=levels.tolist(),
-        wall=str(cfg.wall) if cfg.wall else None, wall_tol_mm=cfg.wall_tol_mm,
+        wall=str(cfg.wall) if cfg.wall is not None else None, wall_tol_mm=cfg.wall_tol_mm,
         volume_nodes=int(len(nodes)), tets=int(len(tets)), mesh_size_mm=cfg.mesh_size_mm), indent=2))
     log.info("wrote %s/ (problem.npz, reference.vtp, target_aligned.vtp, volume.vtu)", out)
     return out

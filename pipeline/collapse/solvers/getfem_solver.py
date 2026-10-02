@@ -13,6 +13,8 @@ options (fem_fit.solver_options):
   wall_eps          [mm] width of the smooth start of the penalty (no contact / contact chatter)
   wall_max_updates  Newton / wall re-linearisation rounds per solve
   wall_settle_mm    stop the rounds when the gap data changes less than this
+  wall_update       "outer": Newton / wall re-linearisation rounds (the only mode here; "newton",
+                    the wall updated at every Newton iteration, is implemented by the warp core)
   linear_solver     None = GetFEM's choice (MUMPS if built with it, else SuperLU), or a name passed
                     to md.solve as "lsolver" (e.g. "mumps", "superlu")
 """
@@ -60,6 +62,8 @@ class GetFEMSolver(ForwardSolver):
             raise ValueError("unknown getfem solver option(s): %s" % ", ".join(unknown))
         super().__init__(problem, {**DEFAULTS, **options})
         o = self.options
+        if o["wall_update"] != "outer":
+            raise ValueError("getfem solver: wall_update must be 'outer' ('newton' is warp only)")
         try:
             gf.util_trace_level(0)
             gf.util_warning_level(0)

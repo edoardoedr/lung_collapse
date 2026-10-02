@@ -119,7 +119,8 @@ class FemSetupConfig:
     anchor_min_points: int = 20        # clamp radius grows until it holds this many points (rank 3)
     anchor_growth: float = 1.1
     anchor_max_growth_steps: int = 10
-    wall: Path | None = None           # closed cavity surface the lung may not leave (data_dir); None = no wall
+    wall: Path | str | None = None     # cavity the lung may not leave: "reference" = the registered inflated
+                                       # surface itself, or a closed surface file (data_dir); None = no wall
     wall_tol_mm: float = 2.0           # allowed motion beyond the wall (registration noise margin)
     align: str = "hilum_rigid"        # rigid alignment of the target: hilum_rigid | rigid | none
     cluster_field: str = "rigid_residual"   # field clustered into regions: rigid_residual | hilum_rigid | raw
@@ -256,7 +257,7 @@ def load_config(path):
     if "fem_setup" in raw:
         fem_setup = s = _section(FemSetupConfig, raw["fem_setup"], "fem_setup")
         s.workdir = output_dir / "fem" / "setup"
-        if s.wall is not None:
+        if s.wall is not None and s.wall != "reference":
             s.wall = data_dir / s.wall
         for key, previous in (("reference", registration), ("target", surface_mesh), ("anchor", hilum)):
             value = getattr(s, key)

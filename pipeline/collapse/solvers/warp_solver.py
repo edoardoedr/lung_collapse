@@ -11,6 +11,12 @@ u = 0 on the nodes of the clamped faces (eliminated). Everything in float64.
 
 options: the GetFEMSolver ones (order must be 1), plus
   device         Warp device (None = default: CUDA if available, else CPU)
+  wall_update    "outer" (as GetFEMSolver): Newton solves with the wall linearisation fixed,
+                 alternated with re-linearisations until the gap settles (wall_max_updates,
+                 wall_settle_mm). "newton": the wall (normal, gap) is re-linearised at every
+                 residual evaluation inside one Newton solve, so the contact is part of Newton
+                 and the outer rounds disappear; at convergence it solves the same equations
+                 (gap = signed distance - allowed margin), without the wall_settle_mm tolerance
   linear_solver  auto | cudss (nvmath-python) | pardiso (pypardiso) | scipy (SuperLU); None = auto
 
 Known differences from GetFEM, by construction (see scripts/compare_warp_getfem.py):
@@ -258,6 +264,8 @@ class WarpSolver(ForwardSolver):
         o = self.options
         if o["order"] != 1:
             raise NotImplementedError("the warp solver implements P1 only (solver_options.order = 1)")
+        if o["wall_update"] not in ("outer", "newton"):
+            raise ValueError("warp solver: wall_update must be 'outer' or 'newton'")
         self.device = wp.get_device(o["device"])
         self.lin = LinearSolver(o["linear_solver"], self.device)
 
@@ -335,7 +343,9 @@ class WarpSolver(ForwardSolver):
             self.wQW = wp.array(FACE_QUAD_W, dtype=f64, device=dev)
         log.info("Warp: %d nodes, %d tets, %d dofs (P1), %d clamped faces, wall %s, device %s, linear solver %s",
                  self.nn, len(T), self.ndof, clamped.sum(),
-                 "on (stiffness %g)" % o["wall_stiffness"] if self.wall else "off", dev, self.lin.backend)
+                 "on (stiffness %g, update %s)" % (o["wall_stiffness"], o["wall_update"]) if self.wall else "off",
+                 dev, self.lin.backend)
+        self.wall_in_newton = self.wall is not None and o["wall_update"] == "newton"
 
         self.labels, self.K = None, 0
         self.fq = np.zeros(len(faces))
@@ -425,7 +435,7 @@ class WarpSolver(ForwardSolver):
         self.counts["newton_calls"] += 1
         f = self.free
         U = self.Ucur
-        R, A = self._assemble(U, True)
+        R, A = self._assemble_at(U, True)
         if R is None:
             return False
         res = np.abs(R[f]).sum()
@@ -447,7 +457,7 @@ class WarpSolver(ForwardSolver):
                     conv_alpha = alpha
                     Ut = U.copy()
                     Ut[f] += alpha * dx
-                    Rt, _ = self._assemble(Ut, False)
+                    Rt, _ = self._assemble_at(Ut, False)
                     rt = np.abs(Rt[f]).sum() if Rt is not None else np.inf
                     if (n_ls <= 1 and rt < res) or rt <= LS_MAX_RATIO * res or conv_alpha <= LS_MIN_ALPHA:
                         break
@@ -455,7 +465,7 @@ class WarpSolver(ForwardSolver):
                 if not np.isfinite(rt):
                     return False
                 U, it = Ut, it + 1
-                R, A = self._assemble(U, True)
+                R, A = self._assemble_at(U, True)
                 if R is None:
                     return False
                 res = np.abs(R[f]).sum()
@@ -463,9 +473,16 @@ class WarpSolver(ForwardSolver):
         finally:
             self.counts["newton_iters"] += it
 
-    def _update_wall(self):
-        """Linearise the wall at the current u; returns the max change of the gap data [mm]."""
-        Us = self.Ucur.reshape(-1, 3)[self.surf_node]
+    def _assemble_at(self, U, compute_K):
+        """_assemble, with the wall re-linearised at U first when the contact is part of Newton."""
+        if self.wall_in_newton:
+            self._update_wall(U)
+        return self._assemble(U, compute_K)
+
+    def _update_wall(self, U=None):
+        """Linearise the wall at U (default: the current state); returns the max change of the gap
+        data [mm]. At the linearisation point g = u.wallN - wallG = signed distance - allowed margin."""
+        Us = (self.Ucur if U is None else U).reshape(-1, 3)[self.surf_node]
         phi, n = self.wall(self.surf_pts + Us)
         G = np.einsum("ij,ij->i", n, Us) - phi + self.problem.wall_allow
         self.counts["wall_updates"] += 1
@@ -476,7 +493,7 @@ class WarpSolver(ForwardSolver):
 
     def _solve(self):
         """Newton; with a wall, alternated with the wall re-linearisation until the gap settles."""
-        if self.wall is None:
+        if self.wall is None or self.wall_in_newton:
             return self._newton()
         self._update_wall()
         for _ in range(self.options["wall_max_updates"]):
@@ -528,7 +545,7 @@ class WarpSolver(ForwardSolver):
             return None
         self.nu = nu
         self._set_q(q)
-        R, A = self._assemble(self.U, True)
+        R, A = self._assemble_at(self.U, True)
         if A is None:
             return None
         x = self.X + self.U.reshape(-1, 3)
