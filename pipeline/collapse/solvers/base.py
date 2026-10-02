@@ -47,6 +47,10 @@ class ForwardSolver(ABC):
     def reset(self):
         """Forget the warm start: the next solve starts from the reference configuration."""
 
+    def stats(self):
+        """Cumulative counters for the log (e.g. Newton iterations), {} if not kept."""
+        return {}
+
     def export_volume(self, path, state):
         """Write the volume solution `state` for ParaView."""
         raise NotImplementedError

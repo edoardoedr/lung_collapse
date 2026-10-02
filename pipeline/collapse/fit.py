@@ -14,6 +14,7 @@ Only the solver knows the FEM library: see solvers/base.py for the contract.
 
 import json
 import logging
+import time
 
 import numpy as np
 from scipy.optimize import least_squares, minimize
@@ -53,6 +54,7 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
     nu_fixed = cfg.nu
     solver.set_regions(tri_labels, K)
     trk.new_level()
+    stats0 = solver.stats()
     log.info("--- level %d: K=%d regions, %d parameters, %d adjacent pairs, %s ---",
              L, K, len(x0), len(pairs), cfg.optimizer)
 
@@ -62,17 +64,19 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
     def evaluate(x):
         trk.check()
         q, nu = unpack(x)
+        t0 = time.time()
         Us = solver.solve(sign * q, nu)
+        dt = time.time() - t0
         rreg = cfg.reg * (q[pairs[:, 0]] - q[pairs[:, 1]])
         if Us is None:
             trk.n_fail += 1
-            trk.log(L, K, np.nan, np.nan, nu, 0)
+            trk.log(L, K, np.nan, np.nan, nu, 0, dt)
             base = trk.level_best_r if trk.level_best_r is not None else ctx["r_zero"]
             return np.r_[2.0 * base, rreg], np.inf
         r = (X_ref + Us - X_tgt).ravel()
         d = np.linalg.norm(r.reshape(-1, 3), axis=1)
         err, rms = float(d.mean()), float(np.sqrt((d ** 2).mean()))
-        trk.log(L, K, err, rms, nu, 1)
+        trk.log(L, K, err, rms, nu, 1, dt)
         q_tri = np.where(tri_labels >= 0, q[np.maximum(tri_labels, 0)], np.nan)
         state = dict(Us=Us.copy(), solver_state=solver.get_state(), q=q.copy(), nu=float(nu),
                      tri_labels=tri_labels.copy(), q_tri=q_tri, err=err, rms=rms, K=K, level=L,
@@ -98,6 +102,10 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
                                                             adaptive=True))
     except Stop as s:
         reason = s.reason
+    stats = {k: v - stats0.get(k, 0) for k, v in solver.stats().items()}
+    log.info("level %d timing: %d solves, %.2f s per solve%s", L, trk.level_evals,
+             trk.level_solve_s / max(trk.level_evals, 1),
+             "; " + ", ".join("%s %d" % kv for kv in stats.items()) if stats else "")
     return reason, trk.level_best_err
 
 
@@ -189,6 +197,7 @@ def run(cfg):
                baseline_mean_mm=float(d0.mean()), K=b["K"], nu=b["nu"], E_Pa=cfg.E_Pa,
                pressures_Pa=b["pressures_Pa"], mean_pressure_Pa=float(np.nanmean(b["q_tri"]) * cfg.E_Pa),
                pressure_sign=sign, evals=trk.n_eval, failed_solves=trk.n_fail,
+               solve_s_mean=trk.solve_s / max(trk.n_eval, 1), solver_stats=solver.stats(),
                elapsed_min=trk.elapsed() / 60, levels=summary, wall=bool(problem.has_wall),
                wall_max_penetration_mm=None if pen is None else float(max(pen.max(), 0.0)),
                wall_points_beyond=None if pen is None else int((pen > 0).sum()))

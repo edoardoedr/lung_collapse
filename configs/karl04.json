@@ -1,8 +1,8 @@
 {
   "_comment": "data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
-  "patient": "patient_2",
-  "data_dir": "../Input_Data/patient_2",
-  "output_dir": "../results/patient_2",
+  "patient": "karl04",
+  "data_dir": "../Input_Data/karl04",
+  "output_dir": "../results/karl04",
   "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
 
   "check_inputs": {
@@ -21,7 +21,7 @@
   },
 
   "surface_mesh": {
-    "input": "lung_left_collapsed.vtk",
+    "input": "lung_right_collapsed.vtk",
     "output": "lung_collapsed_mesh.vtp",
     "input_space": "auto",
     "output_space": "LPS",
@@ -40,7 +40,7 @@
 
   "registration": {
     "_comment": "inflated/collapsed: labelmap or closed surface; collapsed null = rasterise the step-2 surface. direction: forward (fixed = collapsed, no inversion) | inverse (fixed = inflated, as in Slicer)",
-    "inflated": "lung_left.vtk",
+    "inflated": "lung_right.vtk",
     "inflated_label": null,
     "collapsed": null,
     "collapsed_label": null,
@@ -67,7 +67,7 @@
   },
   "hilum": {
     "_comment": "per structure the largest intersection ring with the lung surface; hilum = centroid of the ring centres. lung must be from the same scan as the trees",
-    "lung": "lung_left_collapsed.vtk",
+    "lung": "lung_right_collapsed.vtk",
     "structures": {
       "airways": "lung_airways.vtk",
       "arteries": "lung_arteries.vtk",
@@ -87,7 +87,7 @@
     "anchor_min_points": 20,
     "anchor_growth": 1.1,
     "anchor_max_growth_steps": 10,
-    "wall": "lung_left.vtk",
+    "wall": null,
     "wall_tol_mm": 2.0,
     "align": "hilum_rigid",
     "cluster_field": "rigid_residual",

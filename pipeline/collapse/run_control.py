@@ -31,10 +31,11 @@ class Tracker:
         self.best_err, self.best = np.inf, None
         self.level_evals, self.level_best_err, self.level_best_r = 0, np.inf, None
         self.n_eval = self.n_fail = 0
+        self.solve_s = self.level_solve_s = 0.0
         self.last_ckpt = 0.0
         self.stop_requested = None
         self.hist = open(outdir / "history.csv", "w")
-        self.hist.write("eval,level,K,elapsed_min,mean_err_mm,rms_mm,nu,ok\n")
+        self.hist.write("eval,level,K,elapsed_min,mean_err_mm,rms_mm,nu,ok,solve_s\n")
 
     def elapsed(self):
         return time.time() - self.t0
@@ -49,12 +50,15 @@ class Tracker:
 
     def new_level(self):
         self.level_evals, self.level_best_err, self.level_best_r = 0, np.inf, None
+        self.level_solve_s = 0.0
 
-    def log(self, level, K, err, rms, nu, ok):
+    def log(self, level, K, err, rms, nu, ok, solve_s):
         self.n_eval += 1
         self.level_evals += 1
-        self.hist.write("%d,%d,%d,%.3f,%.5f,%.5f,%.4f,%d\n"
-                        % (self.n_eval, level, K, self.elapsed() / 60, err, rms, nu, ok))
+        self.solve_s += solve_s
+        self.level_solve_s += solve_s
+        self.hist.write("%d,%d,%d,%.3f,%.5f,%.5f,%.4f,%d,%.3f\n"
+                        % (self.n_eval, level, K, self.elapsed() / 60, err, rms, nu, ok, solve_s))
         if self.n_eval % 10 == 0:
             self.hist.flush()
 

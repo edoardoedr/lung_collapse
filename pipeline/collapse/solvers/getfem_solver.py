@@ -2,7 +2,10 @@
 
 options (fem_fit.solver_options):
   order             1 | 2, Lagrange order of the displacement (P2 slower, no volumetric locking)
-  load_steps        sub-steps when a direct solve fails (retried with 3x the steps)
+  load_steps        pressure ramp from zero when a warm-started solve fails (retried with 3x the steps)
+  warm_substeps     if the direct step from the last converged state fails, first try load_steps and
+                    3x load_steps sub-steps from that state before the ramp from zero (as 6.2).
+                    Helps with contact, costs failed Newton runs otherwise; false = as 6.1
   newton_tol        Newton residual tolerance
   newton_maxit      Newton iterations per load step
   pressure_sign     +1 / -1, sign of the pressure term (q > 0 must collapse)
@@ -23,7 +26,7 @@ from .base import ForwardSolver
 
 log = logging.getLogger(__name__)
 
-DEFAULTS = dict(order=1, load_steps=4, newton_tol=1e-7, newton_maxit=30, pressure_sign=1.0,
+DEFAULTS = dict(order=1, load_steps=4, newton_tol=1e-7, newton_maxit=30, pressure_sign=1.0, warm_substeps=False,
                 wall_stiffness=20.0, wall_eps=0.5, wall_max_updates=6, wall_settle_mm=0.05)
 RID_CLAMPED, RID_WALL = 10, 11
 
@@ -75,7 +78,7 @@ class GetFEMSolver(ForwardSolver):
         dd, idx = cKDTree(self.mfu.basic_dof_nodes().T).query(self.surf_pts, k=3)
         idx = np.sort(idx, axis=1)
         self.surf_dof = idx
-        self.use_interp = not (dd.max() < 1e-6 and np.all(np.diff(idx, axis=1) == 1)
+        self.use_interp = not (dd.max() < 1e-4 and np.all(np.diff(idx, axis=1) == 1)
                                and np.all(idx[:, 0] % 3 == 0))
         if self.use_interp:
             log.warning("surface points are not dofs: using compute_interpolate_on")
@@ -97,6 +100,7 @@ class GetFEMSolver(ForwardSolver):
         self.md, self.K, self.cur_nu = None, 0, None
         self.U, self.q_last = None, None                         # last converged state and its q
         self.n_builds = 0
+        self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0)
 
     def set_regions(self, labels, n_regions):
         self.n_builds += 1
@@ -134,11 +138,16 @@ class GetFEMSolver(ForwardSolver):
 
     def _newton(self):
         o = self.options
+        self.counts["newton_calls"] += 1
         try:
             r = self.md.solve("max_iter", o["newton_maxit"], "max_res", o["newton_tol"], "lsearch", "simplest")
             conv = bool(r[1]) if isinstance(r, (tuple, list)) and len(r) > 1 else True
         except Exception:
             return False
+        try:                                                     # (iterations, converged)
+            self.counts["newton_iters"] += int(r[0])
+        except (TypeError, ValueError, IndexError):
+            pass
         return conv and np.all(np.isfinite(self.md.variable("u")))
 
     def _update_wall(self):
@@ -151,6 +160,7 @@ class GetFEMSolver(ForwardSolver):
         N[self.surf_dof] = n
         Gs = np.zeros(self.mfs.nbdof())
         Gs[self.surf_sdof] = G
+        self.counts["wall_updates"] += 1
         old = self.md.variable("wallG")[self.surf_sdof]
         self.md.set_variable("wallN", N)
         self.md.set_variable("wallG", Gs)
@@ -174,6 +184,7 @@ class GetFEMSolver(ForwardSolver):
         for s in range(1, n + 1):
             self._set_q(q0 + (q - q0) * s / n)
             if not self._solve():
+                self.counts["failed_paths"] += 1
                 return False
         return True
 
@@ -184,7 +195,8 @@ class GetFEMSolver(ForwardSolver):
         n0 = self.options["load_steps"]
         if self.U is not None:                                   # from the last converged state
             q0 = q if self.q_last is None else self.q_last
-            for n in ((1,) if self.q_last is None else (1, n0, 3 * n0)):
+            sub = self.q_last is not None and self.options["warm_substeps"]
+            for n in ((1, n0, 3 * n0) if sub else (1,)):
                 if self._path(self.U, q0, q, n):
                     return self.md.variable("u").copy()
         for n in (n0, 3 * n0):                                   # ramp from the reference
@@ -201,6 +213,9 @@ class GetFEMSolver(ForwardSolver):
         if not self.use_interp:
             return U[self.surf_dof]
         return np.asarray(gf.compute_interpolate_on(self.mfu, U, self.surf_pts.T)).reshape(3, -1).T
+
+    def stats(self):
+        return dict(self.counts)
 
     def get_state(self):
         return None if self.U is None else self.U.copy()
