@@ -150,6 +150,7 @@ def main():
     ap.add_argument("--newton-tol", type=float, default=1e-11)
     ap.add_argument("--compare-fit", action="store_true")
     args = ap.parse_args()
+    sys.stdout.reconfigure(line_buffering=True)          # print progress also through | tee
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                         datefmt="%H:%M:%S")
     cfg = load_config(args.config)

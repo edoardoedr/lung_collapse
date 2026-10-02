@@ -36,6 +36,16 @@ from .common import dmat_params_dnu, mat_params
 
 log = logging.getLogger(__name__)
 wp.config.quiet = True
+
+
+class _NoCudssThreadingWarning(logging.Filter):
+    """nvmath logs this on the root logger at every cuDSS factorisation; it only concerns the
+    speed of cuDSS host-side planning."""
+    def filter(self, record):
+        return "No multithreading interface library" not in record.getMessage()
+
+
+logging.getLogger().addFilter(_NoCudssThreadingWarning())
 f64 = wp.float64
 
 DEFAULTS = {**GETFEM_DEFAULTS, "device": None, "linear_solver": None}
@@ -211,6 +221,12 @@ class LinearSolver:
                     pass
         if self.backend not in ("cudss", "pardiso", "scipy"):
             raise ValueError("warp linear_solver must be auto, cudss, pardiso or scipy")
+        if self.backend == "cudss":                     # fail here, not as a Newton failure later
+            if not device.is_cuda:
+                raise ValueError("linear_solver cudss needs a CUDA device")
+            import nvmath  # noqa: F401
+        elif self.backend == "pardiso":
+            import pypardiso  # noqa: F401
 
     def solve(self, A, B):
         if self.backend == "cudss":

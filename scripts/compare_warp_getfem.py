@@ -224,6 +224,7 @@ def main():
     ap.add_argument("--timing", action="store_true", help="also run (e)")
     ap.add_argument("--fit", action="store_true", help="also run (d), two full fits")
     args = ap.parse_args()
+    sys.stdout.reconfigure(line_buffering=True)          # print progress also through | tee
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                         datefmt="%H:%M:%S")
     cfg = load_config(args.config)
