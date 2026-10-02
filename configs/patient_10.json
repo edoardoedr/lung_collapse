@@ -110,6 +110,7 @@
     "nu_bounds": [0.05, 0.40],
     "levels": null,
     "optimizer": "lsq",
+    "jacobian": "analytic",
     "lsq_diff_step": 5e-3,
     "lsq_ftol": 1e-6,
     "lsq_xtol": 1e-6,

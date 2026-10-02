@@ -4,7 +4,9 @@
   2. sign check: q > 0 must move the surface inward (else q is flipped for this core)
   3. coarse-to-fine levels (regions from fem_setup), each warm-started from the best so far;
      per level, bounded least squares (lsq) on the point-to-point residual + smoothness between
-     adjacent regions, or Nelder-Mead (nm); Poisson's ratio optionally free
+     adjacent regions, or Nelder-Mead (nm); Poisson's ratio optionally free. The lsq Jacobian
+     comes from the core (one linear solve per column) when it provides one, else from finite
+     differences (one nonlinear solve per column)
      with a cavity wall in fem_setup, the core also keeps the surface inside it (contact)
   4. stops on: target error | time budget | plateau | levels exhausted | Ctrl+C / SIGTERM
   5. output: fitted surface (main result) + output_dir/fem/fit/ (history, checkpoints, summary)
@@ -18,6 +20,7 @@ import time
 
 import numpy as np
 from scipy.optimize import least_squares, minimize
+from scipy.optimize._numdiff import approx_derivative
 
 from ..data_io import write_surface
 from .geometry import WallDistance, assd, face_adjacency, polydata, tri_geometry, vertex_normals
@@ -53,7 +56,7 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
     pairs = region_pairs(tri_labels, ctx["adj"])
     nu_fixed = cfg.nu
     solver.set_regions(tri_labels, K)
-    trk.new_level(len(x0))
+    trk.new_level()
     stats0 = solver.stats()
     log.info("--- level %d: K=%d regions, %d parameters, %d adjacent pairs, %s ---",
              L, K, len(x0), len(pairs), cfg.optimizer)
@@ -61,18 +64,25 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
     def unpack(x):
         return (x[:K], x[K]) if cfg.free_nu else (x, nu_fixed)
 
+    last = dict(x=None, r=None, ok=False, J=None)          # last residual evaluation / Jacobian
+    jstats = dict(n=0, s=0.0, fd=0)
+
     def evaluate(x):
         trk.check()
         q, nu = unpack(x)
         t0 = time.time()
         Us = solver.solve(sign * q, nu)
         dt = time.time() - t0
+        last.update(x=np.array(x, dtype=float), ok=Us is not None)
+        if cfg.optimizer == "nm" and (trk.level_evals + 1) % (len(x0) + 1) == 0:
+            trk.iteration()
         rreg = cfg.reg * (q[pairs[:, 0]] - q[pairs[:, 1]])
         if Us is None:
             trk.n_fail += 1
             trk.log(L, K, np.nan, np.nan, nu, 0, dt)
             base = trk.level_best_r if trk.level_best_r is not None else ctx["r_zero"]
-            return np.r_[2.0 * base, rreg], np.inf
+            last["r"] = np.r_[2.0 * base, rreg]
+            return last["r"], np.inf
         r = (X_ref + Us - X_tgt).ravel()
         d = np.linalg.norm(r.reshape(-1, 3), axis=1)
         err, rms = float(d.mean()), float(np.sqrt((d ** 2).mean()))
@@ -87,13 +97,47 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
                      L, K, trk.level_evals, trk.elapsed() / 60, err, rms, nu,
                      ", ".join("%.0f" % v for v in q[:6] * cfg.E_Pa), ", ..." if K > 6 else "",
                      min(err, trk.best_err))
+        last["r"] = np.r_[r, rreg]
         trk.improve(err, r, state)
-        return np.r_[r, rreg], err + np.dot(rreg, rreg) / max(1, len(rreg))
+        return last["r"], err + np.dot(rreg, rreg) / max(1, len(rreg))
+
+    # regularisation rows of the Jacobian: d(reg (q_a - q_b))/dx, constant
+    R = np.zeros((len(pairs), len(x0)))
+    R[np.arange(len(pairs)), pairs[:, 0]] = cfg.reg
+    R[np.arange(len(pairs)), pairs[:, 1]] = -cfg.reg
+
+    def jacobian(x):
+        """Jacobian of the lsq residual [r, rreg] at x (one call per lsq iteration): from the core
+        if available (not counted as a forward evaluation), else finite differences exactly as
+        least_squares(jac="2-point") would compute them."""
+        if last["x"] is None or not np.array_equal(x, last["x"]):
+            evaluate(x)                                     # scipy normally calls fun(x) first
+        trk.iteration()
+        if not last["ok"] and last["J"] is not None:
+            return last["J"]                                # forward failed at x: last good one
+        J = None
+        if last["ok"] and cfg.jacobian == "analytic":
+            q, nu = unpack(x)
+            t0 = time.time()
+            J = solver.jacobian(sign * q, nu, cfg.free_nu)
+            if J is not None:
+                J = np.array(J, dtype=float)
+                J[:, :K] *= sign                            # the core sees sign * q
+                J = np.vstack([J, R])
+                jstats["n"] += 1
+                jstats["s"] += time.time() - t0
+        if J is None:                                       # 2-point, or core without Jacobian
+            jstats["fd"] += 1
+            J = approx_derivative(lambda z: evaluate(z)[0], x, method="2-point",
+                                  rel_step=cfg.lsq_diff_step, f0=last["r"], bounds=(lb, ub))
+        last["J"] = J
+        return J
 
     reason = "converged"
     try:
         if cfg.optimizer == "lsq":
             least_squares(lambda x: evaluate(x)[0], x0, bounds=(lb, ub), method="trf",
+                          jac=jacobian,
                           x_scale=np.maximum(np.abs(x0), 0.1), diff_step=cfg.lsq_diff_step,
                           ftol=cfg.lsq_ftol, xtol=cfg.lsq_xtol, gtol=cfg.lsq_gtol, max_nfev=100000)
         else:
@@ -103,8 +147,9 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
     except Stop as s:
         reason = s.reason
     stats = {k: v - stats0.get(k, 0) for k, v in solver.stats().items()}
-    log.info("level %d timing: %d solves, %.2f s per solve%s", L, trk.level_evals,
-             trk.level_solve_s / max(trk.level_evals, 1),
+    log.info("level %d timing: %d solves, %.2f s per solve; %d analytic Jacobians (%.2f s each), "
+             "%d by finite differences%s", L, trk.level_evals, trk.level_solve_s / max(trk.level_evals, 1),
+             jstats["n"], jstats["s"] / max(jstats["n"], 1), jstats["fd"],
              "; " + ", ".join("%s %d" % kv for kv in stats.items()) if stats else "")
     return reason, trk.level_best_err
 

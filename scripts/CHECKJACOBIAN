@@ -1,0 +1,43 @@
+Ho implementato lo jacobiano analitico. Con il finto core funziona tutto, ma la parte GetFEM qui non l'ho potuta eseguire, quindi la modifica non è verificata finché non lanci lo script di validazione sul server.
+
+Prima di usarlo per i fit, sul server lancia:
+
+
+python scripts/check_jacobian.py --config configs/karl04.json                 # senza parete
+python scripts/check_jacobian.py --config configs/karl04_wall.json            # con parete
+python scripts/check_jacobian.py --config configs/karl04.json --compare-fit   # confronto dei fit (lungo)
+Serve il fem/setup di quelle config, che hai già. Il primo comando stampa anche quali solver lineari ha la tua build di GetFEM (MUMPS / SuperLU): da qui non posso saperlo. Mi incolli l'output?
+
+Come lo valida lo script:
+
+Jacobiano: confronta ogni colonna (ogni q_k e ν) con differenze finite centrate di solve(), ripartendo sempre dallo stesso stato e con Newton a 1e-11. Senza parete l'errore relativo deve stare sotto 1e-5.
+Fit (--compare-fit): due fit completi, 2-point e analytic, in fem/fit_2-point e fem/fit_analytic. Per ogni livello riporta errori, motivo di stop, soluzioni e tempo, più le pressioni finali affiancate.
+Cosa ho verificato qui, col finto core:
+
+Lo jacobiano analitico del finto core coincide con le differenze finite (errore ~1e-11).
+Con jacobian: "2-point" il fit ripete esattamente il percorso di prima: 239 soluzioni, stessi livelli, 20,490 mm.
+Con "analytic": 21 soluzioni, 20,491 mm, pressioni entro ~1 %.
+Lo script gira dall'inizio alla fine, incluso --compare-fit.
+Cosa ho cambiato (il diff è sopra):
+
+base.py: jacobian(q, nu, with_nu) nell'interfaccia, che restituisce None di default. Ho tolto il vecchio gradient() segnaposto, mai usato.
+
+getfem_solver.py:
+
+jacobiano con un assemblaggio, una fattorizzazione (pypardiso se c'è, altrimenti SuperLU di scipy) e una colonna per regione;
+segno calibrato una volta per livello su una vera differenza del rhs, con errore se non torna entro 1e-8;
+ν per differenza centrata del solo rhs;
+con la parete il contatto resta fisso;
+nuova opzione linear_solver, default None = comportamento attuale.
+solve(), _full(), _path() e _newton() non cambiano, a parte l'opzione lsolver se impostata.
+
+fit.py:
+
+lsq riceve sempre jac=, e la chiave jacobian sceglie la modalità. Con analytic lo jacobiano viene dal core, con le righe di regolarizzazione e il segno della convenzione delle pressioni. Con 2-point (o un core senza jacobiano) usa la stessa chiamata che scipy fa internamente.
+Se la soluzione fallisce, si riusa l'ultimo jacobiano buono. Il calcolo dello jacobiano non conta come soluzione.
+La riga level N timing riporta anche il numero e il tempo degli jacobiani.
+Correzione dello stop per livello: ora level_patience conta iterazioni dell'ottimizzatore (uno jacobiano per lsq, n+1 soluzioni per Nelder-Mead) e non più soluzioni. Senza questa correzione, con lo jacobiano analitico lo stop sarebbe stato circa K volte troppo permissivo.
+
+Config: aggiunto "jacobian": "analytic" alle 4 config dei pazienti. Aggiornati il README e lo script.
+
+Il vantaggio atteso (da ~3× con K=4 a ~20× con K=25) dipende da quanto costa una fattorizzazione rispetto a una soluzione di Newton. Lo script lo misura nella riga timing:. Nessun commit.

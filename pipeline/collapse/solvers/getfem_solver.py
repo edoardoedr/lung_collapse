@@ -13,12 +13,16 @@ options (fem_fit.solver_options):
   wall_eps          [mm] width of the smooth start of the penalty (no contact / contact chatter)
   wall_max_updates  Newton / wall re-linearisation rounds per solve
   wall_settle_mm    stop the rounds when the gap data changes less than this
+  linear_solver     None = GetFEM's choice (MUMPS if built with it, else SuperLU), or a name passed
+                    to md.solve as "lsolver" (e.g. "mumps", "superlu")
 """
 
 import logging
 
 import getfem as gf
 import numpy as np
+from scipy.sparse import csc_matrix
+from scipy.sparse.linalg import splu
 from scipy.spatial import cKDTree
 
 from ..geometry import WallDistance
@@ -27,13 +31,29 @@ from .base import ForwardSolver
 log = logging.getLogger(__name__)
 
 DEFAULTS = dict(order=1, load_steps=4, newton_tol=1e-7, newton_maxit=30, pressure_sign=1.0, warm_substeps=False,
-                wall_stiffness=20.0, wall_eps=0.5, wall_max_updates=6, wall_settle_mm=0.05)
+                wall_stiffness=20.0, wall_eps=0.5, wall_max_updates=6, wall_settle_mm=0.05, linear_solver=None)
 RID_CLAMPED, RID_WALL = 10, 11
 
 
 def mat_params(nu):
     """GetFEM 'Compressible_Neo_Hookean' takes [c1, d1] = [mu/2, K/2]; here E = 1."""
     return [1.0 / (4.0 * (1.0 + nu)), 1.0 / (6.0 * (1.0 - 2.0 * nu))]
+
+
+def to_scipy(M):
+    """gf.Spmat -> scipy CSC."""
+    jc, ir = M.csc_ind()
+    m, n = M.size()
+    return csc_matrix((np.asarray(M.csc_val(), float), np.asarray(ir), np.asarray(jc)), shape=(m, n))
+
+
+def sparse_solve(A, B):
+    """A^-1 B with one factorisation for all the columns of B (pypardiso if installed)."""
+    try:
+        import pypardiso
+        return pypardiso.spsolve(A.tocsr(), np.ascontiguousarray(B))
+    except ImportError:
+        return splu(A.tocsc()).solve(B)
 
 
 class GetFEMSolver(ForwardSolver):
@@ -72,6 +92,9 @@ class GetFEMSolver(ForwardSolver):
                                "max centroid distance %.2e mm)" % (self.of.shape[1], len(problem.tris), d.max()))
         clamped = problem.clamped_tri[self.tri_of_face]
         self.mesh.set_region(RID_CLAMPED, self.of[:, clamped])
+        self.fixed_dofs = np.asarray(self.mfu.basic_dof_on_region(RID_CLAMPED), dtype=int)
+        self.free = np.setdiff1d(np.arange(self.ndof), self.fixed_dofs)
+        self._gsign = None
 
         # surface points -> their 3 vector dofs (vertex dofs sit on the mesh nodes)
         self.surf_pts = problem.reference
@@ -98,9 +121,9 @@ class GetFEMSolver(ForwardSolver):
                  "on (stiffness %g)" % o["wall_stiffness"] if self.wall else "off")
 
         self.md, self.K, self.cur_nu = None, 0, None
-        self.U, self.q_last = None, None                         # last converged state and its q
+        self.U, self.q_last, self.nu_last = None, None, None     # last converged state, its q and nu
         self.n_builds = 0
-        self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0)
+        self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0, jacobians=0)
 
     def set_regions(self, labels, n_regions):
         self.n_builds += 1
@@ -112,6 +135,10 @@ class GetFEMSolver(ForwardSolver):
         md.add_finite_strain_elasticity_brick(self.mim, "Compressible_Neo_Hookean", "u", "params")
         md.add_Dirichlet_condition_with_simplification("u", RID_CLAMPED)
         F = "(Id(meshdim)+Grad_u)"
+        self.base = base
+        # pressure term with q = 1: d(residual)/dq_k up to the sign GetFEM gives md.rhs()
+        self.g_expr = "(%g)*Det(%s)*((Inv(%s))'*Normal).Test_u" % (self.options["pressure_sign"], F, F)
+        self._gsign = None
         for k in range(n_regions):
             self.mesh.set_region(base + k, self.of[:, face_labels == k])
             md.add_initialized_data("q%d" % k, [0.0])
@@ -140,7 +167,10 @@ class GetFEMSolver(ForwardSolver):
         o = self.options
         self.counts["newton_calls"] += 1
         try:
-            r = self.md.solve("max_iter", o["newton_maxit"], "max_res", o["newton_tol"], "lsearch", "simplest")
+            args = ("max_iter", o["newton_maxit"], "max_res", o["newton_tol"], "lsearch", "simplest")
+            if o["linear_solver"]:
+                args += ("lsolver", o["linear_solver"])
+            r = self.md.solve(*args)
             conv = bool(r[1]) if isinstance(r, (tuple, list)) and len(r) > 1 else True
         except Exception:
             return False
@@ -209,10 +239,60 @@ class GetFEMSolver(ForwardSolver):
         U = self._full(q, float(nu))
         if U is None:
             return None
-        self.U, self.q_last = U, q.copy()
+        self.U, self.q_last, self.nu_last = U, q.copy(), float(nu)
         if not self.use_interp:
             return U[self.surf_dof]
         return np.asarray(gf.compute_interpolate_on(self.mfu, U, self.surf_pts.T)).reshape(3, -1).T
+
+    def jacobian(self, q, nu, with_nu=False):
+        """Sensitivities at the converged state: K_t dU/dp = d(rhs)/dp on the free dofs, with
+        one factorisation of the tangent matrix; no nonlinear solve. The rhs is linear in each
+        q_k, so its derivative is the pressure term assembled with q_k = 1 (sign calibrated once
+        per level against an actual rhs difference). With a wall, wallN / wallG are held fixed
+        (Gauss-Newton Jacobian: the gap re-linearisation is not differentiated)."""
+        q, nu = np.asarray(q, float), float(nu)
+        if (self.use_interp or self.U is None or self.q_last is None
+                or not np.array_equal(q, self.q_last) or nu != self.nu_last):
+            return None
+        md, f = self.md, self.free
+        md.set_variable("u", self.U)
+        self._set_q(q)
+        if nu != self.cur_nu:
+            md.set_variable("params", mat_params(nu))
+            self.cur_nu = nu
+        md.assembly("build_all")
+        Kt = to_scipy(md.tangent_matrix())
+        rhs0 = np.array(md.rhs(), dtype=float)
+        if Kt.shape != (self.ndof, self.ndof) or len(rhs0) != self.ndof:
+            raise RuntimeError("tangent %s / rhs %d do not match the %d dofs of u"
+                               % (Kt.shape, len(rhs0), self.ndof))
+        B = np.column_stack([np.asarray(gf.asm_generic(self.mim, 1, self.g_expr, self.base + k, md),
+                                        dtype=float)[:self.ndof] for k in range(self.K)])
+        if self._gsign is None:                                  # d(rhs)/dq_0 from a unit step
+            e0 = np.zeros(self.K)
+            e0[0] = 1.0
+            self._set_q(q + e0)
+            md.assembly("build_rhs")
+            d = np.array(md.rhs(), dtype=float)[f] - rhs0[f]
+            self._set_q(q)
+            s = 1.0 if d @ B[f, 0] >= 0 else -1.0
+            mismatch = np.linalg.norm(d - s * B[f, 0]) / max(np.linalg.norm(d), 1e-300)
+            if mismatch > 1e-8:
+                raise RuntimeError("pressure column does not match d(rhs)/dq (relative %.2e)" % mismatch)
+            self._gsign = s
+        B *= self._gsign
+        if with_nu:                                              # central difference of the rhs only
+            h, r = 1e-6, []
+            for dn in (h, -h):
+                md.set_variable("params", mat_params(nu + dn))
+                md.assembly("build_rhs")
+                r.append(np.array(md.rhs(), dtype=float))
+            md.set_variable("params", mat_params(nu))
+            B = np.column_stack([B, (r[0] - r[1]) / (2 * h)])
+        dU = np.zeros((self.ndof, B.shape[1]))
+        dU[f] = sparse_solve(Kt.tocsr()[f][:, f], B[f]).reshape(len(f), -1)
+        self.counts["jacobians"] += 1
+        return dU[self.surf_dof.ravel()]
 
     def stats(self):
         return dict(self.counts)
@@ -222,10 +302,10 @@ class GetFEMSolver(ForwardSolver):
 
     def set_state(self, state):
         self.U = None if state is None else np.asarray(state).copy()
-        self.q_last = None
+        self.q_last = self.nu_last = None
 
     def reset(self):
-        self.U, self.q_last = None, None
+        self.U, self.q_last, self.nu_last = None, None, None
 
     def export_volume(self, path, state):
         self.mfu.export_to_vtk(str(path), "ascii", self.mfu, state, "Displacement")

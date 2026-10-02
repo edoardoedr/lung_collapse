@@ -151,6 +151,7 @@ class FemFitConfig:
     nu_bounds: list = field(default_factory=lambda: [0.05, 0.40])
     levels: list | None = None         # subset of the fem_setup levels (K values); None = all
     optimizer: str = "lsq"             # lsq (bounded least squares, TRF) | nm (Nelder-Mead)
+    jacobian: str = "analytic"         # lsq: analytic (from the core; finite differences if it has none) | 2-point
     lsq_diff_step: float = 5e-3        # lsq: relative finite-difference step for the Jacobian
     lsq_ftol: float = 1e-6             # lsq: stop on relative change of the cost
     lsq_xtol: float = 1e-6             # lsq: stop on relative change of the parameters
@@ -164,7 +165,7 @@ class FemFitConfig:
     hard_grace_min: float = 10.0       # watchdog kills the run at budget + grace
     # per level: move on to the next K when the level's best error improved by less than
     # level_min_improve (relative) over the last level_patience optimiser iterations
-    # (= level_patience x (parameters + 1) forward solves)
+    # (lsq: one Jacobian each; Nelder-Mead: parameters + 1 forward solves each)
     level_patience: int = 3
     level_min_improve: float = 0.005
     # whole fit: stop when fit_patience levels in a row improve the best error by less than fit_min_improve
@@ -176,6 +177,8 @@ class FemFitConfig:
     def __post_init__(self):
         if self.optimizer not in ("lsq", "nm"):
             raise ValueError("fem_fit.optimizer must be lsq or nm")
+        if self.jacobian not in ("analytic", "2-point"):
+            raise ValueError("fem_fit.jacobian must be analytic or 2-point")
 
 
 @dataclass

@@ -22,7 +22,6 @@ class ForwardSolver(ABC):
     """
 
     name = None
-    supports_gradient = False   # True if gradient() gives d(surface displacement)/d(q, nu)
     supports_wall = False       # True if the core enforces problem.wall_*
 
     def __init__(self, problem, options):
@@ -55,6 +54,8 @@ class ForwardSolver(ABC):
         """Write the volume solution `state` for ParaView."""
         raise NotImplementedError
 
-    def gradient(self, q, nu):
-        """(3N, n_regions + 1) Jacobian of the surface displacement w.r.t. (q, nu)."""
-        raise NotImplementedError
+    def jacobian(self, q, nu, with_nu=False):
+        """d(surface displacement)/d(q[, nu]) at the last converged solve, which must be at
+        exactly (q, nu): array (3N, n_regions [+1]) with rows ordered as solve(q, nu).ravel().
+        None = not available (fem_fit then uses finite differences)."""
+        return None
