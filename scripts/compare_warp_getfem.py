@@ -3,6 +3,7 @@
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json            # a, b, c
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --timing   # + e
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --fit      # + d (long)
+    python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --wall-only  # only b and c with wall
 
 Needs the fem_setup output of the config. With a wall in the setup, (a) runs on a copy of the
 problem without it and (b) on the problem as is.
@@ -80,39 +81,56 @@ def quadrature():
           % (len(FACE_QUAD_W), np.round(np.sort(FACE_QUAD_W), 6).tolist()))
 
 
+def solve_path(s, q, nu, steps):
+    """Reach (q, nu) from the reference in `steps` load increments, each warm-started from the
+    previous one (as in the fit); [(load fraction, Us, state, Newton iterations, seconds)] up to
+    the first increment that fails."""
+    s.reset()
+    out = []
+    for k in range(1, steps + 1):
+        lam = k / steps
+        c0, t0 = s.stats(), time.time()
+        Us = s.solve(q * lam, nu)
+        if Us is None:
+            break
+        out.append((lam, Us, s.get_state(), s.stats()["newton_iters"] - c0["newton_iters"], time.time() - t0))
+    return out
+
+
 def compare_forward(tag, problem, fc, K, labels, sign):
-    print("\n[%s] forward solves from the reference, wall %s" % (tag, "on" if problem.has_wall else "off"))
+    # with a wall, a large load from the reference in one ramp does not converge (neither core):
+    # the cases are reached in 10 warm-started increments, as the fit does
+    steps = 10 if problem.has_wall else 1
+    print("\n[%s] forward solves from the reference, wall %s%s" % (tag, "on" if problem.has_wall else "off",
+          ", %d load increments per case" % steps if steps > 1 else ""))
     g, w = make("getfem", problem, fc), make("warp", problem, fc)
     for s in (g, w):
         s.set_regions(labels, K)
     wall = WallDistance(problem.wall_points, problem.wall_tris) if problem.has_wall else None
-    print("  %-6s %-5s %10s %10s %10s %8s %8s %8s %8s %10s %10s"
-          % ("p/E", "nu", "max|U|", "max diff", "mean diff", "rel", "it GF", "it Warp", "t GF", "pen GF", "pen Warp"))
+    print("  %-6s %-5s %6s %10s %10s %10s %8s %8s %8s %8s %10s %10s"
+          % ("p/E", "nu", "load", "max|U|", "max diff", "mean diff", "rel", "it GF", "it Warp", "t GF",
+             "pen GF", "pen Warp"))
     for scale, nu in CASES:
         q = sign * pressures(K, scale)
-        res = {}
-        for name, s in (("g", g), ("w", w)):
-            s.reset()
-            c0, t0 = s.stats(), time.time()
-            Us = s.solve(q, nu)
-            dt = time.time() - t0
-            it = s.stats()["newton_iters"] - c0["newton_iters"]
-            if Us is None:
-                res[name] = None
-                continue
-            U = getfem_nodal(s, problem, s.get_state()) if name == "g" else s.get_state().reshape(-1, 3)
-            pen = (max((wall(problem.reference + Us)[0] - problem.wall_allow).max(), 0.0) if wall else np.nan)
-            res[name] = (U, it, dt, pen)
-        if res["g"] is None or res["w"] is None:
-            print("  %-6.2f %-5.2f  not converged: GetFEM %s, Warp %s"
-                  % (scale, nu, res["g"] is not None, res["w"] is not None))
+        pg, pw = solve_path(g, q, nu, steps), solve_path(w, q, nu, steps)
+        n = min(len(pg), len(pw))
+        reach = "GetFEM %d%%, Warp %d%%" % (100 * len(pg) // steps, 100 * len(pw) // steps)
+        if n == 0:
+            print("  %-6.2f %-5.2f  not converged at the first increment (%s)" % (scale, nu, reach))
             continue
+        res = {}
+        for name, path in (("g", pg), ("w", pw)):
+            lam, Us, state, _, _ = path[n - 1]
+            U = getfem_nodal(g, problem, state) if name == "g" else state.reshape(-1, 3)
+            pen = (max((wall(problem.reference + Us)[0] - problem.wall_allow).max(), 0.0) if wall else np.nan)
+            res[name] = (U, sum(p[3] for p in path[:n]), sum(p[4] for p in path[:n]), pen)
         d = np.linalg.norm(res["w"][0] - res["g"][0], axis=1)
         umax = np.linalg.norm(res["g"][0], axis=1).max()
-        print("  %-6.2f %-5.2f %10.3f %10.2e %10.2e %8.1e %8d %8d %7.1fs %10.3f %10.3f"
-              % (scale, nu, umax, d.max(), d.mean(), d.max() / max(umax, 1e-30), res["g"][1], res["w"][1],
-                 res["g"][2], res["g"][3], res["w"][3]))
-    print("  target: rel < 1e-6 without wall")
+        print("  %-6.2f %-5.2f %5d%% %10.3f %10.2e %10.2e %8.1e %8d %8d %7.1fs %10.3f %10.3f%s"
+              % (scale, nu, 100 * n // steps, umax, d.max(), d.mean(), d.max() / max(umax, 1e-30), res["g"][1],
+                 res["w"][1], res["g"][2], res["g"][3], res["w"][3],
+                 "" if len(pg) == len(pw) == steps else "   (reached: %s)" % reach))
+    print("  target: rel < 1e-6 without wall; with a wall compare rel and the penetrations")
 
 
 def compare_jacobian(problem, fc, K, labels, sign, h):
@@ -124,8 +142,12 @@ def compare_jacobian(problem, fc, K, labels, sign, h):
     for name in ("warp", "getfem"):
         s = make(name, problem, fc, newton_tol=tol)
         s.set_regions(labels, K)
-        if s.solve(q, nu) is None:
-            raise SystemExit("%s: solve(q, nu) did not converge" % name)
+        steps = 10 if problem.has_wall else 1
+        path = solve_path(s, q, nu, steps)
+        if len(path) < steps:
+            print("  %s: did not reach q (stopped at %d%% of the load), Jacobian check skipped"
+                  % (name, 100 * len(path) // steps))
+            return
         U0 = s.get_state()
         t0 = time.time()
         J[name] = s.jacobian(q, nu, with_nu=True)
@@ -223,6 +245,7 @@ def main():
     ap.add_argument("--h", type=float, default=1e-5, help="finite-difference step for (c)")
     ap.add_argument("--timing", action="store_true", help="also run (e)")
     ap.add_argument("--fit", action="store_true", help="also run (d), two full fits")
+    ap.add_argument("--wall-only", action="store_true", help="only the parts with the wall (b, c with wall)")
     args = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)          # print progress also through | tee
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
@@ -243,10 +266,14 @@ def main():
     print("\nsign check: getfem %+g, warp %+g (must be equal)" % (signs["getfem"], signs["warp"]))
     sign = signs["getfem"]
 
-    compare_forward("a", without_wall(problem), fc, K, labels, sign)
+    if args.wall_only and not problem.has_wall:
+        raise SystemExit("--wall-only: the fem_setup of this config has no wall")
+    if not args.wall_only:
+        compare_forward("a", without_wall(problem), fc, K, labels, sign)
     if problem.has_wall:
         compare_forward("b", problem, fc, K, labels, sign)
-    compare_jacobian(without_wall(problem), fc, K, labels, sign, args.h)
+    if not args.wall_only:
+        compare_jacobian(without_wall(problem), fc, K, labels, sign, args.h)
     if problem.has_wall:
         compare_jacobian(problem, fc, K, labels, sign, args.h)
     if args.timing:

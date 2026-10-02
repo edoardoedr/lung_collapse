@@ -168,6 +168,28 @@ Finds the regional pleural pressures that deform the inflated lung (reference) o
 - **Analytic Jacobian (GetFEM):** at the converged state, `K_t dU/dq = d(rhs)/dq` on the free dofs, with one factorisation of the tangent matrix (pypardiso if installed, else SuperLU via scipy). The rhs is linear in each pressure, so each column is the pressure term assembled with q = 1; d/dν by a central difference of the rhs. With a wall the contact linearisation is held fixed (Gauss-Newton Jacobian). Check it against finite differences, and compare full fits, with `python scripts/check_jacobian.py --config configs/<p>.json [--compare-fit]`.
 - **Output:** `lung_fem_fit.vtp` (reference triangles at the fitted positions; point data `Displacement_mm`, `Error_mm`; cell data `PressureRegion`, `Pressure_Pa`, `Clamped`; with a wall, point data `WallPenetration_mm`, > 0 = beyond the allowed position) and `fem/fit/`: `result_summary.json`, `history.csv`, `best_state.npz`, `best_params.json`, `volume_best.vtk` (if the core can export it).
 
+### Collapse sequence (separate script)
+
+To look at one patient's collapse, after `fem_fit`. The script re-solves the FEM with the fitted pressures ramped 0 → 100 % (mode `fem`, same core and options as the fit), because the fit only stores the final state and the intermediate shapes are not a linear scaling of it. Mode `linear` is a straight morph from the inflated to the fitted shape: instant, no FEM library needed, but not the physical path.
+
+1. **Create the sequence** (where the FEM core is installed):
+   ```bash
+   python scripts/collapse_sequence.py --config configs/<p>.json      # [--frames 30] [--mode fem|linear] [--volume] [--fps 8]
+   ```
+   It writes `results/<p>/sequence/`: one `.vtp` per frame, `collapse.pvd` for ParaView, the target, the hilum spheres and `load_collapse_in_slicer.py`. The folder is self-contained.
+2. **Copy the folder to the machine with Slicer**, e.g. from the Jupyter server: `cd results/<p> && zip -r sequence_<p>.zip sequence`, then right click on the zip in the Jupyter file browser → Download, and unzip it.
+3. **Open it in 3D Slicer**, either way:
+   - Slicer closed, from a terminal (macOS path; adapt it if Slicer is installed elsewhere):
+     ```bash
+     /Applications/Slicer.app/Contents/MacOS/Slicer --python-script <folder>/sequence/load_collapse_in_slicer.py
+     ```
+   - Slicer open: View → Python Console, then
+     ```python
+     exec(open('<folder>/sequence/load_collapse_in_slicer.py').read())
+     ```
+
+   The lung collapse plays in a loop, coloured by displacement (blue = still, red = largest displacement); the grey wireframe is the target (collapsed lung) and the spheres are the hilum. Pause or scrub the load with the Sequences toolbar.
+
 ## Outputs
 
 ```
