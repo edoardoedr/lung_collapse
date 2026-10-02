@@ -7,6 +7,8 @@ scipy
 scikit-learn    # fem_setup: pressure regions (Ward)
 gmsh            # fem_setup: tetrahedral mesh
 
-# FEM cores for fem_fit, only the one selected in the config is needed. Not on PyPI:
+# FEM cores for fem_fit, only the one selected in the config is needed (GetFEM is not on PyPI):
 #   getfem  conda install -c conda-forge getfem    (linux-64, osx-64, win-64; 5.4.4)
 #           or Ubuntu: apt install python3-getfem  (system Python, built against numpy<2)
+#   warp    pip install warp-lang                    (NVIDIA Warp, GPU or CPU; P1 only)
+#           optional linear solvers: pip install "nvmath-python[cu12]" (cuDSS, GPU) / pypardiso (CPU)

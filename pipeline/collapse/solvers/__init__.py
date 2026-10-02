@@ -7,6 +7,7 @@ import importlib
 
 SOLVERS = {
     "getfem": "pipeline.collapse.solvers.getfem_solver:GetFEMSolver",
+    "warp": "pipeline.collapse.solvers.warp_solver:WarpSolver",
 }
 
 

@@ -27,17 +27,11 @@ from scipy.spatial import cKDTree
 
 from ..geometry import WallDistance
 from .base import ForwardSolver
+from .common import DEFAULTS, mat_params
 
 log = logging.getLogger(__name__)
 
-DEFAULTS = dict(order=1, load_steps=4, newton_tol=1e-7, newton_maxit=30, pressure_sign=1.0, warm_substeps=False,
-                wall_stiffness=20.0, wall_eps=0.5, wall_max_updates=6, wall_settle_mm=0.05, linear_solver=None)
 RID_CLAMPED, RID_WALL = 10, 11
-
-
-def mat_params(nu):
-    """GetFEM 'Compressible_Neo_Hookean' takes [c1, d1] = [mu/2, K/2]; here E = 1."""
-    return [1.0 / (4.0 * (1.0 + nu)), 1.0 / (6.0 * (1.0 - 2.0 * nu))]
 
 
 def to_scipy(M):

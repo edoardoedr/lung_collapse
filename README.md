@@ -37,7 +37,8 @@ pipeline/
     fit.py            fem_fit: coarse-to-fine pressure fit, talks only to solvers/base.py
     problem.py        CollapseProblem, the arrays passed from setup to fit and to the core
     anchor.py, regions.py, volume_mesh.py, geometry.py, run_control.py
-    solvers/          FEM cores: base.py (interface), getfem_solver.py
+    solvers/          FEM cores: base.py (interface), common.py (options, material),
+                      getfem_solver.py, warp_solver.py
 Input_Data/           patient data (not in git)
 results/              pipeline outputs (not in git)
 pipeline_codes_v1/    original scripts
@@ -54,6 +55,7 @@ Requires Python ≥ 3.10.
 `fem_fit` also needs the library of the FEM core selected in the config, which is not on PyPI and is imported only by that step:
 
 - **GetFEM:** `conda install -c conda-forge getfem` (linux-64, osx-64, win-64), or on Ubuntu `apt install python3-getfem` with the system Python (built against `numpy<2`).
+- **Warp:** `pip install warp-lang`, optionally `"nvmath-python[cu12]"` (cuDSS on GPU) and `pypardiso`.
 
 ## Running
 
@@ -162,6 +164,7 @@ Finds the regional pleural pressures that deform the inflated lung (reference) o
   - *a level* ends when the optimiser converges (`lsq_*` tolerances) or when its best error improved by less than `level_min_improve` (relative, default 0.5 %) over the last `level_patience` optimiser iterations (default 3, i.e. 3 × (parameters + 1) solves); the fit then moves to the next K. On karl04 this would have cut 84 to ~32 min with the same error up to K=14 (the lsq tolerances alone kept going 50–200 solves past the last improvement);
   - an *iteration* is one Jacobian for lsq, `parameters + 1` solves for Nelder-Mead;
   - *the whole fit* ends on `target_error_mm`, `time_budget_min`, `fit_patience` levels in a row improving by less than `fit_min_improve`, the end of the levels, or Ctrl+C / SIGTERM. The best result is checkpointed on improvement, and a watchdog kills the run at budget + `hard_grace_min`, so a forced stop keeps the best solution.
+- **Warp core (`"solver": "warp"`):** same physics, options and load path as the GetFEM core, P1 only, assembled with NVIDIA Warp kernels in float64 on GPU (or CPU); extra options `device` and `linear_solver` (`auto`, `cudss`, `pardiso`, `scipy`). Newton reproduces GetFEM's classical Newton with the "simplest" line search, and the wall term uses the IM_TRIANGLE(3) face rule; both are to be confirmed against GetFEM with `python scripts/compare_warp_getfem.py --config configs/<p>.json [--timing] [--fit]` (forward solves with and without wall, Jacobian, full fit, timing).
 - **Analytic Jacobian (GetFEM):** at the converged state, `K_t dU/dq = d(rhs)/dq` on the free dofs, with one factorisation of the tangent matrix (pypardiso if installed, else SuperLU via scipy). The rhs is linear in each pressure, so each column is the pressure term assembled with q = 1; d/dν by a central difference of the rhs. With a wall the contact linearisation is held fixed (Gauss-Newton Jacobian). Check it against finite differences, and compare full fits, with `python scripts/check_jacobian.py --config configs/<p>.json [--compare-fit]`.
 - **Output:** `lung_fem_fit.vtp` (reference triangles at the fitted positions; point data `Displacement_mm`, `Error_mm`; cell data `PressureRegion`, `Pressure_Pa`, `Clamped`; with a wall, point data `WallPenetration_mm`, > 0 = beyond the allowed position) and `fem/fit/`: `result_summary.json`, `history.csv`, `best_state.npz`, `best_params.json`, `volume_best.vtk` (if the core can export it).
 
