@@ -26,7 +26,9 @@ class Tracker:
         self.t0 = time.time()
         self.budget = cfg.time_budget_min * 60.0
         self.target = cfg.target_error_mm
-        self.level_cap = cfg.level_max_evals
+        self.level_patience, self.level_min_improve = cfg.level_patience, cfg.level_min_improve
+        self.n_params = 1
+        self.level_hist = []                    # best error of the level after each solve
         self.outdir = outdir
         self.best_err, self.best = np.inf, None
         self.level_evals, self.level_best_err, self.level_best_r = 0, np.inf, None
@@ -45,18 +47,23 @@ class Tracker:
             raise Stop(self.stop_requested)
         if self.elapsed() > self.budget:
             raise Stop("time budget")
-        if self.level_evals >= self.level_cap:
-            raise Stop("level eval cap")
+        W = self.level_patience * (self.n_params + 1)
+        h = self.level_hist
+        if len(h) > W and h[-1 - W] - h[-1] < self.level_min_improve * h[-1]:
+            raise Stop("level plateau")
 
-    def new_level(self):
+    def new_level(self, n_params):
         self.level_evals, self.level_best_err, self.level_best_r = 0, np.inf, None
         self.level_solve_s = 0.0
+        self.n_params, self.level_hist = n_params, []
 
     def log(self, level, K, err, rms, nu, ok, solve_s):
         self.n_eval += 1
         self.level_evals += 1
         self.solve_s += solve_s
         self.level_solve_s += solve_s
+        prev = self.level_hist[-1] if self.level_hist else np.inf
+        self.level_hist.append(min(prev, err) if ok else prev)
         self.hist.write("%d,%d,%d,%.3f,%.5f,%.5f,%.4f,%d,%.3f\n"
                         % (self.n_eval, level, K, self.elapsed() / 60, err, rms, nu, ok, solve_s))
         if self.n_eval % 10 == 0:

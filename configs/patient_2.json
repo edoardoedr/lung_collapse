@@ -121,8 +121,9 @@
     "target_error_mm": 2.5,
     "time_budget_min": 240.0,
     "hard_grace_min": 10.0,
-    "level_max_evals": 600,
-    "patience": 2,
-    "min_improve": 0.02
+    "level_patience": 3,
+    "level_min_improve": 0.005,
+    "fit_patience": 2,
+    "fit_min_improve": 0.02
   }
 }

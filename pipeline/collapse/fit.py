@@ -53,7 +53,7 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
     pairs = region_pairs(tri_labels, ctx["adj"])
     nu_fixed = cfg.nu
     solver.set_regions(tri_labels, K)
-    trk.new_level()
+    trk.new_level(len(x0))
     stats0 = solver.stats()
     log.info("--- level %d: K=%d regions, %d parameters, %d adjacent pairs, %s ---",
              L, K, len(x0), len(pairs), cfg.optimizer)
@@ -162,10 +162,10 @@ def run(cfg):
             if reason in ("target error reached", "time budget") or reason.startswith("signal"):
                 stop_reason = reason
                 break
-            stall = stall + 1 if imp < cfg.min_improve else 0
+            stall = stall + 1 if imp < cfg.fit_min_improve else 0
             prev = trk.best_err
-            if stall >= cfg.patience:
-                stop_reason = "plateau (%d levels < %.0f%% gain)" % (stall, 100 * cfg.min_improve)
+            if stall >= cfg.fit_patience:
+                stop_reason = "fit plateau (%d levels < %.0f%% gain)" % (stall, 100 * cfg.fit_min_improve)
                 break
     trk.close()
 

@@ -162,9 +162,14 @@ class FemFitConfig:
     target_error_mm: float = 2.5       # stop when the mean error reaches this
     time_budget_min: float = 240.0
     hard_grace_min: float = 10.0       # watchdog kills the run at budget + grace
-    level_max_evals: int = 600         # forward solves per level (finite differences included)
-    patience: int = 2                  # stop after this many levels improving less than min_improve
-    min_improve: float = 0.02
+    # per level: move on to the next K when the level's best error improved by less than
+    # level_min_improve (relative) over the last level_patience optimiser iterations
+    # (= level_patience x (parameters + 1) forward solves)
+    level_patience: int = 3
+    level_min_improve: float = 0.005
+    # whole fit: stop when fit_patience levels in a row improve the best error by less than fit_min_improve
+    fit_patience: int = 2
+    fit_min_improve: float = 0.02
     setup: Path | None = None          # set to output_dir/fem/setup
     workdir: Path | None = None        # set to output_dir/fem/fit
 
