@@ -3,7 +3,7 @@
   "patient": "karl04",
   "data_dir": "../Input_Data/karl04",
   "output_dir": "../results/karl04_wall",
-  "steps": ["check_inputs", "surface_mesh", "hilum", "registration","fem_setup", "fem_fit"],
+  "steps": ["fem_setup", "fem_fit"],
 
   "check_inputs": {
     "_comment": "inputs null = taken from the other sections (surface_mesh.input, registration.inflated, hilum.structures). Findings are warnings unless fail_on_warning",
@@ -87,7 +87,7 @@
     "anchor_min_points": 20,
     "anchor_growth": 1.1,
     "anchor_max_growth_steps": 10,
-    "wall": "lung_inflated_mesh.vtp",
+    "wall": "lung_right.vtk",
     "wall_tol_mm": 2.0,
     "align": "hilum_rigid",
     "cluster_field": "rigid_residual",
