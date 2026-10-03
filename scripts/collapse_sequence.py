@@ -9,7 +9,7 @@ the best fitted pressures ramped 0 -> 100 %% (quasi-static load path, each frame
 the previous one) with the same core and solver options as fem_fit; mode "linear" is a straight
 morph from the inflated to the fitted shape.
 
-Output, output_dir/sequence/ (self-contained: copy the folder to the machine with Slicer):
+Output, output_dir/sequence/ (sequence_<run_name>/ for a fem_fit.run_name other than "fit"; self-contained: copy the folder to the machine with Slicer):
   frame_000.vtp ...           surface per frame: Displacement_mm, Disp_mag_mm, Error_mm,
                               Pressure_Pa, PressureRegion (+ WallDistance_mm with a wall)
   volume_000.vtk ...          volume frames (--volume)
@@ -54,7 +54,7 @@ def make_sequence(cfg, frames, mode, volume, fps):
     sign = json.loads(summary.read_text()).get("pressure_sign", 1.0) if summary.is_file() else 1.0
     K = len(q)
     X_ref, X_tgt, tris = problem.reference, problem.target, problem.tris
-    out = cfg.output_dir / "sequence"
+    out = cfg.output_dir / ("sequence" if fit.run_name == "fit" else "sequence_" + fit.run_name)
     out.mkdir(parents=True, exist_ok=True)
     for old in list(out.glob("frame_*.vtp")) + list(out.glob("volume_*.vtk")):
         old.unlink()

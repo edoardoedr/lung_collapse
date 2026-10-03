@@ -55,7 +55,7 @@ def main():
     # main results go in output_dir, everything else in sub-folders
     log_dir = cfg.output_dir / "logs"
     setup_logging(log_dir)
-    shutil.copy(cfg.source, log_dir / "config_used.json")
+    shutil.copy(cfg.source, log_dir / ("config_used_%s.json" % cfg.source.stem))
     log.info("patient %s, config %s", cfg.patient, cfg.source)
 
     for name, run in STEPS.items():

@@ -172,8 +172,10 @@ class FemFitConfig:
     # whole fit: stop when fit_patience levels in a row improve the best error by less than fit_min_improve
     fit_patience: int = 2
     fit_min_improve: float = 0.02
+    run_name: str = "fit"              # sub-folder of output_dir/fem for this fit: several fits
+                                       # (e.g. other cores) can share one fem_setup
     setup: Path | None = None          # set to output_dir/fem/setup
-    workdir: Path | None = None        # set to output_dir/fem/fit
+    workdir: Path | None = None        # set to output_dir/fem/<run_name>
 
     def __post_init__(self):
         if self.optimizer not in ("lsq", "nm"):
@@ -286,7 +288,9 @@ def load_config(path):
         fem_fit = _section(FemFitConfig, raw["fem_fit"], "fem_fit")
         fem_fit.output = output_dir / fem_fit.output
         fem_fit.setup = output_dir / "fem" / "setup"
-        fem_fit.workdir = output_dir / "fem" / "fit"
+        if fem_fit.run_name in ("", "setup") or "/" in fem_fit.run_name or "\\" in fem_fit.run_name:
+            raise ValueError("fem_fit.run_name must be a plain folder name other than 'setup'")
+        fem_fit.workdir = output_dir / "fem" / fem_fit.run_name
 
     return PipelineConfig(patient=raw["patient"], data_dir=data_dir, output_dir=output_dir,
                           steps=list(raw.get("steps", [])), source=path, check_inputs=check_inputs,

@@ -133,6 +133,7 @@ Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Ou
 | Key | Default | What it is | Range |
 |---|---|---|---|
 | `output` | – (required) | Fitted surface (main result). | file name, `.vtp` |
+| `run_name` | `fit` | Folder of this fit in `output_dir/fem/` (history, checkpoint, summary). Several fits, e.g. with other cores, can share one `fem_setup`: the `_warp` / `_torch` configs use `fit_warp` / `fit_torch` and a different `output`. | folder name, not `setup` |
 | `solver` | `getfem` | FEM core. `warp` and `torch` share the same Newton, load path and wall code (`solvers/nodal.py`) and differ only in the assembly; `torch` also accepts other materials. | `getfem`, `warp`, `torch`, or `module:Class` |
 | `solver_options` | `{}` | Options passed to the core, see [below](#solver_options). | dict |
 | `E_Pa` | 3000 | Young's modulus. Only scales the reported pressures: from shapes alone only p / E can be found. | any > 0 (literature for lung: ~1–5 kPa) |

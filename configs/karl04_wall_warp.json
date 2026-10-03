@@ -1,9 +1,9 @@
 {
-  "_comment": "data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
-  "patient": "patient_10",
-  "data_dir": "../Input_Data/patient_10",
-  "output_dir": "../results/patient_10",
-  "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
+  "_comment": "warp core on the fem_setup of karl04_wall.json (same output_dir; run that config up to fem_setup first, this one writes fem/fit_warp). data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
+  "patient": "karl04",
+  "data_dir": "../Input_Data/karl04",
+  "output_dir": "../results/karl04_wall",
+  "steps": ["fem_fit"],
 
   "check_inputs": {
     "_comment": "inputs null = taken from the other sections (surface_mesh.input, registration.inflated, hilum.structures). Findings are warnings unless fail_on_warning",
@@ -21,7 +21,7 @@
   },
 
   "surface_mesh": {
-    "input": "lung_left_collapsed.vtk",
+    "input": "lung_right_collapsed.vtk",
     "output": "lung_collapsed_mesh.vtp",
     "input_space": "auto",
     "output_space": "LPS",
@@ -40,7 +40,7 @@
 
   "registration": {
     "_comment": "inflated/collapsed: labelmap or closed surface; collapsed null = rasterise the step-2 surface. direction: forward (fixed = collapsed, no inversion) | inverse (fixed = inflated, as in Slicer)",
-    "inflated": "lung_left.vtk",
+    "inflated": "lung_right.vtk",
     "inflated_label": null,
     "collapsed": null,
     "collapsed_label": null,
@@ -55,8 +55,8 @@
     "output_space": "LPS",
     "raster_spacing_mm": 1.0,
     "crop_margin_mm": 20.0,
-    "parameter_maps": ["rigid", "bspline"],
-    "parameter_files": ["elastix/Parameters_Rigid.txt", "elastix/Parameters_BSpline.txt"],
+    "parameter_maps": ["rigid", "affine", "bspline"],
+    "parameter_files": ["elastix/Parameters_Rigid.txt", "elastix/Parameters_Affine.txt", "elastix/Parameters_BSpline.txt"],
     "parameter_overrides": {},
     "random_seed": 42,
     "inversion_tol_mm": 1e-3,
@@ -67,7 +67,7 @@
   },
   "hilum": {
     "_comment": "per structure the largest intersection ring with the lung surface; hilum = centroid of the ring centres. lung must be from the same scan as the trees",
-    "lung": "lung_left_collapsed.vtk",
+    "lung": "lung_right_collapsed.vtk",
     "structures": {
       "airways": "lung_airways.vtk",
       "arteries": "lung_arteries.vtk",
@@ -100,11 +100,12 @@
 
   "fem_fit": {
     "_comment": "solver: name in pipeline/collapse/solvers or 'module:Class'; solver_options go to the core",
-    "output": "lung_fem_fit.vtp",
-    "solver": "getfem",
+    "output": "lung_fem_fit_warp.vtp",
+    "run_name": "fit_warp",
+    "solver": "warp",
     "solver_options": {"order": 1, "load_steps": 8, "newton_tol": 1e-7, "newton_maxit": 30, "warm_substeps": true,
                        "wall_stiffness": 20.0, "wall_eps": 0.5, "wall_max_updates": 6, "wall_settle_mm": 0.05,
-                       "wall_update": "outer"},
+                       "wall_update": "newton", "device": null, "linear_solver": null},
     "E_Pa": 3000.0,
     "nu": 0.40,
     "free_nu": false,

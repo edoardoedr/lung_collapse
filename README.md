@@ -92,6 +92,16 @@ Path rules:
 
 An unknown key raises an error, so a typo cannot be silently ignored. Keys starting with `_` are comments.
 
+Per patient there are three configs, with the same FEM parameters (those found best on karl04: mesh 14 mm, ν = 0.40 fixed, 8 load steps, analytic Jacobian):
+
+| Config | Core | Runs | Fit written to |
+|---|---|---|---|
+| `<p>.json` | GetFEM | the whole pipeline | `fem/fit/`, `lung_fem_fit.vtp` |
+| `<p>_warp.json` | Warp | only `fem_fit`, on the `fem_setup` of `<p>.json` | `fem/fit_warp/`, `lung_fem_fit_warp.vtp` |
+| `<p>_torch.json` | PyTorch | only `fem_fit`, on the `fem_setup` of `<p>.json` | `fem/fit_torch/`, `lung_fem_fit_torch.vtp` |
+
+The variants share the base config's `output_dir` (key `fem_fit.run_name` chooses the fit folder), so run `<p>.json` at least up to `fem_setup` first. With a wall the Warp / torch variants use `wall_update: "newton"` (contact inside Newton, not yet validated on a full fit; `"outer"` is the GetFEM-equivalent fallback). karl04 has the same three for `karl04` (no wall) and `karl04_wall`.
+
 ## Steps
 
 ### 1b · Input check (`check_inputs`)
@@ -203,11 +213,11 @@ results/patient_<N>/
 ├── lung_inflated_mesh.vtp      inflated lung, same nodes (registration)
 ├── hilum_anchor.mrk.json       3 ring centres + hilum, each a sphere with its radius
 ├── lung_fem_fit.vtp            inflated lung deformed by the fitted pressures (fem_fit)
-├── logs/                       pipeline.log, config_used.json
+├── logs/                       pipeline.log, config_used_<config name>.json
 ├── checks/                     input check: collapsed_check.vtp, inflated_check.vtp, check_summary.json
 ├── registration/               masks, elastix log and transforms (TransformParameters.*-Composite.h5 loads in Slicer)
 ├── hilum/                      rings.vtp (all rings, cell data Structure / Hilar), hilum_anchor.json
-└── fem/                        setup/ (problem.npz, reference.vtp, target_aligned.vtp, volume.vtu, gmsh/), fit/
+└── fem/                        setup/ (problem.npz, reference.vtp, target_aligned.vtp, volume.vtu, gmsh/), fit/ (fit_warp/, fit_torch/)
 ```
 
 All surfaces are in LPS, with the space stored in the file.

@@ -1,9 +1,9 @@
 {
-  "_comment": "data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
+  "_comment": "warp core on the fem_setup of patient_10.json (same output_dir; run that config up to fem_setup first, this one writes fem/fit_warp). data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
   "patient": "patient_10",
   "data_dir": "../Input_Data/patient_10",
   "output_dir": "../results/patient_10",
-  "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
+  "steps": ["fem_fit"],
 
   "check_inputs": {
     "_comment": "inputs null = taken from the other sections (surface_mesh.input, registration.inflated, hilum.structures). Findings are warnings unless fail_on_warning",
@@ -100,11 +100,12 @@
 
   "fem_fit": {
     "_comment": "solver: name in pipeline/collapse/solvers or 'module:Class'; solver_options go to the core",
-    "output": "lung_fem_fit.vtp",
-    "solver": "getfem",
+    "output": "lung_fem_fit_warp.vtp",
+    "run_name": "fit_warp",
+    "solver": "warp",
     "solver_options": {"order": 1, "load_steps": 8, "newton_tol": 1e-7, "newton_maxit": 30, "warm_substeps": true,
                        "wall_stiffness": 20.0, "wall_eps": 0.5, "wall_max_updates": 6, "wall_settle_mm": 0.05,
-                       "wall_update": "outer"},
+                       "wall_update": "newton", "device": null, "linear_solver": null},
     "E_Pa": 3000.0,
     "nu": 0.40,
     "free_nu": false,
