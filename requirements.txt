@@ -12,3 +12,5 @@ gmsh            # fem_setup: tetrahedral mesh
 #           or Ubuntu: apt install python3-getfem  (system Python, built against numpy<2)
 #   warp    pip install warp-lang                    (NVIDIA Warp, GPU or CPU; P1 only)
 #           optional linear solvers: pip install "nvmath-python[cu12]" (cuDSS, GPU) / pypardiso (CPU)
+#   torch   pip install torch                        (PyTorch >= 2.0, CPU or CUDA; P1; any material in materials.py)
+#           same optional linear solvers as warp

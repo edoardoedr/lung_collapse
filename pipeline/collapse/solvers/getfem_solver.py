@@ -63,7 +63,7 @@ class GetFEMSolver(ForwardSolver):
         super().__init__(problem, {**DEFAULTS, **options})
         o = self.options
         if o["wall_update"] != "outer":
-            raise ValueError("getfem solver: wall_update must be 'outer' ('newton' is warp only)")
+            raise ValueError("getfem solver: wall_update must be 'outer' ('newton' is for warp and torch)")
         try:
             gf.util_trace_level(0)
             gf.util_warning_level(0)

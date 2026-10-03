@@ -3,8 +3,10 @@
     python scripts/check_jacobian.py --config configs/karl04.json
     python scripts/check_jacobian.py --config configs/karl04_wall.json
     python scripts/check_jacobian.py --config configs/karl04.json --compare-fit
+    python scripts/check_jacobian.py --config configs/karl04.json --solver torch --options '{"device": "cpu"}'
 
-Needs the fem_setup output of the config (run the pipeline up to fem_setup first).
+Needs the fem_setup output of the config (run the pipeline up to fem_setup first). --solver / --options
+override fem_fit.solver / solver_options (GetFEM's linear_solver is dropped when switching core).
 
 1. Jacobian check: converges solve(q, nu) at a non-trivial q on one level, then compares every
    column of solver.jacobian(q, nu, with_nu=True) with central finite differences of solve(),
@@ -107,10 +109,10 @@ def check(cfg, args):
           % (t_solve, K + 1, t_jac, t_fd))
 
 
-def compare_fit(cfg):
+def compare_fit(cfg, tag=""):
     fc, rows = cfg.fem_fit, {}
     for mode in ("2-point", "analytic"):
-        wd = fc.workdir.parent / ("fit_" + mode)
+        wd = fc.workdir.parent / ("fit_" + mode + tag)
         c = dataclasses.replace(fc, jacobian=mode, workdir=wd, output=wd / "lung_fem_fit.vtp")
         t0 = time.time()
         fit.run(c)
@@ -149,14 +151,22 @@ def main():
     ap.add_argument("--h", type=float, default=1e-5, help="finite-difference step on q and nu")
     ap.add_argument("--newton-tol", type=float, default=1e-11)
     ap.add_argument("--compare-fit", action="store_true")
+    ap.add_argument("--solver", help="core to check instead of fem_fit.solver (getfem, warp, torch)")
+    ap.add_argument("--options", default="{}", help="JSON merged into solver_options")
     args = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)          # print progress also through | tee
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                         datefmt="%H:%M:%S")
     cfg = load_config(args.config)
+    fc = cfg.fem_fit
+    opts = dict(fc.solver_options)
+    if args.solver and args.solver != fc.solver:
+        opts.pop("linear_solver", None)
+    opts.update(json.loads(args.options))
+    cfg = dataclasses.replace(cfg, fem_fit=dataclasses.replace(fc, solver=args.solver or fc.solver, solver_options=opts))
     check(cfg, args)
     if args.compare_fit:
-        compare_fit(cfg)
+        compare_fit(cfg, "_" + args.solver if args.solver else "")
 
 
 if __name__ == "__main__":

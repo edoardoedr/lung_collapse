@@ -1,14 +1,15 @@
-"""Validate the Warp core against the GetFEM core on a real case (run where both are installed).
+"""Validate the Warp (or torch) core against the GetFEM core on a real case (run where both are installed).
 
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json            # a, b, c
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --timing   # + e
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --fit      # + d (long)
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --wall-only  # only b and c with wall
+    python scripts/compare_warp_getfem.py --config configs/karl04.json --core torch    # torch instead of Warp
 
 Needs the fem_setup output of the config. With a wall in the setup, (a) runs on a copy of the
 problem without it and (b) on the problem as is.
 
-  0. face quadrature: GetFEM's IM_TETRAHEDRON(3) face rule vs the one hard-coded in warp_solver
+  0. face quadrature: GetFEM's IM_TETRAHEDRON(3) face rule vs the one hard-coded in nodal.py
   a. no wall: same mesh, several (q, nu) up to large collapse, solved from the reference by both
      -> max / mean nodal |U_warp - U_getfem| (relative to max |U|), Newton iterations of both
   b. wall: same, plus the residual penetration of both
@@ -16,7 +17,7 @@ problem without it and (b) on the problem as is.
      with a wall 1e-8 and h >= 1e-4, the contact penalty being only C1),
      and vs GetFEMSolver.jacobian
   d. full fit with each core (analytic Jacobian): errors, stop reasons, solves, time, pressures
-  e. Warp timing per forward solve and per Jacobian, for linear_solver cudss / pardiso / scipy,
+  e. Warp / torch timing per forward solve and per Jacobian, for linear_solver cudss / pardiso / scipy,
      split into assembly and linear solve
 """
 
@@ -37,9 +38,11 @@ from pipeline.collapse import fit                                    # noqa: E40
 from pipeline.collapse.geometry import WallDistance                  # noqa: E402
 from pipeline.collapse.problem import CollapseProblem                # noqa: E402
 from pipeline.collapse.solvers import get_solver                     # noqa: E402
-from pipeline.collapse.solvers.warp_solver import FACE_QUAD_B, FACE_QUAD_W  # noqa: E402
+from pipeline.collapse.solvers.nodal import FACE_QUAD_B, FACE_QUAD_W       # noqa: E402
 from pipeline.config import load_config                              # noqa: E402
 
+CORE = "warp"                                    # core compared with GetFEM (--core)
+C = {"it": "it Warp", "pen": "pen Warp"}
 CASES = [(0.2, 0.30), (0.5, 0.30), (1.0, 0.30), (1.0, 0.40), (2.0, 0.40)]   # (mean p/E, nu)
 
 
@@ -50,8 +53,8 @@ def without_wall(problem):
 
 def make(name, problem, fc, **opts):
     o = dict(fc.solver_options)
-    if name == "warp":
-        o.pop("linear_solver", None)                    # GetFEM names (mumps, ...) mean nothing to Warp
+    if name != "getfem":
+        o.pop("linear_solver", None)                    # GetFEM names (mumps, ...) mean nothing to Warp / torch
     o.update(opts)
     return get_solver(name)(problem, o)
 
@@ -77,7 +80,7 @@ def quadrature():
         print("  GetFEM points (reference tet coords):\n%s" % np.round(pts.T if pts.shape[0] == 3 else pts, 6))
     except Exception as e:
         print("  could not read GetFEM face points: %s" % e)
-    print("  warp_solver IM_TRIANGLE(3): %d points, weights = %s"
+    print("  nodal.py IM_TRIANGLE(3): %d points, weights = %s"
           % (len(FACE_QUAD_W), np.round(np.sort(FACE_QUAD_W), 6).tolist()))
 
 
@@ -103,18 +106,18 @@ def compare_forward(tag, problem, fc, K, labels, sign):
     steps = 10 if problem.has_wall else 1
     print("\n[%s] forward solves from the reference, wall %s%s" % (tag, "on" if problem.has_wall else "off",
           ", %d load increments per case" % steps if steps > 1 else ""))
-    g, w = make("getfem", problem, fc), make("warp", problem, fc)
+    g, w = make("getfem", problem, fc), make(CORE, problem, fc)
     for s in (g, w):
         s.set_regions(labels, K)
     wall = WallDistance(problem.wall_points, problem.wall_tris) if problem.has_wall else None
     print("  %-6s %-5s %6s %10s %10s %10s %8s %8s %8s %8s %10s %10s"
-          % ("p/E", "nu", "load", "max|U|", "max diff", "mean diff", "rel", "it GF", "it Warp", "t GF",
-             "pen GF", "pen Warp"))
+          % ("p/E", "nu", "load", "max|U|", "max diff", "mean diff", "rel", "it GF", C["it"], "t GF",
+             "pen GF", C["pen"]))
     for scale, nu in CASES:
         q = sign * pressures(K, scale)
         pg, pw = solve_path(g, q, nu, steps), solve_path(w, q, nu, steps)
         n = min(len(pg), len(pw))
-        reach = "GetFEM %d%%, Warp %d%%" % (100 * len(pg) // steps, 100 * len(pw) // steps)
+        reach = "GetFEM %d%%, " + CORE + " %d%%" % (100 * len(pg) // steps, 100 * len(pw) // steps)
         if n == 0:
             print("  %-6.2f %-5.2f  not converged at the first increment (%s)" % (scale, nu, reach))
             continue
@@ -139,7 +142,7 @@ def compare_jacobian(problem, fc, K, labels, sign, h):
     print("\n[c] Jacobian, wall %s, newton_tol %g, h %g" % ("on" if problem.has_wall else "off", tol, h))
     q, nu = sign * pressures(K, 0.5), fc.nu
     J = {}
-    for name in ("warp", "getfem"):
+    for name in (CORE, "getfem"):
         s = make(name, problem, fc, newton_tol=tol)
         s.set_regions(labels, K)
         steps = 10 if problem.has_wall else 1
@@ -152,12 +155,12 @@ def compare_jacobian(problem, fc, K, labels, sign, h):
         t0 = time.time()
         J[name] = s.jacobian(q, nu, with_nu=True)
         print("  %s jacobian: %.2f s" % (name, time.time() - t0))
-        if name == "warp":
+        if name == CORE:
             def at(qq, nn):
                 s.set_state(U0)
                 r = s.solve(qq, nn)
                 if r is None:
-                    raise SystemExit("warp finite-difference solve did not converge")
+                    raise SystemExit(CORE + " finite-difference solve did not converge")
                 return r.ravel()
             fd = []
             for c in range(K + 1):
@@ -167,21 +170,21 @@ def compare_jacobian(problem, fc, K, labels, sign, h):
                     fd.append((at(q + e, nu) - at(q - e, nu)) / (2 * h))
                 else:
                     fd.append((at(q, nu + h) - at(q, nu - h)) / (2 * h))
-    print("  %-6s %14s %16s" % ("column", "Warp vs FD", "Warp vs GetFEM"))
+    print("  %-6s %14s %16s" % ("column", CORE + " vs FD", CORE + " vs GetFEM"))
     for c in range(K + 1):
-        jw, jg = J["warp"][:, c], J["getfem"][:, c]
+        jw, jg = J[CORE][:, c], J["getfem"][:, c]
         print("  %-6s %14.2e %16.2e" % ("q%d" % c if c < K else "nu",
                                         np.linalg.norm(jw - fd[c]) / np.linalg.norm(fd[c]),
                                         np.linalg.norm(jw - jg) / np.linalg.norm(jg)))
-    print("  target: Warp vs FD < 1e-5 without wall")
+    print("  target: " + CORE + " vs FD < 1e-5 without wall")
 
 
 def timing(problem, fc, K, labels, sign):
-    print("\n[e] Warp timing (one forward solve from the reference, one Jacobian)")
+    print("\n[e] " + CORE + " timing (one forward solve from the reference, one Jacobian)")
     q, nu = sign * pressures(K, 0.5), fc.nu
     for backend in ("cudss", "pardiso", "scipy"):
         try:
-            s = make("warp", problem, fc, linear_solver=backend)
+            s = make(CORE, problem, fc, linear_solver=backend)
         except Exception as e:
             print("  %-8s unavailable (%s)" % (backend, str(e).splitlines()[0][:80]))
             continue
@@ -202,10 +205,10 @@ def timing(problem, fc, K, labels, sign):
 
 def compare_fit(cfg):
     fc, rows = cfg.fem_fit, {}
-    for name in ("getfem", "warp"):
+    for name in ("getfem", CORE):
         wd = fc.workdir.parent / ("fit_" + name)
         opts = dict(fc.solver_options)
-        if name == "warp":
+        if name != "getfem":
             opts.pop("linear_solver", None)
         c = dataclasses.replace(fc, solver=name, solver_options=opts, jacobian="analytic", workdir=wd,
                                 output=wd / "lung_fem_fit.vtp")
@@ -217,8 +220,8 @@ def compare_fit(cfg):
         e = pv.read(wd / "lung_fem_fit.vtp")["Error_mm"]
         res["rms_err_mm"] = float(np.sqrt((e ** 2).mean()))
         rows[name] = res
-    a, b = rows["getfem"], rows["warp"]
-    print("\n[d] full fit\n%-22s %18s %18s" % ("", "getfem", "warp"))
+    a, b = rows["getfem"], rows[CORE]
+    print("\n[d] full fit\n%-22s %18s %18s" % ("", "getfem", CORE))
     for k in ("mean_err_mm", "rms_err_mm", "assd_mm", "max_err_mm", "nu", "evals", "wall_time_min", "stop_reason"):
         fmt = "%18s" if isinstance(a[k], str) else "%18.3f"
         print("%-22s " % k + fmt % a[k] + " " + fmt % b[k])
@@ -245,8 +248,12 @@ def main():
     ap.add_argument("--h", type=float, default=1e-5, help="finite-difference step for (c)")
     ap.add_argument("--timing", action="store_true", help="also run (e)")
     ap.add_argument("--fit", action="store_true", help="also run (d), two full fits")
+    ap.add_argument("--core", default="warp", choices=("warp", "torch"), help="core compared with GetFEM")
     ap.add_argument("--wall-only", action="store_true", help="only the parts with the wall (b, c with wall)")
     args = ap.parse_args()
+    global CORE
+    CORE = args.core
+    C.update(it="it " + CORE, pen="pen " + CORE)
     sys.stdout.reconfigure(line_buffering=True)          # print progress also through | tee
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                         datefmt="%H:%M:%S")
@@ -260,10 +267,10 @@ def main():
 
     quadrature()
     signs = {}
-    for name in ("getfem", "warp"):
+    for name in ("getfem", CORE):
         s = make(name, without_wall(problem), fc)
         signs[name] = fit.sign_check(s, without_wall(problem), fc)
-    print("\nsign check: getfem %+g, warp %+g (must be equal)" % (signs["getfem"], signs["warp"]))
+    print("\nsign check: getfem %+g, %s %+g (must be equal)" % (signs["getfem"], CORE, signs[CORE]))
     sign = signs["getfem"]
 
     if args.wall_only and not problem.has_wall:

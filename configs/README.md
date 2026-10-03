@@ -133,7 +133,7 @@ Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Ou
 | Key | Default | What it is | Range |
 |---|---|---|---|
 | `output` | – (required) | Fitted surface (main result). | file name, `.vtp` |
-| `solver` | `getfem` | FEM core. | `getfem`, `warp`, or `module:Class` |
+| `solver` | `getfem` | FEM core. `warp` and `torch` share the same Newton, load path and wall code (`solvers/nodal.py`) and differ only in the assembly; `torch` also accepts other materials. | `getfem`, `warp`, `torch`, or `module:Class` |
 | `solver_options` | `{}` | Options passed to the core, see [below](#solver_options). | dict |
 | `E_Pa` | 3000 | Young's modulus. Only scales the reported pressures: from shapes alone only p / E can be found. | any > 0 (literature for lung: ~1–5 kPa) |
 | `nu` | 0.30 | Poisson's ratio: fixed value, or start value if `free_nu`. | 0.05–0.45 (0.5 = incompressible, not allowed) |
@@ -172,11 +172,11 @@ A **level** ends on the first of: lsq convergence (`lsq_*`) or level plateau. Th
 
 ### `solver_options`
 
-Common to `getfem` and `warp` unless noted. The defaults are in [`pipeline/collapse/solvers/common.py`](../pipeline/collapse/solvers/common.py).
+Common to `getfem`, `warp` and `torch` unless noted. The defaults are in [`pipeline/collapse/solvers/common.py`](../pipeline/collapse/solvers/common.py).
 
 | Key | Default | What it is | Range |
 |---|---|---|---|
-| `order` | 1 | Finite element order. 2 = more accurate, no volumetric locking, much slower; `warp` supports only 1. | 1, 2 |
+| `order` | 1 | Finite element order. 2 = more accurate, no volumetric locking, much slower; `warp` and `torch` support only 1. | 1, 2 |
 | `load_steps` | 4 | Load ramp from zero when a solve cannot start from the previous one (retried with 3 × steps). More = more robust, slower restarts. | 4–16 |
 | `newton_tol` | 1e-7 | Newton tolerance. | 1e-9–1e-6 |
 | `newton_maxit` | 30 | Newton iterations per load step. | 20–50 |
@@ -184,11 +184,13 @@ Common to `getfem` and `warp` unless noted. The defaults are in [`pipeline/colla
 | `warm_substeps` | `false` | If the direct step from the previous solution fails, first retry in `load_steps` and 3 × `load_steps` sub-steps from it, before restarting from zero. Useful with a wall; without wall it can cost failed attempts. | `true` with a wall, `false` without |
 | `wall_stiffness` | 20.0 | Wall penalty stiffness [E per mm of penetration]. Higher = less penetration, harder Newton. | 5–100 |
 | `wall_eps` | 0.5 | Width [mm] of the smooth start of the penalty. Larger = smoother contact, easier Newton, more penetration. | 0.1–2 |
-| `wall_update` | `outer` | How the contact is solved. `outer`: Newton with the wall linearisation fixed, alternated with re-linearisations (both cores). `newton`: the wall is re-linearised at every Newton iteration, a single Newton solve (warp only; much faster with a wall). | `outer`; `newton` (warp) |
+| `wall_update` | `outer` | How the contact is solved. `outer`: Newton with the wall linearisation fixed, alternated with re-linearisations (both cores). `newton`: the wall is re-linearised at every Newton iteration, a single Newton solve (`warp` and `torch`; much faster with a wall). | `outer`; `newton` (warp, torch) |
 | `wall_max_updates` | 6 | `outer` only: maximum Newton / re-linearisation rounds per solve. | 2–10 |
 | `wall_settle_mm` | 0.05 | `outer` only: rounds stop when the contact data change less than this. | 0.01–0.5 mm |
-| `linear_solver` | `null` | Sparse linear solver. `getfem`: `null` = MUMPS if available, or a GetFEM name (`mumps`, `superlu`). `warp`: `null`/`auto`, `cudss` (GPU), `pardiso` (CPU, `pypardiso`), `scipy`. Do not copy a GetFEM value into a `warp` config. | see left |
-| `device` | `null` | `warp` only: device, e.g. `cuda:0` or `cpu`. `null` = GPU if available. | Warp device name |
+| `linear_solver` | `null` | Sparse linear solver. `getfem`: `null` = MUMPS if available, or a GetFEM name (`mumps`, `superlu`). `warp` and `torch`: `null`/`auto`, `cudss` (GPU), `pardiso` (CPU, `pypardiso`), `scipy`. Do not copy a GetFEM value into a `warp` / `torch` config. | see left |
+| `device` | `null` | `warp` and `torch`: device, e.g. `cuda:0` or `cpu`. `null` = GPU if available. `torch` refuses `mps` (Apple GPU): float32 only and no sparse solver, Newton would not converge. | Warp / torch device name |
+| `material` | `neo_hookean` | `torch` only: material, a name in [`solvers/materials.py`](../pipeline/collapse/solvers/materials.py). `neo_hookean` = the GetFEM / Warp material. | `neo_hookean`, `mooney_rivlin`, or one you add |
+| `material_params` | `{}` | `torch` only: the material's fixed parameters, e.g. `{"c01_fraction": 0.3}` for `mooney_rivlin` (share of the shear stiffness in the I2 term; 0 = Neo-Hookean). | depends on the material |
 
 ## Quick recipes
 

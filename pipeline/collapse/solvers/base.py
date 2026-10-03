@@ -8,7 +8,7 @@ class ForwardSolver(ABC):
 
     Contract:
       - reference configuration = problem.nodes / problem.tets (mm, LPS);
-      - compressible Neo-Hookean, non-dimensional with E = 1: the unknowns are q = p / E per
+      - hyperelastic (compressible Neo-Hookean unless the core offers others), non-dimensional with E = 1: the unknowns are q = p / E per
         region and Poisson's ratio nu (only p / E is identifiable from shapes);
       - u = 0 on the triangles with problem.clamped_tri;
       - every other surface triangle carries the follower pressure (Nanson: J F^-T N) of its
