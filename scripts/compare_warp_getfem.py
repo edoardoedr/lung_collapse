@@ -117,7 +117,7 @@ def compare_forward(tag, problem, fc, K, labels, sign):
         q = sign * pressures(K, scale)
         pg, pw = solve_path(g, q, nu, steps), solve_path(w, q, nu, steps)
         n = min(len(pg), len(pw))
-        reach = "GetFEM %d%%, " + CORE + " %d%%" % (100 * len(pg) // steps, 100 * len(pw) // steps)
+        reach = "GetFEM %d%%, %s %d%%" % (100 * len(pg) // steps, CORE, 100 * len(pw) // steps)
         if n == 0:
             print("  %-6.2f %-5.2f  not converged at the first increment (%s)" % (scale, nu, reach))
             continue
