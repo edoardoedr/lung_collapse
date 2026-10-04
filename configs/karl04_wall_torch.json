@@ -105,7 +105,7 @@
     "solver": "torch",
     "solver_options": {"order": 1, "load_steps": 8, "newton_tol": 1e-7, "newton_maxit": 30, "warm_substeps": true,
                        "wall_stiffness": 20.0, "wall_eps": 0.5, "wall_max_updates": 6, "wall_settle_mm": 0.05,
-                       "wall_update": "newton", "device": null, "linear_solver": null,
+                       "wall_update": "outer", "device": null, "linear_solver": null,
                        "material": "neo_hookean", "material_params": {}},
     "E_Pa": 3000.0,
     "nu": 0.40,

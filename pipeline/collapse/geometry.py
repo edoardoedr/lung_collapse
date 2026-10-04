@@ -63,24 +63,47 @@ def rotation_deg(R):
 
 
 class WallDistance:
-    """Signed distance to a closed surface (> 0 outside) and the outward direction at the points.
+    """Distance to a closed surface (> 0 outside) and the outward direction, for the wall contact.
+
+    __call__ gives the contact data, continuous in X: closest point on the surface, normal =
+    area-weighted vertex normals interpolated at it (barycentric), phi = (X - closest point) . normal.
+    The raw gradient of the distance would be the direction to the closest point, which on an
+    edge or vertex (and the "reference" wall has the lung's surface nodes on its vertices) turns
+    arbitrarily under tiny displacements; Newton cannot converge on that.
+    distance() is the exact signed distance (reports, checks).
 
     The surface must have outward triangles (positive signed_volume)."""
 
     def __init__(self, points, tris):
+        self.P = np.asarray(points, float)
+        self.T = np.asarray(tris, np.int64)
+        self.surf = polydata(self.P, self.T)
+        self.N = vertex_normals(self.P, self.T)
         self.f = vtkImplicitPolyDataDistance()
-        self.f.SetInput(polydata(points, tris))
+        self.f.SetInput(self.surf)
 
     def distance(self, X):
         return np.array([self.f.EvaluateFunction(x) for x in np.asarray(X, float)])
 
     def __call__(self, X):
-        phi, n, g = np.empty(len(X)), np.empty((len(X), 3)), [0.0, 0.0, 0.0]
-        for i, x in enumerate(np.asarray(X, float)):
-            phi[i] = self.f.EvaluateFunction(x)
-            self.f.EvaluateGradient(x, g)
-            n[i] = g
-        return phi, n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        X = np.atleast_2d(np.asarray(X, float))
+        cell, cp = self.surf.find_closest_cell(X, return_closest_point=True)
+        return self._contact(X, np.atleast_1d(cell), np.atleast_2d(cp))
+
+    def _contact(self, X, cell, cp):
+        """(phi, n) from the closest triangle and point of each X."""
+        tri = self.T[cell]
+        a, b, c = self.P[tri[:, 0]], self.P[tri[:, 1]], self.P[tri[:, 2]]
+        v0, v1, v2 = b - a, c - a, cp - a
+        d00, d01, d11 = (v0 * v0).sum(1), (v0 * v1).sum(1), (v1 * v1).sum(1)
+        d20, d21 = (v2 * v0).sum(1), (v2 * v1).sum(1)
+        den = np.maximum(d00 * d11 - d01 * d01, 1e-300)
+        wb, wc = (d11 * d20 - d01 * d21) / den, (d00 * d21 - d01 * d20) / den
+        w = np.clip(np.column_stack([1.0 - wb - wc, wb, wc]), 0.0, None)
+        w /= np.maximum(w.sum(1, keepdims=True), 1e-300)
+        n = np.einsum("ik,ikj->ij", w, self.N[tri])
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        return np.einsum("ij,ij->i", X - cp, n), n
 
 
 def assd(PA, PB, tris):

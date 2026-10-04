@@ -46,7 +46,7 @@ Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output.
   - `<p>.json`: GetFEM, whole pipeline, fit in `fem/fit/`;
   - `<p>_warp.json`, `<p>_torch.json`: steps `["fem_fit"]` only, same `output_dir`, `fem_fit.run_name` = `fit_warp` / `fit_torch`, so they reuse the base config's `fem_setup`.
 - Cases: `karl04` (no wall), `karl04_wall`, `patient_2`, `patient_10` (both with wall). patient_2 registration uses rigid + affine + B-spline; patient_10 rigid + B-spline.
-- With a wall the Warp/torch variants use `wall_update: "newton"` (not yet validated, see below); GetFEM can only do `"outer"`.
+- With a wall all variants use `wall_update: "outer"` (GetFEM can only do that); `"newton"` (Warp/torch) is under test, see below.
 - Patients' `fem_setup` must be re-run after the mesh-size change (8 → 14 mm) before their fits.
 - Unknown keys raise an error; `_`-prefixed keys are comments; paths: `data_dir`/`output_dir` relative to the JSON, inputs to `data_dir`, outputs to `output_dir`, `null` inputs come from the previous step.
 
@@ -87,7 +87,7 @@ Changing material elsewhere: Warp needs new `nh_P`/`nh_dP` and `_dfint_dnu`; Get
 
 ## Open problems / next steps
 
-- **Validate `wall_update: "newton"`** (torch/Warp): `compare_warp_getfem.py --config configs/karl04_wall.json --core torch --wall-only --jac-q 0.1 --core-options '{"wall_update": "newton"}'`; expect reaching 100 % load, penetration close to GetFEM. If it fails, set `"outer"` in the six wall variants.
+- **Wall convergence.** First test of `wall_update: "newton"` (torch, raw distance gradient as normal): worse than `outer` (10 % of p/E 0.2 vs 50 %). Cause found: `vtkImplicitPolyDataDistance` gradient = direction to the closest point, which jumps across edges/vertices, and with `wall: "reference"` every lung node starts on a wall vertex. Fixed in `WallDistance.__call__`: interpolated vertex normal at the closest point, phi measured along it (sphere test: normal jump per 0.02 mm step 0.07° vs 8.8° before). This changes the wall data of all cores (GetFEM too). To re-test: the same compare command with and without `--core-options '{"wall_update": "newton"}'`; if `newton` then reaches 100 % load with penetration close to GetFEM, switch the six wall variants back to `"newton"`.
 - Full fits with torch/Warp (`karl04_torch.json`, then wall and patients) compared with GetFEM's `fem/fit/result_summary.json`.
 - max|U| ≈ 380–400 mm without wall at p/E 0.2–1 (likely non-physical: the lung is unconstrained except at the hilum).
 - Wall penetration ~1.7 mm beyond the allowed position (penalty stiffness).
