@@ -11,7 +11,8 @@ options (fem_fit.solver_options):
   pressure_sign     +1 / -1, sign of the pressure term (q > 0 must collapse)
   wall_stiffness    contact penalty [E per mm of penetration]; 20 -> ~0.05-0.1 mm residual penetration
   wall_eps          [mm] width of the smooth start of the penalty (no contact / contact chatter)
-  wall_max_updates  Newton / wall re-linearisation rounds per solve
+  wall_max_updates  Newton / wall re-linearisation rounds per solve; a solve that has not settled
+                    by then fails (it may have slid through the linearised wall)
   wall_settle_mm    stop the rounds when the gap data changes less than this
   wall_update       "outer": Newton / wall re-linearisation rounds (the only mode here; "newton",
                     the wall updated at every Newton iteration, is implemented by the warp core)
@@ -219,8 +220,10 @@ class GetFEMSolver(ForwardSolver):
             if not self._newton():
                 return False
             if self._update_wall() < self.options["wall_settle_mm"]:
-                break
-        return True
+                return True
+        # not settled: the state may have slid through the linearised wall (karl04: up to 98 mm)
+        self.counts["fail_unsettled"] = self.counts.get("fail_unsettled", 0) + 1
+        return False
 
     def _path(self, U0, q0, q, n):
         """n sub-steps from state (U0, q0) to q; True if all converged."""

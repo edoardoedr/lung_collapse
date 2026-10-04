@@ -26,7 +26,7 @@ options: the GetFEMSolver ones (order must be 1), plus
   slow_ramp      true: when a solve fails also retry with 3 x load_steps (sub-)steps; false = fail fast
 
 Failed Newton runs are counted by reason in stats() (fail_inverted, fail_maxit, fail_linear,
-fail_nonfinite, fail_time). With self.trace = [] every Newton iteration is appended to it
+fail_nonfinite, fail_time; fail_unsettled = wall rounds exhausted without settling). With self.trace = [] every Newton iteration is appended to it
 (scripts/wall_diagnose.py).
 
 Known differences from GetFEM, by construction (see scripts/compare_warp_getfem.py):
@@ -204,7 +204,8 @@ class NodalSolver(ForwardSolver):
         self.Ucur = np.zeros(self.ndof)                          # current Newton state
         self.nu = 0.3
         self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0, jacobians=0,
-                           fail_inverted=0, fail_maxit=0, fail_linear=0, fail_nonfinite=0, fail_time=0)
+                           fail_inverted=0, fail_maxit=0, fail_linear=0, fail_nonfinite=0, fail_time=0,
+                           fail_unsettled=0)
         self._deadline = np.inf
         self.trace = None                                        # list -> per-iteration Newton records
         self.times = dict(assembly_s=0.0, linear_s=0.0, assemblies=0, linear_solves=0)
@@ -374,8 +375,9 @@ class NodalSolver(ForwardSolver):
             if self.trace is not None:
                 self.trace.append(dict(event="wall", change=change))
             if change < self.options["wall_settle_mm"]:
-                break
-        return True
+                return True
+        # not settled: the state may have slid through the linearised wall (karl04: up to 98 mm)
+        return self._fail("unsettled")
 
     def _path(self, U0, q0, q, n):
         """n sub-steps from state (U0, q0) to q; True if all converged."""

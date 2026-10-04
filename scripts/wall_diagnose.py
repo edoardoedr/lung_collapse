@@ -31,7 +31,7 @@ from pipeline.collapse.solvers import get_solver                     # noqa: E40
 from pipeline.collapse.solvers.nodal import NodalSolver              # noqa: E402
 from pipeline.config import load_config                              # noqa: E402
 
-FAILS = ("fail_inverted", "fail_maxit", "fail_linear", "fail_nonfinite", "fail_time")
+FAILS = ("fail_inverted", "fail_maxit", "fail_linear", "fail_nonfinite", "fail_time", "fail_unsettled")
 
 
 def min_J(s, U):
@@ -89,7 +89,7 @@ def main():
              o["wall_eps"], o["wall_settle_mm"], o["wall_max_updates"], o["load_steps"], o["warm_substeps"],
              o["slow_ramp"], o["max_solve_s"]))
     print("%5s %4s %6s %6s %6s %6s %-34s %8s %9s %8s %7s %7s"
-          % ("load", "ok", "newton", "iters", "rounds", "paths", "failures (inverted/maxit/linear/nan/time)",
+          % ("load", "ok", "newton", "iters", "rounds", "paths", "failures (inv/maxit/lin/nan/time/unsettled)",
              "time s", "contact", "pen mm", "max|U|", "min J"))
     rows, failed_trace = [], None
     s.reset()
