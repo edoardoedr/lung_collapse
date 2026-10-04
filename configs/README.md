@@ -111,7 +111,7 @@ Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Ou
 | `reference` | `null` | Inflated surface = undeformed FEM configuration. `null` = registration output. | file or `null` |
 | `target` | `null` | Collapsed surface to reach, same nodes. `null` = step-2 mesh. | file or `null` |
 | `anchor` | `null` | Markups with the hilum. `null` = hilum output. | file or `null` |
-| `anchor_point` | `hilum` | Point of `anchor` that centres the clamped region (u = 0). | `hilum`, `airways`, `arteries`, `veins` |
+| `anchor_point` | `hilum` | Point(s) of the anchor file whose spheres make the clamped (fixed) region: one name, or a list for the union of their balls, e.g. `["hilum", "airways", "arteries", "veins"]` (the hilar ring centres of each structure, step 3). Only the first ball grows to reach `anchor_min_points`; the others are added as they are. A larger clamp resists the lung's rotation about the hilum (karl04 25 → 62 clamped triangles, patient_10 23 → 53; on patient_2 the vessel balls lie inside the grown hilum ball). The configs use the four points. | names in the anchor file |
 | `anchor_radius_factor` | 2.0 | Clamp radius = sphere radius of `anchor_point` × this (about 30 mm for a 15 mm hilum). Larger = more of the lung held fixed. | 1.5–3 |
 | `anchor_min_points` | 20 | The clamp radius grows until it holds at least this many surface points (and is not flat), otherwise the FEM has free rigid motions. | 10–40 |
 | `anchor_growth` | 1.1 | Factor of each radius growth step. | 1.05–1.3 |

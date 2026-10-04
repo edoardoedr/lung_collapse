@@ -2,7 +2,8 @@
 
   1. reference (inflated, registration output) and target (collapsed) surfaces with the same
      nodes, outward triangles, watertight
-  2. clamped hilum region: triangles within (hilum sphere radius x anchor_radius_factor)
+  2. clamped region: triangles within (sphere radius x anchor_radius_factor) of the anchor point(s):
+     the hilum, optionally also the airway / artery / vein ring centres (union of the balls)
   3. rigid alignment of the target (default: on the clamped points, consistent with u = 0 there)
   4. optional cavity wall: closed surface the lung may not leave during the collapse, "reference"
      = the registered inflated surface itself (allowed outward margin per point = wall_tol_mm +
@@ -57,16 +58,26 @@ def run(cfg):
              signed_volume(X_ref, tris) / 1000, signed_volume(X_raw, tris) / 1000, len(X_ref), len(tris))
 
     # 2. clamped hilum
-    center = read_fiducials(cfg.anchor).get(cfg.anchor_point)
-    sphere = read_fiducial_radii(cfg.anchor).get(cfg.anchor_point)
-    if center is None or sphere is None:
-        raise RuntimeError("%s has no sphere point '%s' (run the hilum step)" % (cfg.anchor.name, cfg.anchor_point))
-    clamped, radius, sv = clamped_triangles(X_ref, tris, center, sphere * cfg.anchor_radius_factor,
-                                            cfg.anchor_min_points, cfg.anchor_growth, cfg.anchor_max_growth_steps)
+    names = [cfg.anchor_point] if isinstance(cfg.anchor_point, str) else list(cfg.anchor_point)
+    fid, rad = read_fiducials(cfg.anchor), read_fiducial_radii(cfg.anchor)
+    missing = [n for n in names if fid.get(n) is None or rad.get(n) is None]
+    if missing:
+        raise RuntimeError("%s has no sphere point(s) %s (run the hilum step; available: %s)"
+                           % (cfg.anchor.name, missing, ", ".join(sorted(rad))))
+    centers = np.array([fid[n] for n in names])
+    spheres = np.array([rad[n] for n in names])
+    clamped, grown, sv = clamped_triangles(X_ref, tris, centers, spheres * cfg.anchor_radius_factor,
+                                           cfg.anchor_min_points, cfg.anchor_growth, cfg.anchor_max_growth_steps)
     cpts = np.unique(tris[clamped])
-    log.info("clamp: '%s' sphere %.1f mm x %.2f -> radius %.1f mm, %d triangles / %d points "
-             "(singular values %.1f %.1f %.1f)", cfg.anchor_point, sphere, cfg.anchor_radius_factor,
-             radius, clamped.sum(), len(cpts), *sv)
+    radii = spheres * cfg.anchor_radius_factor
+    radii[0] *= grown                                         # only the first ball grows
+    center = centers[0]
+    log.info("clamp: %s, spheres %s mm x %.2f%s -> radii %s mm; %d triangles / %d points, up to %.0f mm "
+             "from '%s' (singular values %.1f %.1f %.1f)", "+".join(names),
+             "/".join("%.1f" % s for s in spheres), cfg.anchor_radius_factor,
+             " (%s grown x%.2f)" % (names[0], grown) if grown > 1 else "", "/".join("%.1f" % r for r in radii),
+             clamped.sum(), len(cpts), np.linalg.norm(X_ref[cpts] - center, axis=1).max(), names[0], *sv)
+    radius = float(radii.max())
 
     # 3. rigid alignment of the target
     w_hil = np.zeros(len(X_ref))
@@ -149,7 +160,8 @@ def run(cfg):
 
     (out / "setup_summary.json").write_text(json.dumps(dict(
         reference=str(cfg.reference), target=str(cfg.target), anchor=str(cfg.anchor),
-        anchor_point=cfg.anchor_point, anchor_center_lps=center.tolist(), anchor_sphere_radius_mm=sphere,
+        anchor_point=cfg.anchor_point, anchor_center_lps=centers.tolist(), anchor_sphere_radius_mm=spheres.tolist(),
+        clamp_radii_mm=radii.tolist(),
         anchor_radius_factor=cfg.anchor_radius_factor, clamp_radius_mm=radius,
         clamped_triangles=int(clamped.sum()), clamped_points=int(len(cpts)),
         align=cfg.align, rigid_full_deg=ang, rigid_clamp_deg=ang_h,

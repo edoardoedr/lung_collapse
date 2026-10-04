@@ -114,8 +114,9 @@ class FemSetupConfig:
     reference: Path | None = None      # inflated surface (data_dir); None = registration output
     target: Path | None = None         # collapsed surface, same nodes (data_dir); None = surface_mesh output
     anchor: Path | None = None         # .mrk.json (data_dir); None = hilum output
-    anchor_point: str = "hilum"        # point whose sphere centres the clamped region
-    anchor_radius_factor: float = 2.0  # clamp radius = sphere radius of anchor_point x this
+    anchor_point: str | list = "hilum" # point(s) of the anchor file whose spheres make the clamped region,
+                                       # e.g. ["hilum", "airways", "arteries", "veins"] (union of the balls)
+    anchor_radius_factor: float = 2.0  # each ball radius = that point's sphere radius x this
     anchor_min_points: int = 20        # clamp radius grows until it holds this many points (rank 3)
     anchor_growth: float = 1.1
     anchor_max_growth_steps: int = 10

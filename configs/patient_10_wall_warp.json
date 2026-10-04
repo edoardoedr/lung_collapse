@@ -82,7 +82,7 @@
     "reference": null,
     "target": null,
     "anchor": null,
-    "anchor_point": "hilum",
+    "anchor_point": ["hilum", "airways", "arteries", "veins"],
     "anchor_radius_factor": 2.0,
     "anchor_min_points": 20,
     "anchor_growth": 1.1,
