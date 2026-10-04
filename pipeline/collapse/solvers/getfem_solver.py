@@ -15,6 +15,9 @@ options (fem_fit.solver_options):
   wall_settle_mm    stop the rounds when the gap data changes less than this
   wall_update       "outer": Newton / wall re-linearisation rounds (the only mode here; "newton",
                     the wall updated at every Newton iteration, is implemented by the warp core)
+  wall_quadrature   "face": wall term with the displacement's integration method (IM_TETRAHEDRON(3)
+                    faces, negative centre weight); "nodal": IM_NC(3,1), the face vertices with
+                    positive weights, each node's force depends on its own gap
   max_solve_s       None, or seconds after which one solve() gives up (counted as failed; checked
                     before each Newton run, so it can overrun by one Newton run)
   slow_ramp         true: when a solve fails also retry with 3 x load_steps (sub-)steps; false =
@@ -34,7 +37,7 @@ from scipy.spatial import cKDTree
 
 from ..geometry import WallDistance
 from .base import ForwardSolver
-from .common import DEFAULTS, mat_params, ramps
+from .common import DEFAULTS, WALL_QUADRATURES, mat_params, ramps
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +70,8 @@ class GetFEMSolver(ForwardSolver):
             raise ValueError("unknown getfem solver option(s): %s" % ", ".join(unknown))
         super().__init__(problem, {**DEFAULTS, **options})
         o = self.options
+        if o["wall_quadrature"] not in WALL_QUADRATURES:
+            raise ValueError("getfem solver: wall_quadrature must be one of %s" % ", ".join(WALL_QUADRATURES))
         if o["wall_update"] != "outer":
             raise ValueError("getfem solver: wall_update must be 'outer' ('newton' is for warp and torch)")
         try:
@@ -119,9 +124,11 @@ class GetFEMSolver(ForwardSolver):
             self.mfs.set_classical_fem(o["order"])
             self.surf_sdof = idx[:, 0] // 3
             self.mesh.set_region(RID_WALL, self.of[:, ~clamped])
+            self.mim_wall = (self.mim if o["wall_quadrature"] == "face"
+                             else gf.MeshIm(self.mesh, gf.Integ("IM_NC(3,1)")))
         log.info("GetFEM: %d nodes, %d tets, %d dofs (P%d), %d clamped faces, wall %s",
                  self.mesh.nbpts(), self.mesh.nbcvs(), self.ndof, o["order"], clamped.sum(),
-                 "on (stiffness %g)" % o["wall_stiffness"] if self.wall else "off")
+                 "on (stiffness %g, quadrature %s)" % (o["wall_stiffness"], o["wall_quadrature"]) if self.wall else "off")
 
         self.md, self.K, self.cur_nu = None, 0, None
         self.U, self.q_last, self.nu_last = None, None, None     # last converged state, its q and nu
@@ -158,7 +165,7 @@ class GetFEMSolver(ForwardSolver):
             # penalty k*f(g), g = penetration beyond the allowed position, f a C1 ramp:
             # 0 (g < 0), g^2/(2e) (0 < g < e), g - e/2 (g > e)
             g, e = "(u.wallN - wallG)", self.options["wall_eps"]
-            md.add_nonlinear_term(self.mim, "(%g)*(sqr(pos_part(%s)) - sqr(pos_part(%s - %g)))*(wallN.Test_u)"
+            md.add_nonlinear_term(self.mim_wall, "(%g)*(sqr(pos_part(%s)) - sqr(pos_part(%s - %g)))*(wallN.Test_u)"
                                   % (self.options["wall_stiffness"] / (2 * e), g, g, e), RID_WALL)
         self.md, self.K, self.cur_nu = md, n_regions, 0.3
         self.q_last = None                                       # q of another partition

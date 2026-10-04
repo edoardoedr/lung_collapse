@@ -13,7 +13,7 @@ import numpy as np
 import warp as wp
 
 from .common import dmat_params_dnu, mat_params
-from .nodal import FACE_QUAD_B, FACE_QUAD_W, LinearSolver, NodalSolver
+from .nodal import LinearSolver, NodalSolver
 
 log = logging.getLogger(__name__)
 wp.config.quiet = True
@@ -182,8 +182,8 @@ class WarpSolver(NodalSolver):
         if self.wall is not None:
             self.wActive = wp.array((~self.clamped).astype(np.int32), dtype=wp.int32, device=dev)
             self.wArea0 = wp.array(self.area0, dtype=f64, device=dev)
-            self.wQB = wp.array(FACE_QUAD_B, dtype=wp.vec3d, device=dev)
-            self.wQW = wp.array(FACE_QUAD_W, dtype=f64, device=dev)
+            self.wQB = wp.array(self.qb, dtype=wp.vec3d, device=dev)
+            self.wQW = wp.array(self.qw, dtype=f64, device=dev)
         self._log_setup(dev)
 
     def _assemble(self, U, compute_K, pressure=True, wall=True, c=None):
@@ -207,7 +207,7 @@ class WarpSolver(NodalSolver):
                       inputs=[wU, self.wF, self.wActive, self.wArea0,
                               wp.array(self.wallN, dtype=wp.vec3d, device=dev),
                               wp.array(self.wallG, dtype=f64, device=dev),
-                              self.wQB, self.wQW, len(FACE_QUAD_W),
+                              self.wQB, self.wQW, len(self.qw),
                               f64(self.options["wall_stiffness"] / (2.0 * e)), f64(e), k, self.wf, self.wFb])
         ok = self.wJ.numpy().min() > 0.0
         R = self.wf.numpy().ravel().copy() if ok else None

@@ -22,7 +22,7 @@ import torch
 from torch.func import grad, jacfwd, jvp, vmap
 
 from .materials import MATERIALS, det3
-from .nodal import FACE_QUAD_B, FACE_QUAD_W, LinearSolver, NodalSolver
+from .nodal import LinearSolver, NodalSolver
 
 log = logging.getLogger(__name__)
 
@@ -126,11 +126,11 @@ class TorchSolver(NodalSolver):
         if self.wall is not None:
             self.tActive = fe.tensor(~self.clamped)
             self.tArea0 = fe.tensor(self.area0)
-            self.tQB, self.tQW = fe.tensor(FACE_QUAD_B), fe.tensor(FACE_QUAD_W)
+            self.tQB, self.tQW = fe.tensor(self.qb), fe.tensor(self.qw)
         self._log_setup(fe.device, ", material %s %s" % (o["material"], o["material_params"] or ""))
 
     def _wall(self, U, compute_K):
-        """c (pos(g)^2 - pos(g-e)^2) wallN.du on the reference faces (IM_TRIANGLE(3)), wallN / wallG
+        """c (pos(g)^2 - pos(g-e)^2) wallN.du on the reference faces (wall_quadrature), wallN / wallG
         held fixed; tangent 2c (pos(g) - pos(g-e)) (wallN x wallN) N_r N_s."""
         fe, faces = self.fem, self.fem.faces
         e = float(self.options["wall_eps"])

@@ -19,6 +19,9 @@ options: the GetFEMSolver ones (order must be 1), plus
                  and the outer rounds disappear; at convergence it solves the same equations
                  (gap = signed distance - allowed margin), without the wall_settle_mm tolerance
   linear_solver  auto | cudss (nvmath-python, CUDA) | pardiso (pypardiso) | scipy (SuperLU); None = auto
+  wall_quadrature  "face": wall term with the IM_TRIANGLE(3) face rule (= GetFEM's IM_TETRAHEDRON(3),
+                 negative centre weight); "nodal": vertex rule, positive weights 1/3, each node's
+                 force depends on its own gap (lumped / node-to-surface penalty)
   max_solve_s    None, or seconds after which one solve() gives up (counted as failed)
   slow_ramp      true: when a solve fails also retry with 3 x load_steps (sub-)steps; false = fail fast
 
@@ -44,7 +47,7 @@ import scipy.sparse as sp
 from ..geometry import WallDistance
 from .base import ForwardSolver
 from .common import DEFAULTS as GETFEM_DEFAULTS
-from .common import ramps
+from .common import WALL_QUADRATURES, ramps
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +66,9 @@ DEFAULTS = {**GETFEM_DEFAULTS, "linear_solver": None}
 # IM_TRIANGLE(3): barycentric points, weights normalised to the face area
 FACE_QUAD_B = np.array([[1 / 3, 1 / 3, 1 / 3], [0.6, 0.2, 0.2], [0.2, 0.6, 0.2], [0.2, 0.2, 0.6]])
 FACE_QUAD_W = np.array([-27.0, 25.0, 25.0, 25.0]) / 48.0
+# vertex rule (GetFEM IM_NC(2,1)): the wall force of a node depends on its own gap only
+NODAL_QUAD_B = np.eye(3)
+NODAL_QUAD_W = np.full(3, 1.0 / 3.0)
 
 # GetFEM simplest_newton_line_search defaults
 LS_MAX_RATIO, LS_MIN_ALPHA, LS_MULT = 1.5, 1e-3, 0.6
@@ -127,6 +133,10 @@ class NodalSolver(ForwardSolver):
             raise NotImplementedError("the %s solver implements P1 only (solver_options.order = 1)" % self.name)
         if o["wall_update"] not in ("outer", "newton"):
             raise ValueError("%s solver: wall_update must be 'outer' or 'newton'" % self.name)
+        if o["wall_quadrature"] not in WALL_QUADRATURES:
+            raise ValueError("%s solver: wall_quadrature must be one of %s" % (self.name, ", ".join(WALL_QUADRATURES)))
+        self.qb, self.qw = ((FACE_QUAD_B, FACE_QUAD_W) if o["wall_quadrature"] == "face"
+                            else (NODAL_QUAD_B, NODAL_QUAD_W))
 
         # mesh, positively oriented tets
         X = np.asarray(problem.nodes, float)
@@ -202,7 +212,8 @@ class NodalSolver(ForwardSolver):
     def _log_setup(self, device, extra=""):
         log.info("%s: %d nodes, %d tets, %d dofs (P1), %d clamped faces, wall %s, device %s, linear solver %s%s",
                  self.name, self.nn, len(self.tets), self.ndof, self.clamped.sum(),
-                 "on (stiffness %g, update %s)" % (self.options["wall_stiffness"], self.options["wall_update"])
+                 "on (stiffness %g, update %s, quadrature %s)" % (self.options["wall_stiffness"], self.options["wall_update"],
+                                                  self.options["wall_quadrature"])
                  if self.wall else "off", device, self.lin.backend, extra)
 
     # ---- sparsity of the free-dof tangent (computed once) ----

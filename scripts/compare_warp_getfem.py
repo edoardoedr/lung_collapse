@@ -87,6 +87,13 @@ def quadrature():
         print("  could not read GetFEM face points: %s" % e)
     print("  nodal.py IM_TRIANGLE(3): %d points, weights = %s"
           % (len(FACE_QUAD_W), np.round(np.sort(FACE_QUAD_W), 6).tolist()))
+    try:                                                 # wall_quadrature "nodal"
+        nc = gf.Integ("IM_NC(3,1)")
+        pts, w = np.asarray(nc.face_pts(0)), np.asarray(nc.face_coeffs(0))
+        print("  GetFEM IM_NC(3,1) face 0 (wall_quadrature nodal): %d points, weights / sum = %s, points:\n%s"
+              % (len(w), np.round(w / w.sum(), 6).tolist(), np.round(pts.T if pts.shape[0] == 3 else pts, 6)))
+    except Exception as e:
+        print("  could not read GetFEM IM_NC(3,1) face points: %s" % e)
 
 
 def solve_path(s, q, nu, steps):
