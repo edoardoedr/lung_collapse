@@ -186,8 +186,10 @@ Common to `getfem`, `warp` and `torch` unless noted. The defaults are in [`pipel
 | `wall_stiffness` | 20.0 | Wall penalty stiffness [E per mm of penetration]. Higher = less penetration, harder Newton. | 5–100 |
 | `wall_eps` | 0.5 | Width [mm] of the smooth start of the penalty. Larger = smoother contact, easier Newton, more penetration. | 0.1–2 |
 | `wall_update` | `outer` | How the contact is solved. `outer`: Newton with the wall linearisation fixed, alternated with re-linearisations (both cores). `newton`: the wall is re-linearised at every Newton iteration, a single Newton solve (`warp` and `torch`; much faster with a wall). | `outer`; `newton` (warp, torch) |
-| `wall_max_updates` | 6 | `outer` only: maximum Newton / re-linearisation rounds per solve. | 2–10 |
-| `wall_settle_mm` | 0.05 | `outer` only: rounds stop when the contact data change less than this. | 0.01–0.5 mm |
+| `wall_max_updates` | 6 | `outer` only: maximum Newton / re-linearisation rounds per solve. The wall configs use 4. | 2–10 |
+| `wall_settle_mm` | 0.05 | `outer` only: rounds stop when the contact data change less than this. The wall configs use 0.2 (~2× faster, still well inside the 2 mm margin). | 0.01–0.5 mm |
+| `slow_ramp` | `true` | When a solve fails, also retry with 3 × `load_steps` (sub-)steps. `false` = fail fast: the trial counts as failed and the optimiser moves on; with a wall a hopeless solve otherwise costs dozens of Newton runs. The wall configs use `false`. | `true` / `false` |
+| `max_solve_s` | `null` | Seconds after which one forward solve gives up (counted as failed). GetFEM checks it before each Newton run, so it can overrun by one run. The wall configs use 120. | `null`, 60–600 |
 | `linear_solver` | `null` | Sparse linear solver. `getfem`: `null` = MUMPS if available, or a GetFEM name (`mumps`, `superlu`). `warp` and `torch`: `null`/`auto`, `cudss` (GPU), `pardiso` (CPU, `pypardiso`), `scipy`. Do not copy a GetFEM value into a `warp` / `torch` config. | see left |
 | `device` | `null` | `warp` and `torch`: device, e.g. `cuda:0` or `cpu`. `null` = GPU if available. `torch` refuses `mps` (Apple GPU): float32 only and no sparse solver, Newton would not converge. | Warp / torch device name |
 | `material` | `neo_hookean` | `torch` only: material, a name in [`solvers/materials.py`](../pipeline/collapse/solvers/materials.py). `neo_hookean` = the GetFEM / Warp material. | `neo_hookean`, `mooney_rivlin`, or one you add |

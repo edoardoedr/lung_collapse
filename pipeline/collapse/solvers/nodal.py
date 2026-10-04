@@ -19,6 +19,12 @@ options: the GetFEMSolver ones (order must be 1), plus
                  and the outer rounds disappear; at convergence it solves the same equations
                  (gap = signed distance - allowed margin), without the wall_settle_mm tolerance
   linear_solver  auto | cudss (nvmath-python, CUDA) | pardiso (pypardiso) | scipy (SuperLU); None = auto
+  max_solve_s    None, or seconds after which one solve() gives up (counted as failed)
+  slow_ramp      true: when a solve fails also retry with 3 x load_steps (sub-)steps; false = fail fast
+
+Failed Newton runs are counted by reason in stats() (fail_inverted, fail_maxit, fail_linear,
+fail_nonfinite, fail_time). With self.trace = [] every Newton iteration is appended to it
+(scripts/wall_diagnose.py).
 
 Known differences from GetFEM, by construction (see scripts/compare_warp_getfem.py):
   - Newton follows GetFEM's classical Newton as documented in its source: convergence when
@@ -38,6 +44,7 @@ import scipy.sparse as sp
 from ..geometry import WallDistance
 from .base import ForwardSolver
 from .common import DEFAULTS as GETFEM_DEFAULTS
+from .common import ramps
 
 log = logging.getLogger(__name__)
 
@@ -186,7 +193,10 @@ class NodalSolver(ForwardSolver):
         self.U, self.q_last, self.nu_last = None, None, None     # last converged state, its q and nu
         self.Ucur = np.zeros(self.ndof)                          # current Newton state
         self.nu = 0.3
-        self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0, jacobians=0)
+        self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0, jacobians=0,
+                           fail_inverted=0, fail_maxit=0, fail_linear=0, fail_nonfinite=0, fail_time=0)
+        self._deadline = np.inf
+        self.trace = None                                        # list -> per-iteration Newton records
         self.times = dict(assembly_s=0.0, linear_s=0.0, assemblies=0, linear_solves=0)
 
     def _log_setup(self, device, extra=""):
@@ -250,28 +260,50 @@ class NodalSolver(ForwardSolver):
         self.fq = np.zeros(len(self.faces))
         self.fq[m] = self.options["pressure_sign"] * np.asarray(q, float)[self.labels[m]]
 
+    def _fail(self, reason):
+        self.counts["fail_" + reason] += 1
+        if self.trace is not None:
+            self.trace.append(dict(event="fail", reason=reason))
+        return False
+
+    def _record(self, it, U, res, crit, alpha, n_ls):
+        """Trace one Newton iteration: residual, step, and the contact state of the surface points."""
+        rec = dict(event="iter", it=it, res=res, crit=crit, alpha=alpha, n_ls=n_ls,
+                   max_u=float(np.linalg.norm(U.reshape(-1, 3), axis=1).max()))
+        if self.wall is not None:
+            Us = U.reshape(-1, 3)[self.surf_node]
+            g = np.einsum("ij,ij->i", Us, self.wallN[self.surf_node]) - self.wallG[self.surf_node]
+            rec.update(n_contact=int((g > 0).sum()), max_gap=float(g.max()))
+        self.trace.append(rec)
+
     def _newton(self):
         """GetFEM classical Newton with the simplest line search on self.Ucur; True if converged."""
         o = self.options
+        if time.time() > self._deadline:
+            return self._fail("time")
         self.counts["newton_calls"] += 1
         f = self.free
         U = self.Ucur
         R, A = self._assemble_at(U, True)
         if R is None:
-            return False
+            return self._fail("inverted")
         res = np.abs(R[f]).sum()
         crit, it = res, 0
+        if self.trace is not None:
+            self._record(it, U, res, crit, None, 0)
         try:
             while True:
                 if crit <= o["newton_tol"]:
                     self.Ucur = U
                     return True
                 if it >= o["newton_maxit"]:
-                    return False
+                    return self._fail("maxit")
+                if time.time() > self._deadline:
+                    return self._fail("time")
                 try:
                     dx = self._linsolve(A, -R[f]).ravel()
                 except Exception:
-                    return False
+                    return self._fail("linear")
                 alpha, n_ls = 1.0, 0
                 while True:                                      # simplest line search
                     n_ls += 1
@@ -284,13 +316,15 @@ class NodalSolver(ForwardSolver):
                         break
                     alpha *= LS_MULT
                 if not np.isfinite(rt):
-                    return False
+                    return self._fail("inverted" if Rt is None else "nonfinite")
                 U, it = Ut, it + 1
                 R, A = self._assemble_at(U, True)
                 if R is None:
-                    return False
+                    return self._fail("inverted")
                 res = np.abs(R[f]).sum()
                 crit = min(res, np.abs(dx).sum() / max(1e-25, np.abs(U).sum()))
+                if self.trace is not None:
+                    self._record(it, U, res, crit, alpha, n_ls)
         finally:
             self.counts["newton_iters"] += it
 
@@ -325,7 +359,10 @@ class NodalSolver(ForwardSolver):
         for _ in range(self.options["wall_max_updates"]):
             if not self._newton():
                 return False
-            if self._update_wall() < self.options["wall_settle_mm"]:
+            change = self._update_wall()
+            if self.trace is not None:
+                self.trace.append(dict(event="wall", change=change))
+            if change < self.options["wall_settle_mm"]:
                 break
         return True
 
@@ -334,6 +371,8 @@ class NodalSolver(ForwardSolver):
         self.Ucur = np.array(U0, dtype=float)
         for s in range(1, n + 1):
             self._set_q(q0 + (q - q0) * s / n)
+            if self.trace is not None:
+                self.trace.append(dict(event="step", step=s, of=n))
             if not self._solve():
                 self.counts["failed_paths"] += 1
                 return False
@@ -341,15 +380,14 @@ class NodalSolver(ForwardSolver):
 
     def _full(self, q, nu):
         self.nu = nu
-        n0 = self.options["load_steps"]
-        if self.U is not None:                                   # from the last converged state
-            q0 = q if self.q_last is None else self.q_last
-            sub = self.q_last is not None and self.options["warm_substeps"]
-            for n in ((1, n0, 3 * n0) if sub else (1,)):
-                if self._path(self.U, q0, q, n):
-                    return self.Ucur.copy()
-        for n in (n0, 3 * n0):                                   # ramp from the reference
-            if self._path(np.zeros(self.ndof), np.zeros_like(q), q, n):
+        o = self.options
+        self._deadline = time.time() + (o["max_solve_s"] or np.inf)
+        q0 = q if self.q_last is None else self.q_last
+        sub = self.q_last is not None and o["warm_substeps"]
+        for warm, n in ramps(o["load_steps"], self.U is not None, sub, o["slow_ramp"]):
+            if self.trace is not None:
+                self.trace.append(dict(event="path", warm=warm, steps=n))
+            if self._path(self.U if warm else np.zeros(self.ndof), q0 if warm else np.zeros_like(q), q, n):
                 return self.Ucur.copy()
         return None
 

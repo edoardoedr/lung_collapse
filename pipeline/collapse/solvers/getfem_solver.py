@@ -15,11 +15,16 @@ options (fem_fit.solver_options):
   wall_settle_mm    stop the rounds when the gap data changes less than this
   wall_update       "outer": Newton / wall re-linearisation rounds (the only mode here; "newton",
                     the wall updated at every Newton iteration, is implemented by the warp core)
+  max_solve_s       None, or seconds after which one solve() gives up (counted as failed; checked
+                    before each Newton run, so it can overrun by one Newton run)
+  slow_ramp         true: when a solve fails also retry with 3 x load_steps (sub-)steps; false =
+                    fail fast (as 6.2's default)
   linear_solver     None = GetFEM's choice (MUMPS if built with it, else SuperLU), or a name passed
                     to md.solve as "lsolver" (e.g. "mumps", "superlu")
 """
 
 import logging
+import time
 
 import getfem as gf
 import numpy as np
@@ -29,7 +34,7 @@ from scipy.spatial import cKDTree
 
 from ..geometry import WallDistance
 from .base import ForwardSolver
-from .common import DEFAULTS, mat_params
+from .common import DEFAULTS, mat_params, ramps
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +127,7 @@ class GetFEMSolver(ForwardSolver):
         self.U, self.q_last, self.nu_last = None, None, None     # last converged state, its q and nu
         self.n_builds = 0
         self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0, jacobians=0)
+        self._deadline = np.inf
 
     def set_regions(self, labels, n_regions):
         self.n_builds += 1
@@ -163,6 +169,9 @@ class GetFEMSolver(ForwardSolver):
 
     def _newton(self):
         o = self.options
+        if time.time() > self._deadline:
+            self.counts["fail_time"] = self.counts.get("fail_time", 0) + 1
+            return False
         self.counts["newton_calls"] += 1
         try:
             args = ("max_iter", o["newton_maxit"], "max_res", o["newton_tol"], "lsearch", "simplest")
@@ -220,15 +229,14 @@ class GetFEMSolver(ForwardSolver):
         if nu != self.cur_nu:
             self.md.set_variable("params", mat_params(nu))
             self.cur_nu = nu
-        n0 = self.options["load_steps"]
-        if self.U is not None:                                   # from the last converged state
-            q0 = q if self.q_last is None else self.q_last
-            sub = self.q_last is not None and self.options["warm_substeps"]
-            for n in ((1, n0, 3 * n0) if sub else (1,)):
-                if self._path(self.U, q0, q, n):
-                    return self.md.variable("u").copy()
-        for n in (n0, 3 * n0):                                   # ramp from the reference
-            if self._path(np.zeros(self.ndof), np.zeros_like(q), q, n):
+        o = self.options
+        self._deadline = time.time() + (o["max_solve_s"] or np.inf)
+        q0 = q if self.q_last is None else self.q_last
+        sub = self.q_last is not None and o["warm_substeps"]
+        for warm, n in ramps(o["load_steps"], self.U is not None, sub, o["slow_ramp"]):
+            if warm and self._path(self.U, q0, q, n):            # from the last converged state
+                return self.md.variable("u").copy()
+            if not warm and self._path(np.zeros(self.ndof), np.zeros_like(q), q, n):   # from the reference
                 return self.md.variable("u").copy()
         return None
 
