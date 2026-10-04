@@ -103,7 +103,7 @@ Per patient there are three configs, with the same FEM parameters (those found b
 | `<p>_warp.json` | Warp | only `fem_fit`, on the `fem_setup` of `<p>.json` | `fem/fit_warp/`, `lung_fem_fit_warp.vtp` |
 | `<p>_torch.json` | PyTorch | only `fem_fit`, on the `fem_setup` of `<p>.json` | `fem/fit_torch/`, `lung_fem_fit_torch.vtp` |
 
-The variants share the base config's `output_dir` (key `fem_fit.run_name` chooses the fit folder), so run `<p>.json` at least up to `fem_setup` first. With a wall all variants use `wall_update: "outer"` (as GetFEM); `"newton"` (contact inside Newton, Warp / torch) failed its first test and is being re-tested with the continuous wall normal. karl04 has the same three for `karl04` (no wall) and `karl04_wall`.
+The variants share the base config's `output_dir` (key `fem_fit.run_name` chooses the fit folder), so run `<p>.json` at least up to `fem_setup` first. Every case exists without and with the wall: `<p>` (no wall, `results/<p>`) and `<p>_wall` (`wall: "reference"`, `results/<p>_wall`), each with its `_warp` / `_torch` variants, for `karl04`, `patient_2`, `patient_10`. The two sets differ only in `fem_setup.wall` and the wall solver options (`outer`, `nodal`, adaptive steps, fail fast); the no-wall set runs registration and setup separately into its own folder.
 
 ## Steps
 

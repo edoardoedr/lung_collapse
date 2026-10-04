@@ -46,7 +46,8 @@ Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output.
 - Per case three configs with identical FEM parameters (best found on karl04: `mesh_size_mm` 14, ν = 0.40 fixed, `load_steps` 8, `jacobian: "analytic"`, `time_budget_min` 600):
   - `<p>.json`: GetFEM, whole pipeline, fit in `fem/fit/`;
   - `<p>_warp.json`, `<p>_torch.json`: steps `["fem_fit"]` only, same `output_dir`, `fem_fit.run_name` = `fit_warp` / `fit_torch`, so they reuse the base config's `fem_setup`.
-- Cases: `karl04` (no wall), `karl04_wall`, `patient_2`, `patient_10` (both with wall). patient_2 registration uses rigid + affine + B-spline; patient_10 rigid + B-spline.
+- Cases: `karl04`, `patient_2`, `patient_10` without wall (`results/<p>`) and `<p>_wall` with `wall: "reference"` (`results/<p>_wall`), each with `_warp` / `_torch` (18 configs). All base configs (karl04 included) list every step from `check_inputs` to `fem_fit`. The patient no-wall configs were split off on 2026-10-04 (the former `patient_X.json` had the wall and is now `patient_X_wall.json`). patient_2 registration uses rigid + affine + B-spline; patient_10 rigid + B-spline.
+- `scripts/run_all.sh [case ...]` runs each base config then its variants (cases in parallel, logs in `logs_run_all/`); `CORES="warp torch"` skips the GetFEM fit.
 - With a wall all variants use `wall_update: "outer"` (GetFEM can only do that); `"newton"` (Warp/torch) is under test, see below.
 - Patients' `fem_setup` must be re-run after the mesh-size change (8 → 14 mm) before their fits.
 - Unknown keys raise an error; `_`-prefixed keys are comments; paths: `data_dir`/`output_dir` relative to the JSON, inputs to `data_dir`, outputs to `output_dir`, `null` inputs come from the previous step.

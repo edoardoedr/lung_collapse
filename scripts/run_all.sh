@@ -8,7 +8,7 @@
 #   CORES="warp torch" bash scripts/run_all.sh    # skip the GetFEM fit (still runs the base steps up to fem_setup)
 
 cd "$(dirname "$0")/.." || exit 1
-CASES=${*:-"karl04 karl04_wall patient_2 patient_10"}
+CASES=${*:-"karl04 patient_2 patient_10 karl04_wall patient_2_wall patient_10_wall"}
 CORES=${CORES:-"getfem warp torch"}
 mkdir -p logs_run_all
 export PYTHONUNBUFFERED=1 CUDA_PYTHON_DISABLE_MAJOR_VERSION_WARNING=1

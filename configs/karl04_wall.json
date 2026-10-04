@@ -3,7 +3,7 @@
   "patient": "karl04",
   "data_dir": "../Input_Data/karl04",
   "output_dir": "../results/karl04_wall",
-  "steps": ["fem_setup", "fem_fit"],
+  "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
 
   "check_inputs": {
     "_comment": "inputs null = taken from the other sections (surface_mesh.input, registration.inflated, hilum.structures). Findings are warnings unless fail_on_warning",
