@@ -12,6 +12,22 @@ DEFAULTS = dict(order=1, load_steps=4, newton_tol=1e-7, newton_maxit=30, pressur
 WALL_QUADRATURES = ("face", "nodal")
 
 
+WALL_NEAR_MM = 1.0       # points closer to the wall than this (gap > -1 mm) count for wall_settle_mm
+
+
+def wall_gap_change(Us, n_old, G_old, phi, allow):
+    """Settling measure of the wall rounds [mm]: how far the previous linearisation's gap
+    (u.n_old - G_old) is from the true gap (phi - allow) at the current state, over the points near
+    the wall. Not the change of G itself: G = n.u - phi + allow moves with the normal times the
+    displacement, and far from the wall (near the cavity's medial axis) the closest wall point can
+    jump between two sides at every round, changing G by mm while the contact does not change."""
+    import numpy as np
+    g_old = np.einsum("ij,ij->i", n_old, Us) - G_old
+    g_new = phi - allow
+    near = np.maximum(g_old, g_new) > -WALL_NEAR_MM
+    return float(np.abs(g_old - g_new)[near].max()) if near.any() else 0.0
+
+
 def ramps(n0, warm, substeps, slow_ramp):
     """Load paths tried by solve(): (from the last converged state, number of sub-steps) in order.
     warm: a converged state exists; substeps: also sub-steps from it (warm_substeps, same partition);

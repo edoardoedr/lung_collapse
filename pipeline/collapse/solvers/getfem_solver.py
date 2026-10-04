@@ -13,7 +13,8 @@ options (fem_fit.solver_options):
   wall_eps          [mm] width of the smooth start of the penalty (no contact / contact chatter)
   wall_max_updates  Newton / wall re-linearisation rounds per solve; a solve that has not settled
                     by then fails (it may have slid through the linearised wall)
-  wall_settle_mm    stop the rounds when the gap data changes less than this
+  wall_settle_mm    stop the rounds when the previous linearisation's gap is within this of the true
+                    gap at all points near the wall (common.wall_gap_change)
   wall_update       "outer": Newton / wall re-linearisation rounds (the only mode here; "newton",
                     the wall updated at every Newton iteration, is implemented by the warp core)
   wall_quadrature   "face": wall term with the displacement's integration method (IM_TETRAHEDRON(3)
@@ -38,7 +39,7 @@ from scipy.spatial import cKDTree
 
 from ..geometry import WallDistance
 from .base import ForwardSolver
-from .common import DEFAULTS, WALL_QUADRATURES, mat_params, ramps
+from .common import DEFAULTS, WALL_QUADRATURES, mat_params, ramps, wall_gap_change
 
 log = logging.getLogger(__name__)
 
@@ -196,20 +197,22 @@ class GetFEMSolver(ForwardSolver):
         return conv and np.all(np.isfinite(self.md.variable("u")))
 
     def _update_wall(self):
-        """Linearise the wall at the current u; returns the max change of the gap data [mm]."""
+        """Linearise the wall at the current u; returns how far the previous linearisation was from
+        the true gap near the wall [mm] (common.wall_gap_change)."""
         U = self.md.variable("u")
         Us = U[self.surf_dof]
         phi, n = self.wall(self.surf_pts + Us)
+        change = wall_gap_change(Us, np.asarray(self.md.variable("wallN"))[self.surf_dof],
+                                 np.asarray(self.md.variable("wallG"))[self.surf_sdof], phi, self.problem.wall_allow)
         G = np.einsum("ij,ij->i", n, Us) - phi + self.problem.wall_allow
         N = np.zeros(self.ndof)
         N[self.surf_dof] = n
         Gs = np.zeros(self.mfs.nbdof())
         Gs[self.surf_sdof] = G
         self.counts["wall_updates"] += 1
-        old = self.md.variable("wallG")[self.surf_sdof]
         self.md.set_variable("wallN", N)
         self.md.set_variable("wallG", Gs)
-        return float(np.abs(G - old).max())
+        return change
 
     def _solve(self):
         """Newton; with a wall, alternated with the wall re-linearisation until the gap settles."""

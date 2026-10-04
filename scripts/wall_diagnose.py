@@ -132,7 +132,7 @@ def main():
                          r["n_ls"], r.get("n_contact", "-"),
                          "%.3f" % r["max_gap"] if "max_gap" in r else "-", r["max_u"]))
             elif e == "wall":
-                print("  %-6s      wall re-linearised, gap data changed %.3f mm" % (e, r["change"]))
+                print("  %-6s      wall re-linearised, gap of the previous linearisation off by %.3f mm near the wall" % (e, r["change"]))
             elif e == "fail":
                 print("  %-6s      %s" % (e, r["reason"]))
             elif e == "step":

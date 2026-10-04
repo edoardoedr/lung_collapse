@@ -47,7 +47,7 @@ import scipy.sparse as sp
 from ..geometry import WallDistance
 from .base import ForwardSolver
 from .common import DEFAULTS as GETFEM_DEFAULTS
-from .common import WALL_QUADRATURES, ramps
+from .common import WALL_QUADRATURES, ramps, wall_gap_change
 
 log = logging.getLogger(__name__)
 
@@ -352,16 +352,17 @@ class NodalSolver(ForwardSolver):
             self.times["assemblies"] += 1
 
     def _update_wall(self, U=None):
-        """Linearise the wall at U (default: the current state); returns the max change of the gap
-        data [mm]. At the linearisation point g = u.wallN - wallG = signed distance - allowed margin."""
+        """Linearise the wall at U (default: the current state); returns how far the previous
+        linearisation was from the true gap near the wall [mm] (common.wall_gap_change). At the
+        linearisation point g = u.wallN - wallG = signed distance - allowed margin."""
         Us = (self.Ucur if U is None else U).reshape(-1, 3)[self.surf_node]
         phi, n = self.wall(self.surf_pts + Us)
-        G = np.einsum("ij,ij->i", n, Us) - phi + self.problem.wall_allow
+        allow = self.problem.wall_allow
+        change = wall_gap_change(Us, self.wallN[self.surf_node], self.wallG[self.surf_node], phi, allow)
         self.counts["wall_updates"] += 1
-        old = self.wallG[self.surf_node].copy()
         self.wallN[self.surf_node] = n
-        self.wallG[self.surf_node] = G
-        return float(np.abs(G - old).max())
+        self.wallG[self.surf_node] = np.einsum("ij,ij->i", n, Us) - phi + allow
+        return change
 
     def _solve(self):
         """Newton; with a wall, alternated with the wall re-linearisation until the gap settles."""
