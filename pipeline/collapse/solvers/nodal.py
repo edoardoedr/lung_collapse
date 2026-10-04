@@ -22,6 +22,8 @@ options: the GetFEMSolver ones (order must be 1), plus
   wall_quadrature  "face": wall term with the IM_TRIANGLE(3) face rule (= GetFEM's IM_TETRAHEDRON(3),
                  negative centre weight); "nodal": vertex rule, positive weights 1/3, each node's
                  force depends on its own gap (lumped / node-to-surface penalty)
+  adaptive_steps false: fixed sub-steps (load_steps ladders); true: load steps halve on failure and
+                 double after success (common.adaptive_path), down to min_load_step of the path
   max_solve_s    None, or seconds after which one solve() gives up (counted as failed)
   slow_ramp      true: when a solve fails also retry with 3 x load_steps (sub-)steps; false = fail fast
 
@@ -47,7 +49,7 @@ import scipy.sparse as sp
 from ..geometry import WallDistance
 from .base import ForwardSolver
 from .common import DEFAULTS as GETFEM_DEFAULTS
-from .common import WALL_QUADRATURES, ramps, wall_gap_change
+from .common import WALL_QUADRATURES, adaptive_path, ramps, wall_gap_change
 
 log = logging.getLogger(__name__)
 
@@ -392,16 +394,34 @@ class NodalSolver(ForwardSolver):
                 return False
         return True
 
+    def _adaptive(self, U0, q0, q, n):
+        """adaptive_path from state (U0, q0) to q, first step 1/n of the path."""
+        self.Ucur = np.array(U0, dtype=float)
+
+        def set_state(U):
+            self.Ucur = U
+
+        def on_step(s, h):
+            if self.trace is not None:
+                self.trace.append(dict(event="step", at=s, size=h))
+
+        ok = adaptive_path(lambda: self.Ucur.copy(), set_state, self._set_q, self._solve, q0, q, 1.0 / n,
+                           self.options["min_load_step"], on_step)
+        if not ok:
+            self.counts["failed_paths"] += 1
+        return ok
+
     def _full(self, q, nu):
         self.nu = nu
         o = self.options
         self._deadline = time.time() + (o["max_solve_s"] or np.inf)
         q0 = q if self.q_last is None else self.q_last
         sub = self.q_last is not None and o["warm_substeps"]
-        for warm, n in ramps(o["load_steps"], self.U is not None, sub, o["slow_ramp"]):
+        path = self._adaptive if o["adaptive_steps"] else self._path
+        for warm, n in ramps(o["load_steps"], self.U is not None, sub, o["slow_ramp"], o["adaptive_steps"]):
             if self.trace is not None:
                 self.trace.append(dict(event="path", warm=warm, steps=n))
-            if self._path(self.U if warm else np.zeros(self.ndof), q0 if warm else np.zeros_like(q), q, n):
+            if path(self.U if warm else np.zeros(self.ndof), q0 if warm else np.zeros_like(q), q, n):
                 return self.Ucur.copy()
         return None
 

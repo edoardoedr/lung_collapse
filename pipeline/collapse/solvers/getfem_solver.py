@@ -20,6 +20,9 @@ options (fem_fit.solver_options):
   wall_quadrature   "face": wall term with the displacement's integration method (IM_TETRAHEDRON(3)
                     faces, negative centre weight); "nodal": IM_NC(3,1), the face vertices with
                     positive weights, each node's force depends on its own gap
+  adaptive_steps    false: fixed sub-steps (load_steps ladders); true: load steps halve on failure
+                    and double after success (common.adaptive_path), down to min_load_step
+  min_load_step     smallest adaptive step, as a fraction of the path (default 1/64)
   max_solve_s       None, or seconds after which one solve() gives up (counted as failed; checked
                     before each Newton run, so it can overrun by one Newton run)
   slow_ramp         true: when a solve fails also retry with 3 x load_steps (sub-)steps; false =
@@ -39,7 +42,7 @@ from scipy.spatial import cKDTree
 
 from ..geometry import WallDistance
 from .base import ForwardSolver
-from .common import DEFAULTS, WALL_QUADRATURES, mat_params, ramps, wall_gap_change
+from .common import DEFAULTS, WALL_QUADRATURES, adaptive_path, mat_params, ramps, wall_gap_change
 
 log = logging.getLogger(__name__)
 
@@ -238,6 +241,15 @@ class GetFEMSolver(ForwardSolver):
                 return False
         return True
 
+    def _adaptive(self, U0, q0, q, n):
+        """adaptive_path from state (U0, q0) to q, first step 1/n of the path."""
+        self.md.set_variable("u", U0)
+        ok = adaptive_path(lambda: np.array(self.md.variable("u")), lambda U: self.md.set_variable("u", U),
+                           self._set_q, self._solve, q0, q, 1.0 / n, self.options["min_load_step"])
+        if not ok:
+            self.counts["failed_paths"] += 1
+        return ok
+
     def _full(self, q, nu):
         if nu != self.cur_nu:
             self.md.set_variable("params", mat_params(nu))
@@ -246,10 +258,11 @@ class GetFEMSolver(ForwardSolver):
         self._deadline = time.time() + (o["max_solve_s"] or np.inf)
         q0 = q if self.q_last is None else self.q_last
         sub = self.q_last is not None and o["warm_substeps"]
-        for warm, n in ramps(o["load_steps"], self.U is not None, sub, o["slow_ramp"]):
-            if warm and self._path(self.U, q0, q, n):            # from the last converged state
+        path = self._adaptive if o["adaptive_steps"] else self._path
+        for warm, n in ramps(o["load_steps"], self.U is not None, sub, o["slow_ramp"], o["adaptive_steps"]):
+            if warm and path(self.U, q0, q, n):                  # from the last converged state
                 return self.md.variable("u").copy()
-            if not warm and self._path(np.zeros(self.ndof), np.zeros_like(q), q, n):   # from the reference
+            if not warm and path(np.zeros(self.ndof), np.zeros_like(q), q, n):   # from the reference
                 return self.md.variable("u").copy()
         return None
 

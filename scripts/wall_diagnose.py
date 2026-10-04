@@ -135,6 +135,8 @@ def main():
                 print("  %-6s      wall re-linearised, gap of the previous linearisation off by %.3f mm near the wall" % (e, r["change"]))
             elif e == "fail":
                 print("  %-6s      %s" % (e, r["reason"]))
+            elif e == "step" and "at" in r:
+                print("  %-6s      to %.4f of the path (step %.4f)" % (e, r["at"], r["size"]))
             elif e == "step":
                 print("  %-6s      sub-step %d of %d" % (e, r["step"], r["of"]))
             elif e == "path":
