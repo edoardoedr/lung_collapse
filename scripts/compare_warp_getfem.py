@@ -5,6 +5,8 @@
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --fit      # + d (long)
     python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --wall-only  # only b and c with wall
     python scripts/compare_warp_getfem.py --config configs/karl04.json --core torch    # torch instead of Warp
+  python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --core torch --wall-only --jac-q 0.1 \
+      --core-options '{"wall_update": "newton"}'     # contact inside Newton for the compared core only
 
 Needs the fem_setup output of the config. With a wall in the setup, (a) runs on a copy of the
 problem without it and (b) on the problem as is.
@@ -43,6 +45,7 @@ from pipeline.config import load_config                              # noqa: E40
 
 CORE = "warp"                                    # core compared with GetFEM (--core)
 C = {"it": "it Warp", "pen": "pen Warp"}
+CORE_OPTS = {}                                   # --core-options
 CASES = [(0.2, 0.30), (0.5, 0.30), (1.0, 0.30), (1.0, 0.40), (2.0, 0.40)]   # (mean p/E, nu)
 
 
@@ -55,6 +58,8 @@ def make(name, problem, fc, **opts):
     o = dict(fc.solver_options)
     if name != "getfem":
         o.pop("linear_solver", None)                    # GetFEM names (mumps, ...) mean nothing to Warp / torch
+    if name == CORE:
+        o.update(CORE_OPTS)                             # --core-options, the compared core only
     o.update(opts)
     return get_solver(name)(problem, o)
 
@@ -136,11 +141,11 @@ def compare_forward(tag, problem, fc, K, labels, sign):
     print("  target: rel < 1e-6 without wall; with a wall compare rel and the penetrations")
 
 
-def compare_jacobian(problem, fc, K, labels, sign, h):
+def compare_jacobian(problem, fc, K, labels, sign, h, jac_q=0.5):
     # the contact penalty is only C1: with a wall Newton cannot reach 1e-11, so tol and h are relaxed
     tol, h = (1e-8, max(h, 1e-4)) if problem.has_wall else (1e-11, h)
-    print("\n[c] Jacobian, wall %s, newton_tol %g, h %g" % ("on" if problem.has_wall else "off", tol, h))
-    q, nu = sign * pressures(K, 0.5), fc.nu
+    print("\n[c] Jacobian, wall %s, newton_tol %g, h %g, mean p/E %g" % ("on" if problem.has_wall else "off", tol, h, jac_q))
+    q, nu = sign * pressures(K, jac_q), fc.nu
     J = {}
     for name in (CORE, "getfem"):
         s = make(name, problem, fc, newton_tol=tol)
@@ -249,10 +254,13 @@ def main():
     ap.add_argument("--timing", action="store_true", help="also run (e)")
     ap.add_argument("--fit", action="store_true", help="also run (d), two full fits")
     ap.add_argument("--core", default="warp", choices=("warp", "torch"), help="core compared with GetFEM")
+    ap.add_argument("--jac-q", type=float, default=0.5, help="mean p/E of (c); with a wall use a load both cores reach, e.g. 0.1")
+    ap.add_argument("--core-options", default="{}", help="JSON merged into the compared core's options only, e.g. '{\"wall_update\": \"newton\"}'")
     ap.add_argument("--wall-only", action="store_true", help="only the parts with the wall (b, c with wall)")
     args = ap.parse_args()
     global CORE
     CORE = args.core
+    CORE_OPTS.update(json.loads(args.core_options))
     C.update(it="it " + CORE, pen="pen " + CORE)
     sys.stdout.reconfigure(line_buffering=True)          # print progress also through | tee
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
@@ -270,6 +278,8 @@ def main():
     for name in ("getfem", CORE):
         s = make(name, without_wall(problem), fc)
         signs[name] = fit.sign_check(s, without_wall(problem), fc)
+    if CORE_OPTS:
+        print("%s options overridden: %s" % (CORE, CORE_OPTS))
     print("\nsign check: getfem %+g, %s %+g (must be equal)" % (signs["getfem"], CORE, signs[CORE]))
     sign = signs["getfem"]
 
@@ -280,9 +290,9 @@ def main():
     if problem.has_wall:
         compare_forward("b", problem, fc, K, labels, sign)
     if not args.wall_only:
-        compare_jacobian(without_wall(problem), fc, K, labels, sign, args.h)
+        compare_jacobian(without_wall(problem), fc, K, labels, sign, args.h, args.jac_q)
     if problem.has_wall:
-        compare_jacobian(problem, fc, K, labels, sign, args.h)
+        compare_jacobian(problem, fc, K, labels, sign, args.h, args.jac_q)
     if args.timing:
         timing(without_wall(problem), fc, K, labels, sign)
     if args.fit:

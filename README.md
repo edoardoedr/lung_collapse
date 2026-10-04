@@ -15,13 +15,14 @@ The pipeline is being rewritten step by step in [`pipeline/`](pipeline/). The or
 | 2 Surface meshing | ✅ `pipeline/surface_mesh.py` |
 | 3 Hilum anchor | ✅ `pipeline/hilum.py` (computed from the airway / vessel segmentations) |
 | 4 Registration | ✅ `pipeline/registration.py` (replaces the Slicer Elastix workflow) |
-| 5 Inverse FEM | `pipeline/collapse/`: `fem_setup` ✅, `fem_fit` ported, GetFEM core not yet run in the new pipeline |
-| 6–7 Sequence, visualisation | still in `pipeline_codes_v1/` |
+| 5 Inverse FEM | ✅ `pipeline/collapse/`: `fem_setup`, `fem_fit` with three cores (GetFEM, Warp, PyTorch) validated against each other on karl04; contact `wall_update: "newton"` still to validate |
+| 6–7 Sequence, visualisation | ✅ `scripts/collapse_sequence.py` (separate script, 3D Slicer / ParaView); rest still in `pipeline_codes_v1/` |
 
 ## Repository layout
 
 ```
 main.py               entry point, runs the steps listed in a config
+CLAUDE.md             notes for Claude Code: environments, FEM architecture, validation status
 configs/
   patient_<N>.json    one config per patient, one section per step
   README.md           every config key: meaning and range
