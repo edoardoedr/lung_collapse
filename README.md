@@ -69,6 +69,8 @@ python main.py --config configs/patient_10.json --steps hilum        # only some
 python main.py --config configs/patient_10.json --steps fem_fit      # e.g. on the machine with GetFEM
 ```
 
+All cases at once (each base config, then its `_warp` / `_torch` variants; cases in parallel, logs in `logs_run_all/`): `bash scripts/run_all.sh [case ...]`, with `CORES="warp torch"` to skip the GetFEM fits.
+
 Steps always run in pipeline order: `check_inputs` → `surface_mesh` → `hilum` → `registration` → `fem_setup` → `fem_fit`. The hilum step runs before the registration because the registration uses it as landmarks. If a step fails, the error is written to `logs/pipeline.log` and the run stops.
 
 ## Input data
