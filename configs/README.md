@@ -148,6 +148,8 @@ Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Ou
 |---|---|---|---|
 | `optimizer` | `lsq` | `lsq`: bounded least squares (trust region), uses the Jacobian. `nm`: Nelder-Mead, derivative-free, much slower for many regions. | `lsq`, `nm` |
 | `jacobian` | `analytic` | `analytic`: Jacobian from the core, one linear solve per region (≈14× faster fit on karl04, same error). `2-point`: finite differences, one nonlinear solve per region. | `analytic`, `2-point` |
+| `loss` | `point` | What the fit matches, per surface point (d = fitted − target). `point`: the whole d (point-to-point, needs the registration's point correspondence to be right). `plane`: only the component of d along the target normal, plus `loss_tangent_weight` × the tangential rest. The registration matches boundaries only, so points can slide along the surface; a coherent slide looks like a rotation of the lung (5–16° on our cases) which `point` forces the fit to reproduce with unbalanced pressures, `plane` does not. The analytic Jacobian is projected the same way, for every core. `mean_err_mm` in the summary stays point-to-point; `mean_normal_err_mm` and `best_loss_err_mm` give the other metrics. | `point`, `plane` |
+| `loss_tangent_weight` | 0.0 | `plane` only: weight of the tangential part of d. 0 = pure point-to-plane; a small value (0.05–0.2) keeps points from drifting far along the surface. | 0–1 |
 | `lsq_diff_step` | 5e-3 | Relative finite-difference step (only `2-point`, or a core without Jacobian). | 1e-3–1e-2 |
 | `lsq_ftol` | 1e-6 | lsq stops when the cost changes less than this (relative). | 1e-8–1e-4 |
 | `lsq_xtol` | 1e-6 | lsq stops when the parameters change less than this (relative). | 1e-8–1e-4 |

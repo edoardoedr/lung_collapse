@@ -17,7 +17,7 @@ Output, output_dir/sequence/ (sequence_<run_name>/ for a fem_fit.run_name other 
   target_aligned.vtp, hilum_anchor.mrk.json
   load_collapse_in_slicer.py  then, on the Slicer machine, one command:
                                   Slicer --python-script <folder>/load_collapse_in_slicer.py
-                              (or in Slicer's Python console: exec(open(r'<that file>').read()))
+                              (or in Slicer's Python console: p = r'<that file>'; exec(open(p).read(), {'__file__': p}))
                               loads everything, colours by displacement and starts playing
 """
 
@@ -124,7 +124,7 @@ def make_sequence(cfg, frames, mode, volume, fps):
     log.info("volume: start %.0f mL -> half load %.0f mL -> end %.0f mL (target %.0f mL); %d frame(s) "
              "by linear morph", *vols, abs(polydata(X_tgt, tris).volume) / 1000, n_lin)
     print("\nwritten to %s\n  Slicer  : Slicer --python-script %s\n            (or in the Python console: "
-          "exec(open(r'%s').read()))\n  ParaView: open %s, Apply, Play" % (out, script, script, out / "collapse.pvd"))
+          "p = r'%s'; exec(open(p).read(), {'__file__': p}))\n  ParaView: open %s, Apply, Play" % (out, script, script, out / "collapse.pvd"))
     return out
 
 
@@ -136,9 +136,11 @@ def main():
                     help="fem = re-solve along the pressure ramp (physical); linear = straight morph")
     ap.add_argument("--volume", action="store_true", help="also write volume frames (fem mode)")
     ap.add_argument("--fps", type=float, default=8.0, help="playback speed in Slicer")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[],
+                    help="config overrides as in main.py, e.g. fem_fit.run_name=fit_torch_plane")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, args.set)
     if cfg.fem_fit is None:
         raise SystemExit("%s has no fem_fit section" % args.config)
     make_sequence(cfg, args.frames, args.mode, args.volume, args.fps)
@@ -148,7 +150,8 @@ SLICER_SCRIPT = r'''"""Lung collapse sequence for 3D Slicer, written by the lung
 
     Slicer --python-script load_collapse_in_slicer.py
 or, in Slicer's Python console:
-    exec(open(r'<this folder>/load_collapse_in_slicer.py').read())
+    p = r'<this folder>/load_collapse_in_slicer.py'; exec(open(p).read(), {'__file__': p})
+(plain exec(open(...).read()) does not tell the script where it is)
 
 Loads the frames as a sequence (coloured by displacement), the target as a grey wireframe
 ("LungCollapse_target") and the hilum spheres, switches to the 3D view and starts playing. Files are looked up next to this
@@ -171,7 +174,8 @@ def _folder():
             return os.path.dirname(os.path.abspath(p))
     if os.path.isfile(os.path.join(FALLBACK, "frame_000.vtp")):
         return FALLBACK
-    raise RuntimeError("frames not found next to the script nor in %%s" %% FALLBACK)
+    raise RuntimeError("frames not found next to the script nor in %%s; in the Python console run it as "
+                       "p = r'<path>/load_collapse_in_slicer.py'; exec(open(p).read(), {'__file__': p})" %% FALLBACK)
 
 
 def load_collapse():

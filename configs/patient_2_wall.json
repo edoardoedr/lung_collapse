@@ -112,6 +112,8 @@
     "levels": null,
     "optimizer": "lsq",
     "jacobian": "analytic",
+    "loss": "point",
+    "loss_tangent_weight": 0.0,
     "lsq_diff_step": 5e-3,
     "lsq_ftol": 1e-6,
     "lsq_xtol": 1e-6,

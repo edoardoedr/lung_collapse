@@ -3,8 +3,9 @@
   1. load output_dir/fem/setup/problem.npz and the FEM core named in the config
   2. sign check: q > 0 must move the surface inward (else q is flipped for this core)
   3. coarse-to-fine levels (regions from fem_setup), each warm-started from the best so far;
-     per level, bounded least squares (lsq) on the point-to-point residual + smoothness between
-     adjacent regions, or Nelder-Mead (nm); Poisson's ratio optionally free. The lsq Jacobian
+     per level, bounded least squares (lsq) on the point residual (loss "point": fitted - target;
+     "plane": its component along the target normal, tangential part weighted by
+     loss_tangent_weight) + smoothness between adjacent regions, or Nelder-Mead (nm); Poisson's ratio optionally free. The lsq Jacobian
      comes from the core (one linear solve per column) when it provides one, else from finite
      differences (one nonlinear solve per column)
      with a cavity wall in fem_setup, the core also keeps the surface inside it (contact)
@@ -23,7 +24,8 @@ from scipy.optimize import least_squares, minimize
 from scipy.optimize._numdiff import approx_derivative
 
 from ..data_io import write_surface
-from .geometry import WallDistance, assd, face_adjacency, polydata, tri_geometry, vertex_normals
+from .geometry import (WallDistance, assd, face_adjacency, kabsch, polydata, rotation_deg, tri_geometry,
+                       vertex_normals)
 from .problem import CollapseProblem
 from .regions import region_pairs
 from .run_control import Stop, Tracker, guarded
@@ -49,10 +51,42 @@ def sign_check(solver, problem, cfg):
     return 1.0
 
 
+class Loss:
+    """Residual of the surface points, d = fitted - target (N, 3): P d with P = I ("point") or
+    n n^T + w (I - n n^T) ("plane", n = target vertex normal, w = loss_tangent_weight). The same P
+    applies to the Jacobian rows, so the analytic Jacobian of any core still works."""
+
+    def __init__(self, cfg, X_tgt, tris):
+        self.plane = cfg.loss == "plane"
+        self.w = cfg.loss_tangent_weight
+        self.n = vertex_normals(X_tgt, tris)
+
+    def project(self, d):
+        if not self.plane:
+            return d
+        dn = np.einsum("ij,ij->i", d, self.n)[:, None] * self.n
+        return dn + self.w * (d - dn)
+
+    def jacobian(self, J):
+        """J (3N, P) of the displacement -> of the residual."""
+        if not self.plane:
+            return J
+        J3 = J.reshape(len(self.n), 3, -1)
+        Jn = self.n[:, :, None] * np.einsum("ik,ikp->ip", self.n, J3)[:, None, :]
+        return (Jn + self.w * (J3 - Jn)).reshape(J.shape)
+
+
+def rigid_part(X_from, X_to):
+    """Rotation [deg] and centroid shift [mm] of the best rigid fit X_from -> X_to."""
+    R, t = kabsch(X_from, X_to)
+    c = X_from.mean(0)
+    return rotation_deg(R), float(np.linalg.norm(R @ c + t - c))
+
+
 def run_level(L, K, tri_labels, x0, lb, ub, ctx):
     """One level of K regions; returns (stop reason, best mean error of the level)."""
     solver, trk, cfg, sign = ctx["solver"], ctx["trk"], ctx["cfg"], ctx["sign"]
-    X_ref, X_tgt = ctx["X_ref"], ctx["X_tgt"]
+    X_ref, X_tgt, loss = ctx["X_ref"], ctx["X_tgt"], ctx["loss"]
     pairs = region_pairs(tri_labels, ctx["adj"])
     nu_fixed = cfg.nu
     solver.set_regions(tri_labels, K)
@@ -83,8 +117,8 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
             base = trk.level_best_r if trk.level_best_r is not None else ctx["r_zero"]
             last["r"] = np.r_[2.0 * base, rreg]
             return last["r"], np.inf
-        r = (X_ref + Us - X_tgt).ravel()
-        d = np.linalg.norm(r.reshape(-1, 3), axis=1)
+        r = loss.project(X_ref + Us - X_tgt).ravel()
+        d = np.linalg.norm(r.reshape(-1, 3), axis=1)            # per point, in the loss's metric
         err, rms = float(d.mean()), float(np.sqrt((d ** 2).mean()))
         trk.log(L, K, err, rms, nu, 1, dt)
         q_tri = np.where(tri_labels >= 0, q[np.maximum(tri_labels, 0)], np.nan)
@@ -123,7 +157,7 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
             if J is not None:
                 J = np.array(J, dtype=float)
                 J[:, :K] *= sign                            # the core sees sign * q
-                J = np.vstack([J, R])
+                J = np.vstack([loss.jacobian(J), R])
                 jstats["n"] += 1
                 jstats["s"] += time.time() - t0
         if J is None:                                       # 2-point, or core without Jacobian
@@ -161,10 +195,13 @@ def run(cfg):
     X_ref, X_tgt, tris = problem.reference, problem.target, problem.tris
     _, _, area = tri_geometry(X_ref, tris)
     adj, _ = face_adjacency(tris)
-    d0 = np.linalg.norm(X_tgt - X_ref, axis=1)
-    log.info("problem: %d surface points, %d volume nodes, %d tets, levels K = %s; no-deformation "
-             "error %.2f mm", len(X_ref), len(problem.nodes), len(problem.tets),
-             ", ".join(map(str, problem.levels)), d0.mean())
+    loss = Loss(cfg, X_tgt, tris)
+    d0 = np.linalg.norm(loss.project(X_ref - X_tgt), axis=1)
+    log.info("problem: %d surface points, %d volume nodes, %d tets, levels K = %s; loss %s%s, "
+             "no-deformation error %.2f mm (point-to-point %.2f)", len(X_ref), len(problem.nodes), len(problem.tets),
+             ", ".join(map(str, problem.levels)), cfg.loss,
+             " (tangent weight %g)" % cfg.loss_tangent_weight if loss.plane else "", d0.mean(),
+             np.linalg.norm(X_ref - X_tgt, axis=1).mean())
 
     cls = get_solver(cfg.solver)
     if problem.has_wall and not cls.supports_wall:
@@ -180,8 +217,8 @@ def run(cfg):
         levels = [(K, lab) for K, lab in levels if K in cfg.levels]
 
     trk = Tracker(cfg, out)
-    ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, X_tgt=X_tgt, adj=adj,
-               r_zero=(X_ref - X_tgt).ravel())
+    ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, X_tgt=X_tgt, adj=adj, loss=loss,
+               r_zero=loss.project(X_ref - X_tgt).ravel())
     q_tri, nu_best = np.where(problem.clamped_tri, np.nan, cfg.q0), cfg.nu
     summary, stall, prev = [], 0, d0.mean()
     stop_reason = "levels exhausted"
@@ -218,10 +255,13 @@ def run(cfg):
     if b is None:
         raise RuntimeError("no successful forward solve, nothing to export")
     Xs = X_ref + b["Us"]
-    err = np.linalg.norm(Xs - X_tgt, axis=1)
+    err = np.linalg.norm(Xs - X_tgt, axis=1)                    # point-to-point, whatever the loss
+    err_n = np.einsum("ij,ij->i", Xs - X_tgt, loss.n)          # signed, along the target normal
+    rot = dict(target=rigid_part(X_ref, X_tgt), fitted=rigid_part(X_ref, Xs))
     s = polydata(Xs, tris)
     s.point_data["Displacement_mm"] = b["Us"]
     s.point_data["Error_mm"] = err
+    s.point_data["NormalError_mm"] = err_n                      # > 0 = outside the target surface
     s.cell_data["PressureRegion"] = b["tri_labels"]
     s.cell_data["Pressure_Pa"] = np.nan_to_num(b["q_tri"] * cfg.E_Pa, nan=0.0)
     s.cell_data["Clamped"] = problem.clamped_tri.astype(np.uint8)
@@ -236,10 +276,15 @@ def run(cfg):
         except NotImplementedError:
             pass
 
-    res = dict(solver=cfg.solver, stop_reason=stop_reason, mean_err_mm=float(err.mean()),
+    res = dict(solver=cfg.solver, stop_reason=stop_reason, loss=cfg.loss,
+               loss_tangent_weight=cfg.loss_tangent_weight, mean_err_mm=float(err.mean()),
+               mean_normal_err_mm=float(np.abs(err_n).mean()), best_loss_err_mm=float(b["err"]),
+               rigid_rotation_deg=dict(target=rot["target"][0], fitted=rot["fitted"][0]),
+               rigid_shift_mm=dict(target=rot["target"][1], fitted=rot["fitted"][1]),
                median_err_mm=float(np.median(err)), p95_err_mm=float(np.percentile(err, 95)),
                max_err_mm=float(err.max()), assd_mm=assd(Xs, X_tgt, tris),
-               baseline_mean_mm=float(d0.mean()), K=b["K"], nu=b["nu"], E_Pa=cfg.E_Pa,
+               baseline_mean_mm=float(np.linalg.norm(X_ref - X_tgt, axis=1).mean()),
+               baseline_loss_mm=float(d0.mean()), K=b["K"], nu=b["nu"], E_Pa=cfg.E_Pa,
                pressures_Pa=b["pressures_Pa"], mean_pressure_Pa=float(np.nanmean(b["q_tri"]) * cfg.E_Pa),
                pressure_sign=sign, evals=trk.n_eval, failed_solves=trk.n_fail,
                solve_s_mean=trk.solve_s / max(trk.n_eval, 1), solver_stats=solver.stats(),
@@ -247,11 +292,14 @@ def run(cfg):
                wall_max_penetration_mm=None if pen is None else float(max(pen.max(), 0.0)),
                wall_points_beyond=None if pen is None else int((pen > 0).sum()))
     (out / "result_summary.json").write_text(json.dumps(res, indent=2))
-    log.info("result (%s): mean %.3f mm (no deformation %.3f), median %.3f, p95 %.3f, max %.3f, "
-             "ASSD %.3f mm; K=%d, nu=%.3f, mean p=%.0f Pa (E=%.0f Pa); %d solves (%d failed), %.1f min",
-             stop_reason, res["mean_err_mm"], res["baseline_mean_mm"], res["median_err_mm"],
+    log.info("result (%s): mean %.3f mm point-to-point, %.3f along the normal (no deformation %.3f point-to-point), "
+             "median %.3f, p95 %.3f, max %.3f, ASSD %.3f mm; K=%d, nu=%.3f, mean p=%.0f Pa (E=%.0f Pa); "
+             "%d solves (%d failed), %.1f min",
+             stop_reason, res["mean_err_mm"], res["mean_normal_err_mm"], res["baseline_mean_mm"], res["median_err_mm"],
              res["p95_err_mm"], res["max_err_mm"], res["assd_mm"], b["K"], b["nu"],
              res["mean_pressure_Pa"], cfg.E_Pa, trk.n_eval, trk.n_fail, res["elapsed_min"])
+    log.info("rigid part vs the inflated lung: target %.1f deg / %.1f mm, fitted %.1f deg / %.1f mm",
+             *rot["target"], *rot["fitted"])
     if pen is not None:
         log.info("wall: %d points beyond the allowed position, max %.2f mm",
                  res["wall_points_beyond"], res["wall_max_penetration_mm"])

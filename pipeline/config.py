@@ -164,6 +164,12 @@ class FemFitConfig:
     target_error_mm: float = 2.5       # stop when the mean error reaches this
     time_budget_min: float = 240.0
     hard_grace_min: float = 10.0       # watchdog kills the run at budget + grace
+    # residual per surface point, d = fitted - target: "point" = d (point-to-point); "plane" = its
+    # component along the target normal n, plus loss_tangent_weight x the tangential rest, i.e.
+    # (n n^T + w (I - n n^T)) d. "plane" ignores sliding along the surface, so a correspondence
+    # that slid tangentially in the registration (it looks like a rotation) is not forced
+    loss: str = "point"
+    loss_tangent_weight: float = 0.0
     # per level: move on to the next K when the level's best error improved by less than
     # level_min_improve (relative) over the last level_patience optimiser iterations
     # (lsq: one Jacobian each; Nelder-Mead: parameters + 1 forward solves each)
@@ -182,6 +188,10 @@ class FemFitConfig:
             raise ValueError("fem_fit.optimizer must be lsq or nm")
         if self.jacobian not in ("analytic", "2-point"):
             raise ValueError("fem_fit.jacobian must be analytic or 2-point")
+        if self.loss not in ("point", "plane"):
+            raise ValueError("fem_fit.loss must be point or plane")
+        if not 0.0 <= self.loss_tangent_weight <= 1.0:
+            raise ValueError("fem_fit.loss_tangent_weight must be in [0, 1]")
 
 
 @dataclass
@@ -212,9 +222,30 @@ def _section(cls, raw, name):
         raise ValueError("section '%s': %s" % (name, e)) from None
 
 
-def load_config(path):
+def apply_overrides(raw, overrides):
+    """overrides: ["section.key=value", ...] (value parsed as JSON, else taken as a string),
+    e.g. fem_fit.loss=plane, fem_fit.solver_options.wall_update="outer", fem_fit.levels=[1,4]."""
+    for item in overrides or ():
+        key, sep, value = item.partition("=")
+        if not sep:
+            raise ValueError("--set %s: expected key=value" % item)
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            pass
+        *parents, last = key.split(".")
+        node = raw
+        for k in parents:
+            if not isinstance(node.get(k), dict):
+                raise ValueError("--set %s: '%s' is not a section of the config" % (item, k))
+            node = node[k]
+        node[last] = value                     # unknown keys are rejected later, as in the file
+    return raw
+
+
+def load_config(path, overrides=None):
     path = Path(path).resolve()
-    raw = json.loads(path.read_text())
+    raw = apply_overrides(json.loads(path.read_text()), overrides)
     base = path.parent
     data_dir = (base / raw["data_dir"]).resolve()
     output_dir = (base / raw["output_dir"]).resolve()

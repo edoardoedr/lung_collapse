@@ -2,6 +2,7 @@
 
     python main.py --config configs/patient1.json
     python main.py --config configs/patient1.json --steps surface_mesh
+    python main.py --config configs/patient1_torch.json --set fem_fit.loss=plane fem_fit.run_name=fit_torch_plane
 
 Runs the steps listed in the config (or in --steps), always in pipeline order.
 Step 1 (segmentation) is done by hand in 3D Slicer and is not here.
@@ -44,9 +45,11 @@ def main():
     ap = argparse.ArgumentParser(description="Collapsed-lung pipeline")
     ap.add_argument("--config", required=True, help="patient JSON config")
     ap.add_argument("--steps", nargs="+", choices=list(STEPS), help="override the config's step list")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[],
+                    help="override config keys for this run, e.g. fem_fit.loss=plane fem_fit.run_name=fit_plane")
     args = ap.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, args.set)
     requested = args.steps or cfg.steps
     unknown = sorted(set(requested) - set(STEPS))
     if unknown:
@@ -56,7 +59,7 @@ def main():
     log_dir = cfg.output_dir / "logs"
     setup_logging(log_dir)
     shutil.copy(cfg.source, log_dir / ("config_used_%s.json" % cfg.source.stem))
-    log.info("patient %s, config %s", cfg.patient, cfg.source)
+    log.info("patient %s, config %s%s", cfg.patient, cfg.source, ", overrides: " + " ".join(args.set) if args.set else "")
 
     for name, run in STEPS.items():
         if name not in requested:
