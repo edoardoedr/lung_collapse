@@ -54,14 +54,17 @@ from .common import WALL_QUADRATURES, adaptive_path, ramps, wall_gap_change
 log = logging.getLogger(__name__)
 
 
-class _NoCudssThreadingWarning(logging.Filter):
-    """nvmath logs this on the root logger at every cuDSS factorisation; it only concerns the
-    speed of cuDSS host-side planning."""
+class _QuietNvmath(logging.Filter):
+    """nvmath logs on the root logger at every cuDSS solve: ~20 INFO lines (phases, timings) and a
+    warning about the multithreading library (it only concerns the speed of host-side planning).
+    Drop those; other nvmath warnings and errors go through."""
     def filter(self, record):
-        return "No multithreading interface library" not in record.getMessage()
+        if "nvmath" not in record.pathname.replace("\\", "/"):
+            return True
+        return record.levelno >= logging.WARNING and "No multithreading interface library" not in record.getMessage()
 
 
-logging.getLogger().addFilter(_NoCudssThreadingWarning())
+logging.getLogger().addFilter(_QuietNvmath())
 
 DEFAULTS = {**GETFEM_DEFAULTS, "linear_solver": None}
 

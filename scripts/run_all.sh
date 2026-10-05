@@ -21,11 +21,13 @@ run_case() {
         steps=$(python -c "import json; print(' '.join(s for s in json.load(open('configs/$c.json'))['steps'] if s != 'fem_fit'))")
         python main.py --config configs/$c.json --steps $steps > logs_run_all/$c.txt 2>&1
     fi
-    echo "$(date +%H:%M) $c: exit $?"
+    local rc=$?                                            # before $(date) overwrites it
+    echo "$(date +%H:%M) $c: exit $rc"
     for core in warp torch; do
         [[ " $CORES " == *" $core "* ]] || continue
         python main.py --config configs/${c}_$core.json > logs_run_all/${c}_$core.txt 2>&1
-        echo "$(date +%H:%M) ${c}_$core: exit $?"
+        rc=$?
+        echo "$(date +%H:%M) ${c}_$core: exit $rc"
     done
 }
 
