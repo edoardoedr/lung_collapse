@@ -89,7 +89,7 @@
     "anchor_max_growth_steps": 10,
     "clamp_still_mm": 5.0,
     "wall": "reference",
-    "wall_tol_mm": 2.0,
+    "wall_tol_mm": 5.0,
     "align": "hilum_rigid",
     "cluster_field": "rigid_residual",
     "feature": "normal",
