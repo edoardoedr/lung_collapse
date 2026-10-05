@@ -1,4 +1,4 @@
-"""GetFEM core (port of pipeline_codes_v1/6.1 / 6.2_lung_inverse_fem_fit[_wall].py, class LungFEM).
+"""GetFEM core (port of the former pipeline_codes_v1/6.1 / 6.2_lung_inverse_fem_fit[_wall].py, class LungFEM; in the git history).
 
 options (fem_fit.solver_options):
   order             1 | 2, Lagrange order of the displacement (P2 slower, no volumetric locking)

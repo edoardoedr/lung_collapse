@@ -1,6 +1,5 @@
-pipeline_codes_v1/Input_files/*
-pipeline_codes_v1/Result/*
 Input_Data/*
 results/*
 __pycache__/
-.DS_Storelogs_run_all/
+.DS_Store
+logs_run_all/

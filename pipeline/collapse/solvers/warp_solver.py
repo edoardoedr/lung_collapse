@@ -1,6 +1,6 @@
 """NVIDIA Warp core: same physics, options and load path as GetFEMSolver (P1), on GPU or CPU.
 
-Kernels from pipeline_codes_v1/lung_inverse_fem_fit_warp.py (validated there: tangent and
+Kernels from the former pipeline_codes_v1/lung_inverse_fem_fit_warp.py (git history) (validated there: tangent and
 Jacobian vs finite differences). Material: GetFEM Compressible_Neo_Hookean only (common.py),
 tangent derived by hand (nh_P, nh_dP). Residual, Newton, load path, wall rounds, linear solvers
 and Jacobian: nodal.py (shared with the torch core); options documented there, plus

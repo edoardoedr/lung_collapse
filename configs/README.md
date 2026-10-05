@@ -207,6 +207,6 @@ Common to `getfem`, `warp` and `torch` unless noted. The defaults are in [`pipel
 
 - **Quick test fit:** `fem_fit.levels: [1, 4, 8]`, `time_budget_min: 30`.
 - **Faster FEM:** `fem_setup.mesh_size_mm: 14`, `fem_fit.jacobian: "analytic"`, `solver: "warp"` on a GPU machine.
-- **With the wall, faster:** `fem_setup.wall: "reference"`, `solver: "warp"` or `"torch"`, `warm_substeps: true`; `solver_options.wall_update: "newton"` only once validated (see the main README).
+- **With the wall, faster:** `fem_setup.wall: "reference"`, `solver: "warp"` or `"torch"`, `warm_substeps: true`; `solver_options.wall_update: "newton"` is not usable yet (it oscillates; see CLAUDE.md).
 - **Smoother, more identifiable pressures:** raise `reg` (e.g. 3) or stop at a coarser level (`levels` up to 14 or 25).
 - **Registration of a strongly collapsed lung (volume ratio > ~4):** add `elastix/Parameters_Affine.txt` between the rigid and B-spline files.
