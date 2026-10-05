@@ -332,7 +332,8 @@ class GetFEMSolver(ForwardSolver):
     def get_state(self):
         return None if self.U is None else self.U.copy()
 
-    def set_state(self, state):
+    def set_state(self, state, load=None):
+        """load is not used: the next solve jumps from state to its load (then ramps from zero)."""
         self.U = None if state is None else np.asarray(state).copy()
         self.q_last = self.nu_last = None
 

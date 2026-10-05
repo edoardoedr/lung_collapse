@@ -206,6 +206,7 @@ class NodalSolver(ForwardSolver):
         self.labels, self.K = None, 0
         self.fq = np.zeros(len(faces))
         self.U, self.q_last, self.nu_last = None, None, None     # last converged state, its q and nu
+        self.fq_last = None                                      # face pressures of self.U (any partition)
         self.Ucur = np.zeros(self.ndof)                          # current Newton state
         self.nu = 0.3
         self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0, jacobians=0,
@@ -272,10 +273,18 @@ class NodalSolver(ForwardSolver):
         self.K = n_regions
         self.q_last = None                                       # q of another partition
 
-    def _set_q(self, q):
+    def _face_q(self, q):
+        """Pressure per face (sign included) for region pressures q."""
         m = self.labels >= 0
-        self.fq = np.zeros(len(self.faces))
-        self.fq[m] = self.options["pressure_sign"] * np.asarray(q, float)[self.labels[m]]
+        fq = np.zeros(len(self.faces))
+        fq[m] = self.options["pressure_sign"] * np.asarray(q, float)[self.labels[m]]
+        return fq
+
+    def _set_q(self, q):
+        self.fq = self._face_q(q)
+
+    def _set_fq(self, fq):
+        self.fq = np.asarray(fq, float)
 
     def _fail(self, reason):
         self.counts["fail_" + reason] += 1
@@ -385,11 +394,11 @@ class NodalSolver(ForwardSolver):
         # not settled: the state may have slid through the linearised wall (karl04: up to 98 mm)
         return self._fail("unsettled")
 
-    def _path(self, U0, q0, q, n):
-        """n sub-steps from state (U0, q0) to q; True if all converged."""
+    def _path(self, U0, f0, f, n):
+        """n sub-steps from state (U0, face pressures f0) to face pressures f; True if all converged."""
         self.Ucur = np.array(U0, dtype=float)
         for s in range(1, n + 1):
-            self._set_q(q0 + (q - q0) * s / n)
+            self._set_fq(f0 + (f - f0) * s / n)
             if self.trace is not None:
                 self.trace.append(dict(event="step", step=s, of=n))
             if not self._solve():
@@ -397,8 +406,8 @@ class NodalSolver(ForwardSolver):
                 return False
         return True
 
-    def _adaptive(self, U0, q0, q, n):
-        """adaptive_path from state (U0, q0) to q, first step 1/n of the path."""
+    def _adaptive(self, U0, f0, f, n):
+        """adaptive_path from state (U0, face pressures f0) to f, first step 1/n of the path."""
         self.Ucur = np.array(U0, dtype=float)
 
         def set_state(U):
@@ -408,23 +417,26 @@ class NodalSolver(ForwardSolver):
             if self.trace is not None:
                 self.trace.append(dict(event="step", at=s, size=h))
 
-        ok = adaptive_path(lambda: self.Ucur.copy(), set_state, self._set_q, self._solve, q0, q, 1.0 / n,
+        ok = adaptive_path(lambda: self.Ucur.copy(), set_state, self._set_fq, self._solve, f0, f, 1.0 / n,
                            self.options["min_load_step"], on_step)
         if not ok:
             self.counts["failed_paths"] += 1
         return ok
 
     def _full(self, q, nu):
+        """The load path runs on the face pressures, so a warm start works across partitions
+        (new level) and from a state given with its load (set_state)."""
         self.nu = nu
         o = self.options
         self._deadline = time.time() + (o["max_solve_s"] or np.inf)
-        q0 = q if self.q_last is None else self.q_last
-        sub = self.q_last is not None and o["warm_substeps"]
+        f = self._face_q(q)
+        f0 = f if self.fq_last is None else self.fq_last
+        sub = self.fq_last is not None and o["warm_substeps"]
         path = self._adaptive if o["adaptive_steps"] else self._path
         for warm, n in ramps(o["load_steps"], self.U is not None, sub, o["slow_ramp"], o["adaptive_steps"]):
             if self.trace is not None:
                 self.trace.append(dict(event="path", warm=warm, steps=n))
-            if path(self.U if warm else np.zeros(self.ndof), q0 if warm else np.zeros_like(q), q, n):
+            if path(self.U if warm else np.zeros(self.ndof), f0 if warm else np.zeros_like(f), f, n):
                 return self.Ucur.copy()
         return None
 
@@ -433,7 +445,7 @@ class NodalSolver(ForwardSolver):
         U = self._full(q, float(nu))
         if U is None:
             return None
-        self.U, self.q_last, self.nu_last = U, q.copy(), float(nu)
+        self.U, self.q_last, self.nu_last, self.fq_last = U, q.copy(), float(nu), self.fq.copy()
         return U.reshape(-1, 3)[self.surf_node].copy()
 
     def jacobian(self, q, nu, with_nu=False):
@@ -471,12 +483,16 @@ class NodalSolver(ForwardSolver):
     def get_state(self):
         return None if self.U is None else self.U.copy()
 
-    def set_state(self, state):
+    def set_state(self, state, load=None):
         self.U = None if state is None else np.asarray(state, dtype=float).copy()
         self.q_last = self.nu_last = None
+        self.fq_last = None
+        if self.U is not None and load is not None:
+            self.fq_last = np.where(self.clamped, 0.0, self.options["pressure_sign"] * np.nan_to_num(
+                np.asarray(load, float)))
 
     def reset(self):
-        self.U, self.q_last, self.nu_last = None, None, None
+        self.U, self.q_last, self.nu_last, self.fq_last = None, None, None, None
 
     def export_volume(self, path, state):
         import pyvista as pv

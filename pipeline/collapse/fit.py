@@ -108,10 +108,18 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
 
     last = dict(x=None, r=None, ok=False, J=None)          # last residual evaluation / Jacobian
     jstats = dict(n=0, s=0.0, fd=0)
+    # warm start of every solve: the state of the lowest lsq cost so far in this level (the
+    # optimiser's current iterate), not the last converged solve, which is often a rejected trial
+    # far from the next one; with a wall a solve from there tends to fail (karl04: 10-26 failed
+    # solves in a row, 2 min each)
+    anchor = dict(cost=np.inf, state=None, load=None, current=True)
 
     def evaluate(x):
         trk.check()
         q, nu = unpack(x)
+        if not anchor["current"]:
+            solver.set_state(anchor["state"], anchor["load"])
+            anchor["current"] = True
         t0 = time.time()
         Us = solver.solve(sign * q, nu)
         dt = time.time() - t0
@@ -140,6 +148,11 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
                      ", ".join("%.0f" % v for v in q[:6] * cfg.E_Pa), ", ..." if K > 6 else "",
                      min(err, trk.best_err))
         last["r"] = np.r_[r, rreg]
+        cost = float(np.dot(last["r"], last["r"]))
+        if cost < anchor["cost"]:
+            anchor.update(cost=cost, state=state["solver_state"], load=sign * q_tri, current=True)
+        else:
+            anchor["current"] = anchor["state"] is None         # the solver now holds this trial
         trk.improve(err, r, state)
         return last["r"], err + np.dot(rreg, rreg) / max(1, len(rreg))
 
@@ -157,6 +170,8 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
         trk.iteration()
         if not last["ok"] and last["J"] is not None:
             return last["J"]                                # forward failed at x: last good one
+        if not last["ok"]:                                  # the level's first solve failed: finite
+            raise Stop("first solve failed")                # differences would only fail K more times
         J = None
         if last["ok"] and cfg.jacobian == "analytic":
             q, nu = unpack(x)
@@ -239,7 +254,7 @@ def run(cfg):
             K = int(K)
             if trk.best is not None:                       # warm start from the best so far
                 q_tri, nu_best = trk.best["q_tri"], trk.best["nu"]
-                solver.set_state(trk.best["solver_state"])
+                solver.set_state(trk.best["solver_state"], ctx["sign"] * trk.best["q_tri"])
             x0 = np.array([np.nansum(q_tri[tri_labels == k] * area[tri_labels == k]) /
                            area[tri_labels == k].sum() for k in range(K)])
             lb, ub = np.full(K, cfg.q_bounds[0]), np.full(K, cfg.q_bounds[1])

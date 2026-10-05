@@ -40,8 +40,10 @@ class ForwardSolver(ABC):
         """Copy of the last converged full solution (warm start, export); None if not kept."""
         return None
 
-    def set_state(self, state):
-        """Warm-start the next solve from `state` (from get_state)."""
+    def set_state(self, state, load=None):
+        """Warm-start the next solve from `state` (from get_state). load: optional p/E per surface
+        triangle (as passed to solve, sign included; ignored where clamped) that `state` is in
+        equilibrium with, so that the next solve can ramp from it instead of jumping to its load."""
 
     def reset(self):
         """Forget the warm start: the next solve starts from the reference configuration."""
