@@ -52,28 +52,36 @@ def sign_check(solver, problem, cfg):
 
 
 class Loss:
-    """Residual of the surface points, d = fitted - target (N, 3): P d with P = I ("point") or
+    """Residual of the free surface points, d = fitted - target: P d with P = I ("point") or
     n n^T + w (I - n n^T) ("plane", n = target vertex normal, w = loss_tangent_weight). The same P
-    applies to the Jacobian rows, so the analytic Jacobian of any core still works."""
+    applies to the Jacobian rows, so the analytic Jacobian of any core still works.
 
-    def __init__(self, cfg, X_tgt, tris):
+    Clamped points are left out: they do not move, so their error is a constant that does not
+    change the fit, but it would weigh on the reported errors, the target-error stop and the
+    plateau tests."""
+
+    def __init__(self, cfg, X_tgt, tris, free):
         self.plane = cfg.loss == "plane"
         self.w = cfg.loss_tangent_weight
-        self.n = vertex_normals(X_tgt, tris)
+        self.n = vertex_normals(X_tgt, tris)                 # all points (export)
+        self.free = np.asarray(free, bool)
+        self.nf = self.n[self.free]
 
     def project(self, d):
+        """d (N, 3) for all points -> residual (n_free, 3)."""
+        d = d[self.free]
         if not self.plane:
             return d
-        dn = np.einsum("ij,ij->i", d, self.n)[:, None] * self.n
+        dn = np.einsum("ij,ij->i", d, self.nf)[:, None] * self.nf
         return dn + self.w * (d - dn)
 
     def jacobian(self, J):
-        """J (3N, P) of the displacement -> of the residual."""
-        if not self.plane:
-            return J
-        J3 = J.reshape(len(self.n), 3, -1)
-        Jn = self.n[:, :, None] * np.einsum("ik,ikp->ip", self.n, J3)[:, None, :]
-        return (Jn + self.w * (J3 - Jn)).reshape(J.shape)
+        """J (3N, P) of the displacement of all points -> of the residual (3 n_free, P)."""
+        J3 = J.reshape(len(self.n), 3, -1)[self.free]
+        if self.plane:
+            Jn = self.nf[:, :, None] * np.einsum("ik,ikp->ip", self.nf, J3)[:, None, :]
+            J3 = Jn + self.w * (J3 - Jn)
+        return J3.reshape(-1, J.shape[1])
 
 
 def rigid_part(X_from, X_to):
@@ -195,13 +203,17 @@ def run(cfg):
     X_ref, X_tgt, tris = problem.reference, problem.target, problem.tris
     _, _, area = tri_geometry(X_ref, tris)
     adj, _ = face_adjacency(tris)
-    loss = Loss(cfg, X_tgt, tris)
+    free = np.ones(len(X_ref), bool)
+    free[problem.clamped_points] = False
+    loss = Loss(cfg, X_tgt, tris, free)
     d0 = np.linalg.norm(loss.project(X_ref - X_tgt), axis=1)
-    log.info("problem: %d surface points, %d volume nodes, %d tets, levels K = %s; loss %s%s, "
-             "no-deformation error %.2f mm (point-to-point %.2f)", len(X_ref), len(problem.nodes), len(problem.tets),
-             ", ".join(map(str, problem.levels)), cfg.loss,
+    mism = np.linalg.norm(X_ref - X_tgt, axis=1)[~free]
+    log.info("problem: %d surface points (%d clamped, left out of the error: %.2f mm mean / %.2f max from "
+             "their target), %d volume nodes, %d tets, levels K = %s; loss %s%s, no-deformation error "
+             "%.2f mm (point-to-point %.2f)", len(X_ref), (~free).sum(), mism.mean(), mism.max(),
+             len(problem.nodes), len(problem.tets), ", ".join(map(str, problem.levels)), cfg.loss,
              " (tangent weight %g)" % cfg.loss_tangent_weight if loss.plane else "", d0.mean(),
-             np.linalg.norm(X_ref - X_tgt, axis=1).mean())
+             np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean())
 
     cls = get_solver(cfg.solver)
     if problem.has_wall and not cls.supports_wall:
@@ -255,13 +267,15 @@ def run(cfg):
     if b is None:
         raise RuntimeError("no successful forward solve, nothing to export")
     Xs = X_ref + b["Us"]
-    err = np.linalg.norm(Xs - X_tgt, axis=1)                    # point-to-point, whatever the loss
-    err_n = np.einsum("ij,ij->i", Xs - X_tgt, loss.n)          # signed, along the target normal
+    err_all = np.linalg.norm(Xs - X_tgt, axis=1)                # point-to-point, whatever the loss
+    err_n_all = np.einsum("ij,ij->i", Xs - X_tgt, loss.n)      # signed, along the target normal
+    err, err_n = err_all[free], err_n_all[free]                  # the metrics: free points only
     rot = dict(target=rigid_part(X_ref, X_tgt), fitted=rigid_part(X_ref, Xs))
     s = polydata(Xs, tris)
     s.point_data["Displacement_mm"] = b["Us"]
-    s.point_data["Error_mm"] = err
-    s.point_data["NormalError_mm"] = err_n                      # > 0 = outside the target surface
+    s.point_data["Error_mm"] = err_all
+    s.point_data["NormalError_mm"] = err_n_all                  # > 0 = outside the target surface
+    s.point_data["Clamped"] = (~free).astype(np.uint8)
     s.cell_data["PressureRegion"] = b["tri_labels"]
     s.cell_data["Pressure_Pa"] = np.nan_to_num(b["q_tri"] * cfg.E_Pa, nan=0.0)
     s.cell_data["Clamped"] = problem.clamped_tri.astype(np.uint8)
@@ -279,11 +293,13 @@ def run(cfg):
     res = dict(solver=cfg.solver, stop_reason=stop_reason, loss=cfg.loss,
                loss_tangent_weight=cfg.loss_tangent_weight, mean_err_mm=float(err.mean()),
                mean_normal_err_mm=float(np.abs(err_n).mean()), best_loss_err_mm=float(b["err"]),
+               metric_points=int(free.sum()), clamped_points=int((~free).sum()),
+               clamped_mismatch_mm=dict(mean=float(mism.mean()), max=float(mism.max())),
                rigid_rotation_deg=dict(target=rot["target"][0], fitted=rot["fitted"][0]),
                rigid_shift_mm=dict(target=rot["target"][1], fitted=rot["fitted"][1]),
                median_err_mm=float(np.median(err)), p95_err_mm=float(np.percentile(err, 95)),
                max_err_mm=float(err.max()), assd_mm=assd(Xs, X_tgt, tris),
-               baseline_mean_mm=float(np.linalg.norm(X_ref - X_tgt, axis=1).mean()),
+               baseline_mean_mm=float(np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean()),
                baseline_loss_mm=float(d0.mean()), K=b["K"], nu=b["nu"], E_Pa=cfg.E_Pa,
                pressures_Pa=b["pressures_Pa"], mean_pressure_Pa=float(np.nanmean(b["q_tri"]) * cfg.E_Pa),
                pressure_sign=sign, evals=trk.n_eval, failed_solves=trk.n_fail,

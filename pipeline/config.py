@@ -120,6 +120,8 @@ class FemSetupConfig:
     anchor_min_points: int = 20        # clamp radius grows until it holds this many points (rank 3)
     anchor_growth: float = 1.1
     anchor_max_growth_steps: int = 10
+    clamp_still_mm: float | None = None   # also clamp the triangles whose 3 points move less than this
+                                          # between the inflated and the aligned collapsed lung; None = off
     wall: Path | str | None = None     # cavity the lung may not leave: "reference" = the registered inflated
                                        # surface itself, or a closed surface file (data_dir); None = no wall
     wall_tol_mm: float = 2.0           # allowed motion beyond the wall (registration noise margin)

@@ -4,7 +4,9 @@
      nodes, outward triangles, watertight
   2. clamped region: triangles within (sphere radius x anchor_radius_factor) of the anchor point(s):
      the hilum, optionally also the airway / artery / vein ring centres (union of the balls)
-  3. rigid alignment of the target (default: on the clamped points, consistent with u = 0 there)
+  3. rigid alignment of the target (default: on the clamped points, consistent with u = 0 there);
+     optionally also clamp the triangles that barely move between the inflated and the aligned
+     collapsed lung (clamp_still_mm), chosen after the alignment so that it is not affected
   4. optional cavity wall: closed surface the lung may not leave during the collapse, "reference"
      = the registered inflated surface itself (allowed outward margin per point = wall_tol_mm +
      how far the point is already outside)
@@ -94,6 +96,16 @@ def run(cfg):
     d0 = np.linalg.norm(X_tgt - X_ref, axis=1)
     log.info("target alignment '%s': clamped points %.2f mm from their target, no-deformation error "
              "%.2f mm mean", cfg.align, d0[cpts].mean(), d0.mean())
+    clamp_kind = clamped.astype(np.uint8)                     # 1 = anchor balls, 2 = still
+    if cfg.clamp_still_mm is not None:
+        still = (d0[tris] < cfg.clamp_still_mm).all(axis=1) & ~clamped
+        clamped = clamped | still
+        clamp_kind[still] = 2
+        new = np.setdiff1d(np.unique(tris[still]), cpts)
+        cpts = np.unique(tris[clamped])
+        log.info("clamp_still_mm %.1f: +%d triangles / %d points moving less than that (%.2f mm mean); "
+                 "clamped now %d triangles / %d points", cfg.clamp_still_mm, still.sum(), len(new),
+                 d0[new].mean() if len(new) else 0.0, clamped.sum(), len(cpts))
 
     # 4. cavity wall (optional)
     wall_pts, wall_tris, wall_allow, phi0 = np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), np.zeros(0), None
@@ -146,7 +158,7 @@ def run(cfg):
     s = polydata(X_ref, tris)
     s.point_data["CleanDisplacement_mm"] = u
     s.point_data["TargetDisplacement_mm"] = X_tgt - X_ref
-    s.cell_data["Clamped"] = clamped.astype(np.uint8)
+    s.cell_data["Clamped"] = clamp_kind                         # 1 = anchor balls, 2 = still (clamp_still_mm)
     if phi0 is not None:
         s.point_data["WallDistance_mm"] = phi0
     for K, lab in zip(levels, regions):
@@ -164,6 +176,7 @@ def run(cfg):
         clamp_radii_mm=radii.tolist(),
         anchor_radius_factor=cfg.anchor_radius_factor, clamp_radius_mm=radius,
         clamped_triangles=int(clamped.sum()), clamped_points=int(len(cpts)),
+        clamp_still_mm=cfg.clamp_still_mm, still_triangles=int((clamp_kind == 2).sum()),
         align=cfg.align, rigid_full_deg=ang, rigid_clamp_deg=ang_h,
         baseline_mean_error_mm=float(d0.mean()), baseline_assd_mm=assd(X_ref, X_tgt, tris),
         cluster_field=cfg.cluster_field, feature=cfg.feature, levels=levels.tolist(),
