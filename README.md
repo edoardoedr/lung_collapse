@@ -109,12 +109,15 @@ p = '<folder>/load_collapse_in_slicer.py'
 exec(open(p).read(), {'__file__': p})
 ```
 
-**Several fits side by side** (e.g. two losses), in Slicer's Python console:
+**Several fits side by side** (e.g. with and without the wall), in Slicer's Python console:
 
 ```python
 exec(open('<repo>/scripts/slicer_compare_sequences.py').read())
-load('<results>/karl04/sequence_fit_torch', '<results>/karl04/sequence_fit_torch_plane')
+R = '<repo>/results/'
+load(R + 'karl04_wall/sequence_fit_torch', R + 'karl04/sequence_fit_torch')
 ```
+
+The sequences are coloured in order (orange, blue, green, yellow) and play on one slider; the grey wireframe is the target (collapsed lung) of the first one. Each `load(...)` adds a new slider; File → Close Scene to start again.
 
 **Static:** drag `lung_fem_fit_torch.vtp` and `fem/setup/target_aligned.vtp` into Slicer and colour the fit by `Error_mm`.
 
