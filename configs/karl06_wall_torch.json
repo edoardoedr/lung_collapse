@@ -1,9 +1,9 @@
 {
-  "_comment": "torch core on the fem_setup of karl06.json (same output_dir; run that config up to fem_setup first, this one writes fem/fit_torch). data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
+  "_comment": "torch core on the fem_setup of karl06_wall.json (same output_dir; run that config up to fem_setup first, this one writes fem/fit_torch). data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
   "patient": "karl06",
   "data_dir": "../Input_Data/karl06",
-  "output_dir": "../results/karl06",
-  "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup","fem_fit"],
+  "output_dir": "../results/karl06_wall",
+  "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
 
   "check_inputs": {
     "_comment": "inputs null = taken from the other sections (surface_mesh.input, registration.inflated, hilum.structures). Findings are warnings unless fail_on_warning",
@@ -78,7 +78,7 @@
   },
 
   "fem_setup": {
-    "_comment": "inputs null = previous steps (reference: registration, target: surface_mesh, anchor: hilum). wall: cavity the lung may not leave, null = none. clamp radius = sphere radius of anchor_point x anchor_radius_factor",
+    "_comment": "inputs null = previous steps (reference: registration, target: surface_mesh, anchor: hilum). wall: cavity the lung may not leave, 'reference' = the registered inflated surface, or a file, null = none. clamp radius = sphere radius of anchor_point x anchor_radius_factor",
     "reference": null,
     "target": null,
     "anchor": null,
@@ -88,8 +88,8 @@
     "anchor_growth": 1.1,
     "anchor_max_growth_steps": 10,
     "clamp_still_mm": 5.0,
-    "wall": null,
-    "wall_tol_mm": 2.0,
+    "wall": "reference",
+    "wall_tol_mm": 5.0,
     "align": "none",
     "cluster_field": "rigid_residual",
     "feature": "normal",
@@ -104,9 +104,9 @@
     "output": "lung_fem_fit_torch.vtp",
     "run_name": "fit_torch",
     "solver": "torch",
-    "solver_options": {"order": 1, "load_steps": 8, "newton_tol": 1e-7, "newton_maxit": 30, "warm_substeps": false,
-                       "wall_stiffness": 20.0, "wall_eps": 0.5, "wall_max_updates": 6, "wall_settle_mm": 0.05,
-                       "wall_update": "outer", "device": null, "linear_solver": null,
+    "solver_options": {"order": 1, "load_steps": 8, "newton_tol": 1e-7, "newton_maxit": 30, "warm_substeps": true,
+                       "wall_stiffness": 20.0, "wall_eps": 0.5, "wall_max_updates": 15, "wall_settle_mm": 0.5,
+                       "wall_update": "outer", "wall_quadrature": "nodal", "slow_ramp": false, "adaptive_steps": true, "max_solve_s": 120, "device": null, "linear_solver": null,
                        "material": "neo_hookean", "material_params": {}},
     "E_Pa": 3000.0,
     "nu": 0.40,
