@@ -69,6 +69,10 @@ class GetFEMSolver(ForwardSolver):
     name = "getfem"
     supports_wall = True
 
+    @classmethod
+    def accepted_options(cls):
+        return set(DEFAULTS)
+
     def __init__(self, problem, options):
         unknown = sorted(set(options) - set(DEFAULTS))
         if unknown:

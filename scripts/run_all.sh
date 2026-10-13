@@ -1,37 +1,29 @@
 #!/usr/bin/env bash
-# Run every case: for each, the base config (GetFEM, whole pipeline up to fem_fit) and then its
-# Warp / torch variants (fem_fit only, on the base fem_setup). Cases run in parallel, the three
-# fits of one case one after the other. Logs in logs_run_all/<config>.txt.
+# Run cases: configs/<case>_torch.json (whole pipeline, torch core), cases in parallel.
+# Logs in logs_run_all/<case>.txt. Extra arguments after "--" go to main.py.
 #
-#   bash scripts/run_all.sh                       # all cases
-#   bash scripts/run_all.sh karl04 patient_10     # only these
-#   CORES="warp torch" bash scripts/run_all.sh    # skip the GetFEM fit (still runs the base steps up to fem_setup)
+#   bash scripts/run_all.sh                                      # every configs/*_torch.json
+#   bash scripts/run_all.sh karl04 karl04_wall                   # only these
+#   bash scripts/run_all.sh karl04 karl04_wall -- --steps fem_setup fem_fit   # only the FEM steps
 
 cd "$(dirname "$0")/.." || exit 1
-CASES=${*:-"karl04 patient_2 patient_10 karl04_wall patient_2_wall patient_10_wall"}
-CORES=${CORES:-"getfem warp torch"}
+CASES=() EXTRA=()
+while [[ $# -gt 0 && $1 != "--" ]]; do CASES+=("$1"); shift; done
+[[ $1 == "--" ]] && { shift; EXTRA=("$@"); }
+if [[ ${#CASES[@]} -eq 0 ]]; then
+    for f in configs/*_torch.json; do c=$(basename "$f" _torch.json); CASES+=("$c"); done
+fi
 mkdir -p logs_run_all
 export PYTHONUNBUFFERED=1 CUDA_PYTHON_DISABLE_MAJOR_VERSION_WARNING=1
 
 run_case() {
-    local c=$1
-    if [[ " $CORES " == *" getfem "* ]]; then
-        python main.py --config configs/$c.json > logs_run_all/$c.txt 2>&1
-    else                                                   # base steps without the GetFEM fit
-        steps=$(python -c "import json; print(' '.join(s for s in json.load(open('configs/$c.json'))['steps'] if s != 'fem_fit'))")
-        python main.py --config configs/$c.json --steps $steps > logs_run_all/$c.txt 2>&1
-    fi
-    local rc=$?                                            # before $(date) overwrites it
+    local c=$1 rc
+    python main.py --config configs/${c}_torch.json "${EXTRA[@]}" > logs_run_all/$c.txt 2>&1
+    rc=$?                                                  # before $(date) overwrites it
     echo "$(date +%H:%M) $c: exit $rc"
-    for core in warp torch; do
-        [[ " $CORES " == *" $core "* ]] || continue
-        python main.py --config configs/${c}_$core.json > logs_run_all/${c}_$core.txt 2>&1
-        rc=$?
-        echo "$(date +%H:%M) ${c}_$core: exit $rc"
-    done
 }
 
-for c in $CASES; do
+for c in "${CASES[@]}"; do
     run_case "$c" &
 done
 wait

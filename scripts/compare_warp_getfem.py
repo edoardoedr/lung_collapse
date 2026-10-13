@@ -1,11 +1,11 @@
 """Validate the Warp (or torch) core against the GetFEM core on a real case (run where both are installed).
 
-    python scripts/compare_warp_getfem.py --config configs/karl04_wall.json            # a, b, c
-    python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --timing   # + e
-    python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --fit      # + d (long)
-    python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --wall-only  # only b and c with wall
-    python scripts/compare_warp_getfem.py --config configs/karl04.json --core torch    # torch instead of Warp
-  python scripts/compare_warp_getfem.py --config configs/karl04_wall.json --core torch --wall-only --jac-q 0.1 \
+    python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json            # a, b, c
+    python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json --timing   # + e
+    python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json --fit      # + d (long)
+    python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json --wall-only  # only b and c with wall
+    python scripts/compare_warp_getfem.py --config configs/karl04_torch.json --core torch    # torch instead of Warp
+  python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json --core torch --wall-only --jac-q 0.1 \
       --core-options '{"wall_update": "newton"}'     # contact inside Newton for the compared core only
 
 Needs the fem_setup output of the config. With a wall in the setup, (a) runs on a copy of the
@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pipeline.collapse import fit                                    # noqa: E402
 from pipeline.collapse.geometry import WallDistance                  # noqa: E402
 from pipeline.collapse.problem import CollapseProblem                # noqa: E402
-from pipeline.collapse.solvers import get_solver                     # noqa: E402
+from pipeline.collapse.solvers import get_solver, options_for        # noqa: E402
 from pipeline.collapse.solvers.nodal import FACE_QUAD_B, FACE_QUAD_W       # noqa: E402
 from pipeline.config import load_config                              # noqa: E402
 
@@ -55,9 +55,7 @@ def without_wall(problem):
 
 
 def make(name, problem, fc, **opts):
-    o = dict(fc.solver_options)
-    if name != "getfem":
-        o.pop("linear_solver", None)                    # GetFEM names (mumps, ...) mean nothing to Warp / torch
+    o = options_for(name, fc.solver_options, fc.solver)   # e.g. a torch config: no device / material for GetFEM
     if name == CORE:
         o.update(CORE_OPTS)                             # --core-options, the compared core only
     o.update(opts)
@@ -219,9 +217,7 @@ def compare_fit(cfg):
     fc, rows = cfg.fem_fit, {}
     for name in ("getfem", CORE):
         wd = fc.workdir.parent / ("fit_" + name)
-        opts = dict(fc.solver_options)
-        if name != "getfem":
-            opts.pop("linear_solver", None)
+        opts = options_for(name, fc.solver_options, fc.solver)
         c = dataclasses.replace(fc, solver=name, solver_options=opts, jacobian="analytic", workdir=wd,
                                 output=wd / "lung_fem_fit.vtp")
         t0 = time.time()

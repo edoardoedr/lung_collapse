@@ -127,6 +127,10 @@ class NodalSolver(ForwardSolver):
     supports_wall = True
     extra_defaults = {}
 
+    @classmethod
+    def accepted_options(cls):
+        return set(DEFAULTS) | set(cls.extra_defaults)
+
     def __init__(self, problem, options):
         defaults = {**DEFAULTS, **self.extra_defaults}
         unknown = sorted(set(options) - set(defaults))

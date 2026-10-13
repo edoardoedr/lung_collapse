@@ -1,8 +1,8 @@
 """Collapse sequence of one patient, to look at in 3D Slicer (or ParaView). Run it when needed:
 
-    python scripts/collapse_sequence.py --config configs/karl04.json
-    python scripts/collapse_sequence.py --config configs/karl04.json --frames 40 --volume
-    python scripts/collapse_sequence.py --config configs/karl04.json --mode linear   # no FEM library needed
+    python scripts/collapse_sequence.py --config configs/karl04_torch.json
+    python scripts/collapse_sequence.py --config configs/karl04_torch.json --frames 40 --volume
+    python scripts/collapse_sequence.py --config configs/karl04_torch.json --mode linear   # no FEM library needed
 
 Needs the fem_setup and fem_fit outputs of the config. Mode "fem" re-solves the forward FEM with
 the best fitted pressures ramped 0 -> 100 %% (quasi-static load path, each frame warm-started from

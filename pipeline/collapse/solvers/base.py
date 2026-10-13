@@ -24,6 +24,11 @@ class ForwardSolver(ABC):
     name = None
     supports_wall = False       # True if the core enforces problem.wall_*
 
+    @classmethod
+    def accepted_options(cls):
+        """Names of the solver_options this core accepts; None = any (no check)."""
+        return None
+
     def __init__(self, problem, options):
         self.problem = problem
         self.options = options

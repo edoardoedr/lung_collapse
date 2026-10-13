@@ -29,13 +29,13 @@ Local testing without the heavy libraries: `pipeline/collapse/geometry.py` impor
 ## Commands
 
 ```bash
-python main.py --config configs/<p>.json                    # steps listed in the config
-python main.py --config configs/<p>.json --steps fem_fit    # some steps only
-python scripts/check_jacobian.py --config configs/<p>.json [--solver torch] [--options '{...}'] [--compare-fit]
-python scripts/compare_warp_getfem.py --config configs/<p>.json [--core torch] [--timing] [--fit] [--wall-only] \
+python main.py --config configs/<p>_torch.json              # whole pipeline (or <p>_wall_torch.json)
+python main.py --config configs/<p>_torch.json --steps fem_setup fem_fit    # some steps only
+python scripts/check_jacobian.py --config configs/<p>_torch.json [--solver getfem] [--options '{...}'] [--compare-fit]
+python scripts/compare_warp_getfem.py --config configs/<p>_torch.json [--core torch] [--timing] [--fit] [--wall-only] \
        [--jac-q 0.1] [--core-options '{"wall_update": "newton"}']
 python scripts/wall_diagnose.py --config configs/<p>_torch.json [--q 0.2] [--steps 10] [--options '{...}']   # Newton trace with a wall
-python scripts/collapse_sequence.py --config configs/<p>.json [--frames 30] [--mode fem|linear] [--volume]
+python scripts/collapse_sequence.py --config configs/<p>_torch.json [--frames 30] [--mode fem|linear] [--volume]
 # in Slicer's console: exec(open('scripts/slicer_compare_sequences.py').read()); load('<seq folder>', ...)   # sequences side by side
 python -m py_compile pipeline/collapse/solvers/*.py scripts/*.py    # the only check possible on the Mac for FEM code
 ```
@@ -44,14 +44,12 @@ Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output.
 
 ## Configs
 
-- Per case three configs with identical FEM parameters (best found on karl04: `mesh_size_mm` 14, ν = 0.40 fixed, `load_steps` 8, `jacobian: "analytic"`, `time_budget_min` 600, and since 2026-10-06 `fem_setup.align: "none"` + `fem_fit.loss: "plane"` everywhere: ~3 mm from the real collapsed surface instead of 5–15 mm aligned):
-  - `<p>.json`: GetFEM, whole pipeline, fit in `fem/fit/`;
-  - `<p>_warp.json`, `<p>_torch.json`: steps `["fem_fit"]` only, same `output_dir`, `fem_fit.run_name` = `fit_warp` / `fit_torch`, so they reuse the base config's `fem_setup`.
-- Cases: `karl04`, `patient_2`, `patient_10` without wall (`results/<p>`) and `<p>_wall` with `wall: "reference"` (`results/<p>_wall`), each with `_warp` / `_torch` (18 configs). All base configs (karl04 included) list every step from `check_inputs` to `fem_fit`. The patient no-wall configs were split off on 2026-10-04 (the former `patient_X.json` had the wall and is now `patient_X_wall.json`). patient_2 registration uses rigid + affine + B-spline; patient_10 rigid + B-spline.
-- Patients added later (karl06 by the user; karl01, karl02, karl08 on 2026-10-12): only `<p>_torch.json` (results/<p>) and `<p>_wall_torch.json` (results/<p>_wall), each running the whole pipeline (`check_inputs` → `fem_fit`) with the torch core, no GetFEM / Warp configs. Copied from karl04 (registration rigid + affine + B-spline, same FEM settings); karl01 is a left lung, the others right. `run_all.sh` does not handle them (it expects a base `<p>.json`): run them with `main.py` directly.
-- `scripts/run_all.sh [case ...]` runs each base config then its variants (cases in parallel, logs in `logs_run_all/`); `CORES="warp torch"` skips the GetFEM fit.
+- Since 2026-10-13 only torch configs (the GetFEM / Warp ones are in the git history): per patient `configs/<p>_torch.json` (no wall, `results/<p>`) and `configs/<p>_wall_torch.json` (`wall: "reference"`, `results/<p>_wall`), each running the whole pipeline (`check_inputs` → `fem_fit`), fit in `fem/fit_torch`, `lung_fem_fit_torch.vtp`, sequence `sequence_fit_torch/`. Redo only the FEM with `--steps fem_setup fem_fit`. To run another core set `fem_fit.solver`; the validation scripts (`check_jacobian.py --solver`, `compare_warp_getfem.py`) drop the options the other core does not accept (`solvers.options_for`: torch's `device` / `material*` for GetFEM, `linear_solver` to / from GetFEM).
+- Identical FEM settings everywhere (best found on karl04): `mesh_size_mm` 14, ν = 0.40 fixed, `load_steps` 8, `jacobian: "analytic"`, `time_budget_min` 600, clamp `["hilum", "airways", "arteries", "veins"]` + `clamp_still_mm` 5, `fem_setup.align: "none"` + `fem_fit.loss: "plane"` (~2–3 mm from the real collapsed surface instead of 5–15 mm aligned). Wall configs add `wall_tol_mm` 5, `outer`, `nodal`, adaptive steps, `wall_settle_mm` 0.5, `wall_max_updates` 15, `slow_ramp` false, `max_solve_s` 120.
+- Patients: karl01 (left lung), karl02, karl04, karl06, karl08 (right; karl06 added by the user, karl01 / 02 / 08 on 2026-10-12, copied from karl04), patient_2, patient_10 (left). Registration rigid + affine + B-spline everywhere except patient_10 (rigid + B-spline).
+- `scripts/run_all.sh [case ...] [-- main.py args]` runs `configs/<case>_torch.json` for each case in parallel (default: all), logs in `logs_run_all/`.
+- Results kept after the 2026-10-13 cleanup (torch, current configs; mean point-to-point / along-the-normal error on the free points, K reached): karl01 5.65 / 2.43 (K 25, target error reached), karl01_wall 5.49 / 2.26; karl02 7.90 / 2.49, **karl02_wall 13.26 / 5.06 stopped at K = 8** (9 of 31 solves failed, "first solve failed" at K = 14 and 25, 19 min: to look at); karl04 10.09 / 2.75, karl04_wall 9.65 / 2.80 (35 min, 14 of 79 failed); karl08 6.29 / 2.19, karl08_wall 6.24 / 2.12; patient_10 9.97 / 2.10, patient_10_wall 9.79 / 2.12. karl04 / patient_10 no-wall results are the former `_noalign` test runs moved in place (same settings as the current configs; their log is appended to `logs/pipeline.log`). patient_2 / patient_2_wall: only meshes, hilum and registration kept (old aligned fits deleted); karl06: no results downloaded yet. All earlier experiment fits (point, plane01, vessels, still, warp, aligned) were deleted.
 - With a wall all variants use `wall_update: "outer"` (GetFEM can only do that); `"newton"` (Warp/torch) is under test, see below.
-- Patients' `fem_setup` must be re-run after the mesh-size change (8 → 14 mm) before their fits.
 - Unknown keys raise an error; `_`-prefixed keys are comments; paths: `data_dir`/`output_dir` relative to the JSON, inputs to `data_dir`, outputs to `output_dir`, `null` inputs come from the previous step.
 
 ## Pipeline essentials
@@ -222,7 +220,7 @@ To look at one patient's collapse, after `fem_fit`. The script re-solves the FEM
 
 1. **Create the sequence** (where the FEM core is installed):
    ```bash
-   python scripts/collapse_sequence.py --config configs/<p>.json      # [--frames 30] [--mode fem|linear] [--volume] [--fps 8]
+   python scripts/collapse_sequence.py --config configs/<p>_torch.json      # [--frames 30] [--mode fem|linear] [--volume] [--fps 8]
    ```
    It writes `results/<p>/sequence/`: one `.vtp` per frame, `collapse.pvd` for ParaView, the target, the hilum spheres and `load_collapse_in_slicer.py`. The folder is self-contained.
 2. **Copy the folder to the machine with Slicer**, e.g. from the Jupyter server: `cd results && tar -czf sequences.tar.gz */sequence*`, then right click on the archive in the Jupyter file browser → Download, and extract it into `results/` with `tar -xzf sequences.tar.gz`. The folder is `sequence/` for a fit with `run_name` `fit`, `sequence_<run_name>/` otherwise (e.g. `sequence_fit_torch/`).
@@ -252,15 +250,7 @@ To look at one patient's collapse, after `fem_fit`. The script re-solves the FEM
 
 ### Config sets
 
-Per patient there are three configs, with the same FEM parameters (those found best on karl04: mesh 14 mm, ν = 0.40 fixed, 8 load steps, analytic Jacobian):
-
-| Config | Core | Runs | Fit written to |
-|---|---|---|---|
-| `<p>.json` | GetFEM | the whole pipeline | `fem/fit/`, `lung_fem_fit.vtp` |
-| `<p>_warp.json` | Warp | only `fem_fit`, on the `fem_setup` of `<p>.json` | `fem/fit_warp/`, `lung_fem_fit_warp.vtp` |
-| `<p>_torch.json` | PyTorch | only `fem_fit`, on the `fem_setup` of `<p>.json` | `fem/fit_torch/`, `lung_fem_fit_torch.vtp` |
-
-The variants share the base config's `output_dir` (key `fem_fit.run_name` chooses the fit folder), so run `<p>.json` at least up to `fem_setup` first. Every case exists without and with the wall: `<p>` (no wall, `results/<p>`) and `<p>_wall` (`wall: "reference"`, `results/<p>_wall`), each with its `_warp` / `_torch` variants, for `karl04`, `patient_2`, `patient_10`. The two sets differ only in `fem_setup.wall` and the wall solver options (`outer`, `nodal`, adaptive steps, fail fast); the no-wall set runs registration and setup separately into its own folder.
+Until 2026-10-13 each case had three configs: `<p>.json` (GetFEM, whole pipeline), `<p>_warp.json` and `<p>_torch.json` (only `fem_fit`, on the base `fem_setup`, fits in `fem/fit_warp`, `fem/fit_torch`), for `karl04`, `patient_2`, `patient_10` with and without wall. Now only the self-contained torch configs remain (see "Configs" above); the others are in the git history.
 
 ### Input data
 

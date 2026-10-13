@@ -1,9 +1,9 @@
 {
-  "_comment": "torch core on the fem_setup of patient_10_wall.json (same output_dir; run that config up to fem_setup first, this one writes fem/fit_torch). data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
+  "_comment": "whole pipeline with the torch core, with the cavity wall, fit in fem/fit_torch. data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
   "patient": "patient_10",
   "data_dir": "../Input_Data/patient_10",
   "output_dir": "../results/patient_10_wall",
-  "steps": ["fem_fit"],
+  "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
 
   "check_inputs": {
     "_comment": "inputs null = taken from the other sections (surface_mesh.input, registration.inflated, hilum.structures). Findings are warnings unless fail_on_warning",

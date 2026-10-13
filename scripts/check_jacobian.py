@@ -1,12 +1,14 @@
 """Check the analytic Jacobian of the FEM core against finite differences, and compare fits.
 
-    python scripts/check_jacobian.py --config configs/karl04.json
-    python scripts/check_jacobian.py --config configs/karl04_wall.json
-    python scripts/check_jacobian.py --config configs/karl04.json --compare-fit
-    python scripts/check_jacobian.py --config configs/karl04.json --solver torch --options '{"device": "cpu"}'
+    python scripts/check_jacobian.py --config configs/karl04_torch.json
+    python scripts/check_jacobian.py --config configs/karl04_wall_torch.json
+    python scripts/check_jacobian.py --config configs/karl04_torch.json --compare-fit
+    python scripts/check_jacobian.py --config configs/karl04_torch.json --options '{"device": "cpu"}'
+    python scripts/check_jacobian.py --config configs/karl04_torch.json --solver getfem
 
 Needs the fem_setup output of the config (run the pipeline up to fem_setup first). --solver / --options
-override fem_fit.solver / solver_options (GetFEM's linear_solver is dropped when switching core).
+override fem_fit.solver / solver_options (options the other core does not accept are dropped,
+solvers.options_for).
 
 1. Jacobian check: converges solve(q, nu) at a non-trivial q on one level, then compares every
    column of solver.jacobian(q, nu, with_nu=True) with central finite differences of solve(),
@@ -33,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pipeline.collapse import fit                                    # noqa: E402
 from pipeline.collapse.problem import CollapseProblem                # noqa: E402
-from pipeline.collapse.solvers import get_solver                     # noqa: E402
+from pipeline.collapse.solvers import get_solver, options_for        # noqa: E402
 from pipeline.config import load_config                              # noqa: E402
 
 
@@ -159,9 +161,7 @@ def main():
                         datefmt="%H:%M:%S")
     cfg = load_config(args.config)
     fc = cfg.fem_fit
-    opts = dict(fc.solver_options)
-    if args.solver and args.solver != fc.solver:
-        opts.pop("linear_solver", None)
+    opts = options_for(args.solver, fc.solver_options, fc.solver) if args.solver else dict(fc.solver_options)
     opts.update(json.loads(args.options))
     cfg = dataclasses.replace(cfg, fem_fit=dataclasses.replace(fc, solver=args.solver or fc.solver, solver_options=opts))
     check(cfg, args)

@@ -52,14 +52,14 @@ Requires Python ≥ 3.10.
 ## Running
 
 ```bash
-python main.py --config configs/patient_10.json                      # steps listed in the config
-python main.py --config configs/patient_10.json --steps hilum        # only some steps
-python main.py --config configs/patient_10.json --steps fem_fit      # e.g. on the machine with GetFEM
+python main.py --config configs/patient_10_torch.json                         # the whole pipeline
+python main.py --config configs/patient_10_torch.json --steps hilum           # only some steps
+python main.py --config configs/patient_10_torch.json --steps fem_setup fem_fit   # redo only the FEM
 ```
 
-One-off changes without editing the config: `--set section.key=value ...` (value parsed as JSON), e.g. `python main.py --config configs/karl04_torch.json --set fem_fit.loss=plane fem_fit.run_name=fit_torch_plane fem_fit.output=lung_fem_fit_torch_plane.vtp`; a misspelt key is rejected as in the file, and the overrides are written to the log.
+One-off changes without editing the config: `--set section.key=value ...` (value parsed as JSON), e.g. `python main.py --config configs/karl04_torch.json --steps fem_fit --set fem_fit.loss=point fem_fit.run_name=fit_torch_point fem_fit.output=lung_fem_fit_torch_point.vtp` (a second fit next to the first); a misspelt key is rejected as in the file, and the overrides are written to the log.
 
-All cases at once (each base config, then its `_warp` / `_torch` variants; cases in parallel, logs in `logs_run_all/`): `bash scripts/run_all.sh [case ...]`, with `CORES="warp torch"` to skip the GetFEM fits.
+All cases at once (in parallel, logs in `logs_run_all/`): `bash scripts/run_all.sh [case ...] [-- main.py arguments]`, e.g. `bash scripts/run_all.sh karl04 karl04_wall -- --steps fem_setup fem_fit`.
 
 Steps always run in pipeline order. If a step fails, the error is written to `logs/pipeline.log` and the run stops.
 
@@ -71,13 +71,14 @@ One folder per patient in `Input_Data/`, surface models exported from 3D Slicer 
 
 One JSON per case in [`configs/`](configs/); **every key, with its purpose and range, is explained in [`configs/README.md`](configs/README.md).**
 
-Each case comes in two sets, without and with the cavity wall, each with three FEM cores:
+Each patient has two configs, both running the whole pipeline with the PyTorch core:
 
-| Config | Wall | FEM core | Runs |
-|---|---|---|---|
-| `<p>.json` | no | GetFEM | the whole pipeline → `results/<p>/` |
-| `<p>_warp.json`, `<p>_torch.json` | no | Warp, PyTorch | only `fem_fit`, on the setup of `<p>.json` |
-| `<p>_wall.json` (+ `_warp`, `_torch`) | yes | as above | → `results/<p>_wall/` |
+| Config | Cavity wall | Results |
+|---|---|---|
+| `<p>_torch.json` | no | `results/<p>/` |
+| `<p>_wall_torch.json` | yes | `results/<p>_wall/` |
+
+Patients: karl01 (left lung), karl02, karl04, karl06, karl08 (right), patient_2, patient_10 (left). To use GetFEM or Warp instead, set `fem_fit.solver` (and drop the options that core does not know, e.g. `device`, `material`).
 
 
 ## Inverse FEM
