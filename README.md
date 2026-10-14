@@ -78,7 +78,7 @@ Each patient has two configs, both running the whole pipeline with the PyTorch c
 | `<p>_torch.json` | no | `results/<p>/` |
 | `<p>_wall_torch.json` | yes | `results/<p>_wall/` |
 
-Patients: karl01 (left lung), karl02, karl04, karl06, karl08 (right), patient_2, patient_10 (left). To use GetFEM or Warp instead, set `fem_fit.solver` (and drop the options that core does not know, e.g. `device`, `material`).
+Patients: karl01, karl10, karl17 (left lung), karl02, karl04, karl06, karl08 (right), patient_2, patient_10 (left). To use GetFEM or Warp instead, set `fem_fit.solver` (and drop the options that core does not know, e.g. `device`, `material`).
 
 
 ## Inverse FEM
