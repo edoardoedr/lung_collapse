@@ -153,8 +153,13 @@ class FemFitConfig:
     nu: float = 0.30                   # Poisson's ratio (start value if free_nu)
     free_nu: bool = True               # optimise nu too
     nu_bounds: list = field(default_factory=lambda: [0.05, 0.40])
-    levels: list | None = None         # subset of the fem_setup levels (K values); None = all
-    optimizer: str = "lsq"             # lsq (bounded least squares, TRF) | nm (Nelder-Mead)
+    levels: list | None = None         # subset of the fem_setup levels (K values); None = all (regions model)
+    # p/E field: "regions" = one p/E per fem_setup region, levels coarse -> fine; "gradient" = mean
+    # p/E + a linear slope along each of gradient_axes (ap: anterior +, si: superior +, ml: lateral +),
+    # fitted as a uniform level then the slopes; transferable to another lung (no regions needed)
+    pressure_model: str = "regions"
+    gradient_axes: list = field(default_factory=lambda: ["ap", "si"])
+    optimizer: str = "lsq"            # lsq (bounded least squares, TRF) | nm (Nelder-Mead)
     jacobian: str = "analytic"         # lsq: analytic (from the core; finite differences if it has none) | 2-point
     lsq_diff_step: float = 5e-3        # lsq: relative finite-difference step for the Jacobian
     lsq_ftol: float = 1e-6             # lsq: stop on relative change of the cost
@@ -195,6 +200,11 @@ class FemFitConfig:
             raise ValueError("fem_fit.loss must be point or plane")
         if not 0.0 <= self.loss_tangent_weight <= 1.0:
             raise ValueError("fem_fit.loss_tangent_weight must be in [0, 1]")
+        if self.pressure_model not in ("regions", "gradient"):
+            raise ValueError("fem_fit.pressure_model must be regions or gradient")
+        bad = [a for a in self.gradient_axes if a not in ("ap", "si", "ml")]
+        if bad or len(set(self.gradient_axes)) != len(self.gradient_axes):
+            raise ValueError("fem_fit.gradient_axes: distinct values among ap, si, ml (got %s)" % self.gradient_axes)
 
 
 @dataclass

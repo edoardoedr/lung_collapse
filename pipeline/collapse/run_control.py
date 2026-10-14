@@ -85,13 +85,18 @@ class Tracker:
         b = self.best
         if b is None:
             return
-        arrays = dict(surface_displacement=b["Us"], q=b["q"], nu=b["nu"], tri_labels=b["tri_labels"])
+        # q / tri_labels: pressures and regions as the core sees them; params: the pressure model's
+        # parameters (= q for the regions model, [mean, slopes] for the gradient model)
+        arrays = dict(surface_displacement=b["Us"], q=b["q"], nu=b["nu"], tri_labels=b["tri_labels"],
+                      params=b["params"])
         if isinstance(b["solver_state"], np.ndarray):
             arrays["solver_state"] = b["solver_state"]
         np.savez(self.outdir / "best_state.npz", **arrays)
-        (self.outdir / "best_params.json").write_text(json.dumps(
-            {k: b[k] for k in ("err", "rms", "K", "level", "nu", "pressures_Pa", "E_Pa", "elapsed_min")},
-            indent=2))
+        params = {k: b[k] for k in ("err", "rms", "K", "level", "nu", "model", "E_Pa", "elapsed_min")}
+        if b["model"] == "gradient":
+            params["params_pE"] = dict(zip(b["param_names"], (float(v) for v in b["params"])))
+        params["pressures_Pa"] = b["pressures_Pa"]
+        (self.outdir / "best_params.json").write_text(json.dumps(params, indent=2))
         self.last_ckpt = time.time()
 
     def close(self):

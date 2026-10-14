@@ -2,7 +2,9 @@
 
   1. load output_dir/fem/setup/problem.npz and the FEM core named in the config
   2. sign check: q > 0 must move the surface inward (else q is flipped for this core)
-  3. coarse-to-fine levels (regions from fem_setup), each warm-started from the best so far;
+  3. coarse-to-fine levels, each warm-started from the best so far: pressure_model "regions" = one
+     p/E per region of each fem_setup level; "gradient" = a uniform p/E, then mean + linear slopes
+     along anatomical axes (PressureModel);
      per level, bounded least squares (lsq) on the point residual (loss "point": fitted - target;
      "plane": its component along the target normal, tangential part weighted by
      loss_tangent_weight) + smoothness between adjacent regions, or Nelder-Mead (nm); Poisson's ratio optionally free. The lsq Jacobian
@@ -91,20 +93,90 @@ def rigid_part(X_from, X_to):
     return rotation_deg(R), float(np.linalg.norm(R @ c + t - c))
 
 
-def run_level(L, K, tri_labels, x0, lb, ub, ctx):
-    """One level of K regions; returns (stop reason, best mean error of the level)."""
+AXES = ("ap", "si", "ml")
+
+
+class PressureModel:
+    """p/E per surface triangle as a linear function of the parameters x: q_tri = Phi x (Phi (T, P),
+    zero rows on clamped triangles). The core sees `labels` / `n_solver` regions with pressures
+    q_s = M x (M None = identity: one core region per parameter).
+
+      - regions (pressure_model "regions"): x = p/E per region of a fem_setup level, Phi = indicator;
+      - gradient (pressure_model "gradient"): x = [mean p/E, slope per axis], q_tri = x0 + sum_a x_a xi_a
+        with xi_a the triangle centroid's coordinate along axis a in the reference, centred (area-
+        weighted mean 0 over the free triangles) and divided by the lung's extent along a, so a slope
+        is the p/E difference between the two ends of the lung. Each free triangle is its own core
+        region (fine for the nodal cores; GetFEM would build one brick per triangle: slow)."""
+
+    def __init__(self, name, Phi, labels, n_solver, M=None, pairs=None, names=None):
+        self.name, self.Phi, self.labels, self.n_solver, self.M = name, Phi, labels, n_solver, M
+        self.P = Phi.shape[1]
+        self.pairs = np.zeros((0, 2), dtype=int) if pairs is None else pairs
+        self.names = names
+
+    def q_solver(self, x):
+        return x if self.M is None else self.M @ x
+
+    def q_tri(self, x, clamped):
+        return np.where(clamped, np.nan, self.Phi @ x)
+
+    def x0_from(self, q_tri, area, clamped):
+        """Area-weighted least-squares projection of a per-triangle p/E (the warm start of a level):
+        for the regions model the area-weighted mean per region."""
+        m = ~clamped & np.isfinite(q_tri)
+        w = np.sqrt(area[m])
+        return np.linalg.lstsq(self.Phi[m] * w[:, None], q_tri[m] * w, rcond=None)[0]
+
+    @classmethod
+    def regions(cls, tri_labels, K, adj):
+        Phi = np.zeros((len(tri_labels), K))
+        m = tri_labels >= 0
+        Phi[np.nonzero(m)[0], tri_labels[m]] = 1.0
+        return cls("regions", Phi, tri_labels, K, pairs=region_pairs(tri_labels, adj))
+
+    @classmethod
+    def gradient(cls, coords, axes, clamped):
+        free = np.nonzero(~clamped)[0]
+        Phi = np.c_[np.ones(len(clamped)), *[coords[a] for a in axes]]
+        Phi[clamped] = 0.0
+        labels = np.full(len(clamped), -1)
+        labels[free] = np.arange(len(free))
+        return cls("gradient", Phi, labels, len(free), M=Phi[free], names=["mean"] + list(axes))
+
+
+def axis_coords(X_ref, tris, clamped, area, hilum):
+    """Normalised coordinate of each triangle centroid along the anatomical axes (LPS reference):
+    ap + = anterior (-y), si + = superior (+z), ml + = lateral (away from the hilum in x)."""
+    C = X_ref[tris].mean(1)
+    side = np.sign(C[~clamped, 0].mean() - hilum[0]) if hilum is not None else np.nan
+    raw = dict(ap=-C[:, 1], si=C[:, 2], ml=side * C[:, 0])
+    free, out = ~clamped, {}
+    for a, v in raw.items():
+        if not np.all(np.isfinite(v)):
+            continue
+        out[a] = (v - np.average(v[free], weights=area[free])) / np.ptp(v[free])
+    return out
+
+
+def run_level(L, model, x0, lb, ub, ctx):
+    """One level of the pressure model; returns (stop reason, best mean error of the level)."""
     solver, trk, cfg, sign = ctx["solver"], ctx["trk"], ctx["cfg"], ctx["sign"]
-    X_ref, X_tgt, loss = ctx["X_ref"], ctx["X_tgt"], ctx["loss"]
-    pairs = region_pairs(tri_labels, ctx["adj"])
+    X_ref, X_tgt, loss, clamped = ctx["X_ref"], ctx["X_tgt"], ctx["loss"], ctx["clamped"]
+    pairs, P = model.pairs, model.P
+    K = P                                                   # "K" in the logs / history: parameters of p/E
     nu_fixed = cfg.nu
-    solver.set_regions(tri_labels, K)
+    solver.set_regions(model.labels, model.n_solver)
     trk.new_level()
     stats0 = solver.stats()
-    log.info("--- level %d: K=%d regions, %d parameters, %d adjacent pairs, %s ---",
-             L, K, len(x0), len(pairs), cfg.optimizer)
+    if model.name == "regions":
+        log.info("--- level %d: K=%d regions, %d parameters, %d adjacent pairs, %s ---",
+                 L, K, len(x0), len(pairs), cfg.optimizer)
+    else:
+        log.info("--- level %d: %s p/E (%s), %d parameters, %d core regions, %s ---", L, model.name,
+                 ", ".join(model.names), len(x0), model.n_solver, cfg.optimizer)
 
     def unpack(x):
-        return (x[:K], x[K]) if cfg.free_nu else (x, nu_fixed)
+        return (x[:P], x[P]) if cfg.free_nu else (x, nu_fixed)
 
     last = dict(x=None, r=None, ok=False, J=None)          # last residual evaluation / Jacobian
     jstats = dict(n=0, s=0.0, fd=0)
@@ -120,8 +192,9 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
         if not anchor["current"]:
             solver.set_state(anchor["state"], anchor["load"])
             anchor["current"] = True
+        qs = model.q_solver(q)
         t0 = time.time()
-        Us = solver.solve(sign * q, nu)
+        Us = solver.solve(sign * qs, nu)
         dt = time.time() - t0
         last.update(x=np.array(x, dtype=float), ok=Us is not None)
         if cfg.optimizer == "nm" and (trk.level_evals + 1) % (len(x0) + 1) == 0:
@@ -137,14 +210,17 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
         d = np.linalg.norm(r.reshape(-1, 3), axis=1)            # per point, in the loss's metric
         err, rms = float(d.mean()), float(np.sqrt((d ** 2).mean()))
         trk.log(L, K, err, rms, nu, 1, dt)
-        q_tri = np.where(tri_labels >= 0, q[np.maximum(tri_labels, 0)], np.nan)
-        state = dict(Us=Us.copy(), solver_state=solver.get_state(), q=q.copy(), nu=float(nu),
-                     tri_labels=tri_labels.copy(), q_tri=q_tri, err=err, rms=rms, K=K, level=L,
-                     E_Pa=cfg.E_Pa, pressures_Pa=[float(v) for v in q * cfg.E_Pa],
+        q_tri = model.q_tri(q, clamped)
+        # q / tri_labels as the core sees them (collapse_sequence re-solves with them), params = x
+        state = dict(Us=Us.copy(), solver_state=solver.get_state(), q=np.array(qs, float), nu=float(nu),
+                     tri_labels=model.labels.copy(), q_tri=q_tri, err=err, rms=rms, K=K, level=L,
+                     E_Pa=cfg.E_Pa, pressures_Pa=[float(v) for v in qs * cfg.E_Pa],
+                     model=model.name, params=q.copy(), param_names=model.names,
                      elapsed_min=trk.elapsed() / 60)
         if trk.level_evals % 5 == 1 or err < trk.level_best_err:
-            log.info("[L%d K=%d] eval %4d  t=%6.1f min  mean %.3f mm  rms %.3f  nu %.3f  p=[%s%s] Pa  best %.3f",
+            log.info("[L%d K=%d] eval %4d  t=%6.1f min  mean %.3f mm  rms %.3f  nu %.3f  %s=[%s%s] Pa  best %.3f",
                      L, K, trk.level_evals, trk.elapsed() / 60, err, rms, nu,
+                     "p" if model.name == "regions" else "/".join(model.names),
                      ", ".join("%.0f" % v for v in q[:6] * cfg.E_Pa), ", ..." if K > 6 else "",
                      min(err, trk.best_err))
         last["r"] = np.r_[r, rreg]
@@ -176,17 +252,22 @@ def run_level(L, K, tri_labels, x0, lb, ub, ctx):
         if last["ok"] and cfg.jacobian == "analytic":
             q, nu = unpack(x)
             t0 = time.time()
-            J = solver.jacobian(sign * q, nu, cfg.free_nu)
+            J = solver.jacobian(sign * model.q_solver(q), nu, cfg.free_nu)
             if J is not None:
                 J = np.array(J, dtype=float)
-                J[:, :K] *= sign                            # the core sees sign * q
+                Jq = sign * J[:, :model.n_solver]           # the core sees sign * q_s
+                if model.M is not None:
+                    Jq = Jq @ model.M                       # chain rule: q_s = M x
+                J = np.hstack([Jq, J[:, model.n_solver:]])
                 J = np.vstack([loss.jacobian(J), R])
                 jstats["n"] += 1
                 jstats["s"] += time.time() - t0
         if J is None:                                       # 2-point, or core without Jacobian
             jstats["fd"] += 1
+            # step relative to |x|, at least that of |x| = 0.1 (a gradient slope starts at ~1e-17)
             J = approx_derivative(lambda z: evaluate(z)[0], x, method="2-point",
-                                  rel_step=cfg.lsq_diff_step, f0=last["r"], bounds=(lb, ub))
+                                  abs_step=cfg.lsq_diff_step * np.maximum(np.abs(x), 0.1),
+                                  f0=last["r"], bounds=(lb, ub))
         last["J"] = J
         return J
 
@@ -236,32 +317,47 @@ def run(cfg):
     solver = cls(problem, cfg.solver_options)
     sign = sign_check(solver, problem, cfg)
 
-    levels = list(zip(problem.levels, problem.regions))
-    if cfg.levels is not None:
-        missing = sorted(set(cfg.levels) - set(problem.levels.tolist()))
-        if missing:
-            raise ValueError("fem_fit.levels %s not in the fem_setup levels %s" % (missing, problem.levels.tolist()))
-        levels = [(K, lab) for K, lab in levels if K in cfg.levels]
+    clamped = problem.clamped_tri
+    if cfg.pressure_model == "regions":
+        levels = list(zip(problem.levels, problem.regions))
+        if cfg.levels is not None:
+            missing = sorted(set(cfg.levels) - set(problem.levels.tolist()))
+            if missing:
+                raise ValueError("fem_fit.levels %s not in the fem_setup levels %s" % (missing, problem.levels.tolist()))
+            levels = [(K, lab) for K, lab in levels if K in cfg.levels]
+        models = [PressureModel.regions(lab, int(K), adj) for K, lab in levels]
+    else:                                                   # gradient: uniform, then uniform + slopes
+        hilum = None
+        if "ml" in cfg.gradient_axes:
+            ss = cfg.setup / "setup_summary.json"
+            hilum = np.array(json.loads(ss.read_text())["anchor_center_lps"][0]) if ss.is_file() else None
+            if hilum is None:
+                raise RuntimeError("gradient axis 'ml' needs the hilum position from %s" % ss)
+        coords = axis_coords(X_ref, tris, clamped, area, hilum)
+        models = [PressureModel.gradient(coords, [], clamped),
+                  PressureModel.gradient(coords, list(cfg.gradient_axes), clamped)]
+    slope_max = cfg.q_bounds[1] - cfg.q_bounds[0]
 
     trk = Tracker(cfg, out)
-    ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, X_tgt=X_tgt, adj=adj, loss=loss,
+    ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, X_tgt=X_tgt, loss=loss, clamped=clamped,
                r_zero=loss.project(X_ref - X_tgt).ravel())
-    q_tri, nu_best = np.where(problem.clamped_tri, np.nan, cfg.q0), cfg.nu
+    q_tri, nu_best = np.where(clamped, np.nan, cfg.q0), cfg.nu
     summary, stall, prev = [], 0, d0.mean()
     stop_reason = "levels exhausted"
     with guarded(trk, int(60 * (cfg.time_budget_min + cfg.hard_grace_min))):
-        for L, (K, tri_labels) in enumerate(levels, start=1):
-            K = int(K)
+        for L, model in enumerate(models, start=1):
+            K = model.P
             if trk.best is not None:                       # warm start from the best so far
                 q_tri, nu_best = trk.best["q_tri"], trk.best["nu"]
                 solver.set_state(trk.best["solver_state"], ctx["sign"] * trk.best["q_tri"])
-            x0 = np.array([np.nansum(q_tri[tri_labels == k] * area[tri_labels == k]) /
-                           area[tri_labels == k].sum() for k in range(K)])
+            x0 = model.x0_from(q_tri, area, clamped)
             lb, ub = np.full(K, cfg.q_bounds[0]), np.full(K, cfg.q_bounds[1])
+            if model.name == "gradient":                   # slopes: p/E difference across the lung
+                lb[1:], ub[1:] = -slope_max, slope_max
             if cfg.free_nu:
                 x0, lb, ub = np.r_[x0, nu_best], np.r_[lb, cfg.nu_bounds[0]], np.r_[ub, cfg.nu_bounds[1]]
             x0 = np.clip(x0, lb + 1e-6, ub - 1e-6)
-            reason, lvl_err = run_level(L, K, tri_labels, x0, lb, ub, ctx)
+            reason, lvl_err = run_level(L, model, x0, lb, ub, ctx)
             imp = (prev - trk.best_err) / max(prev, 1e-9)
             summary.append(dict(level=L, K=K, best_mean_err_mm=float(lvl_err), stop=reason,
                                 evals=trk.level_evals, elapsed_min=trk.elapsed() / 60))
@@ -291,7 +387,7 @@ def run(cfg):
     s.point_data["Error_mm"] = err_all
     s.point_data["NormalError_mm"] = err_n_all                  # > 0 = outside the target surface
     s.point_data["Clamped"] = (~free).astype(np.uint8)
-    s.cell_data["PressureRegion"] = b["tri_labels"]
+    s.cell_data["PressureRegion"] = b["tri_labels"]          # gradient: one per free triangle
     s.cell_data["Pressure_Pa"] = np.nan_to_num(b["q_tri"] * cfg.E_Pa, nan=0.0)
     s.cell_data["Clamped"] = problem.clamped_tri.astype(np.uint8)
     pen = None
@@ -305,7 +401,16 @@ def run(cfg):
         except NotImplementedError:
             pass
 
-    res = dict(solver=cfg.solver, stop_reason=stop_reason, loss=cfg.loss,
+    grad = None
+    if b["model"] == "gradient":
+        p = b["params"]
+        qf = b["q_tri"][~clamped]
+        grad = dict(axes=list(b["param_names"][1:]), mean_pE=float(p[0]),
+                    slope_pE={a: float(v) for a, v in zip(b["param_names"][1:], p[1:])},
+                    slope_relative={a: float(v / p[0]) for a, v in zip(b["param_names"][1:], p[1:])},
+                    pE_min=float(qf.min()), pE_max=float(qf.max()))
+    res = dict(solver=cfg.solver, stop_reason=stop_reason, pressure_model=cfg.pressure_model, gradient=grad,
+               loss=cfg.loss,
                loss_tangent_weight=cfg.loss_tangent_weight, mean_err_mm=float(err.mean()),
                mean_normal_err_mm=float(np.abs(err_n).mean()), best_loss_err_mm=float(b["err"]),
                metric_points=int(free.sum()), clamped_points=int((~free).sum()),
@@ -334,6 +439,10 @@ def run(cfg):
     if pen is not None:
         log.info("wall: %d points beyond the allowed position, max %.2f mm",
                  res["wall_points_beyond"], res["wall_max_penetration_mm"])
+    if grad is not None:
+        log.info("gradient: mean p/E %.3f, slopes %s (p/E %.3f .. %.3f on the free triangles)", grad["mean_pE"],
+                 ", ".join("%s %+.3f (%+.0f%% of the mean)" % (a, v, 100 * grad["slope_relative"][a])
+                           for a, v in grad["slope_pE"].items()), grad["pE_min"], grad["pE_max"])
     for lv in summary:
         log.info("  L%d K=%-3d best %.3f mm (%s, %d solves)", lv["level"], lv["K"],
                  lv["best_mean_err_mm"], lv["stop"], lv["evals"])

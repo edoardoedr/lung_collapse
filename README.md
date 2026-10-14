@@ -87,6 +87,7 @@ Patients: karl01, karl10, karl17 (left lung), karl02, karl04, karl06, karl08 (ri
 
 - **`fem_setup`** (seconds): fixes the lung at the hilum and the vessel entries plus the points that barely move, aligns the collapsed lung on them, splits the surface into pressure regions (1 → 40) and builds the tetrahedral mesh.
 - **`fem_fit`** (1–2 min with Warp / PyTorch on GPU): finds the pressure of each region so that the inflated lung, pushed by them, matches the collapsed one; coarse to fine, with an exact Jacobian. GetFEM, Warp and PyTorch solve the same model and are interchangeable (`fem_fit.solver`).
+- **Pressure model** (`fem_fit.pressure_model`): `regions` (default) = one pressure per region, up to 40, the most accurate but specific to the patient; `gradient` = a mean pressure plus a linear slope from back to front and from base to apex (`gradient_axes`), a few numbers that can be carried over to another lung. Example: `python main.py --config configs/karl04_torch.json --steps fem_fit --set fem_fit.pressure_model=gradient fem_fit.run_name=fit_gradient fem_fit.output=lung_fem_fit_gradient.vtp`.
 - **Result:** `lung_fem_fit*.vtp` (the fitted surface, with `Error_mm`, `Pressure_Pa`, `Clamped`) and `fem/<run_name>/result_summary.json` (errors on the free points, pressures, rotation, timing).
 
 ## Viewing the results

@@ -141,7 +141,9 @@ Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Ou
 | `nu` | 0.30 | Poisson's ratio: fixed value, or start value if `free_nu`. | 0.05–0.45 (0.5 = incompressible, not allowed) |
 | `free_nu` | `true` | Optimise ν together with the pressures. | `true` / `false` |
 | `nu_bounds` | `[0.05, 0.40]` | Bounds of ν when free. With `order: 2` the upper bound can go to 0.45 (P1 elements lock near 0.5). | within 0.01–0.45 |
-| `levels` | `null` | Subset of the `fem_setup` levels to fit (e.g. `[1, 4, 8, 14]` for a quick run). `null` = all. | values of `fem_setup.levels` |
+| `pressure_model` | `regions` | How p/E varies over the surface. `regions`: one p/E per region of each `fem_setup` level (coarse → fine). `gradient`: mean p/E plus a linear slope along each of `gradient_axes`, fitted as a uniform level and then mean + slopes; the regions are not used. The regions are clusters of the patient's own target displacement, so their pressures do not transfer to another lung; the gradient's few numbers do. Each free triangle is its own core region (cheap for `warp` / `torch`; slow with `getfem`). Summary: `gradient` with `mean_pE`, `slope_pE` per axis = p/E difference between the two ends of the lung along it, `slope_relative` = slope / mean, `pE_min` / `pE_max`. | `regions`, `gradient` |
+| `gradient_axes` | `["ap", "si"]` | `gradient` only: axes of the slopes, on the reference (inflated) lung in LPS. `ap` + = anterior, `si` + = superior, `ml` + = lateral (away from the hilum; reads `fem/setup/setup_summary.json`). Each coordinate is centred (area-weighted mean 0 over the free triangles) and divided by the lung's extent along the axis. On the 8 regions fits (2026-10-14) anterior > posterior in all patients, apex < base in 7 of 8, medial / lateral inconsistent. | distinct values among `ap`, `si`, `ml` |
+| `levels` | `null` | `regions` only: subset of the `fem_setup` levels to fit (e.g. `[1, 4, 8, 14]` for a quick run). `null` = all. | values of `fem_setup.levels` |
 
 ### Optimiser
 
@@ -209,4 +211,5 @@ Common to `getfem`, `warp` and `torch` unless noted. The defaults are in [`pipel
 - **Faster FEM:** `fem_setup.mesh_size_mm: 14`, `fem_fit.jacobian: "analytic"`, `solver: "warp"` on a GPU machine.
 - **With the wall, faster:** `fem_setup.wall: "reference"`, `solver: "warp"` or `"torch"`, `warm_substeps: true`; `solver_options.wall_update: "newton"` is not usable yet (it oscillates; see CLAUDE.md).
 - **Smoother, more identifiable pressures:** raise `reg` (e.g. 3) or stop at a coarser level (`levels` up to 14 or 25).
+- **Pressure field transferable to another lung:** `fem_fit.pressure_model: "gradient"` (3 parameters with the default axes), in its own `run_name`, e.g. `--set fem_fit.pressure_model=gradient fem_fit.run_name=fit_gradient fem_fit.output=lung_fem_fit_gradient.vtp`.
 - **Registration of a strongly collapsed lung (volume ratio > ~4):** add `elastix/Parameters_Affine.txt` between the rigid and B-spline files.
