@@ -1,8 +1,8 @@
 {
   "_comment": "whole pipeline with the torch core, no wall, fit in fem/fit_torch. data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
   "patient": "karl04",
-  "data_dir": "../Input_Data/karl04",
-  "output_dir": "../results/karl04",
+  "data_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/vtk_surfaces_HD/karl04",
+  "output_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD/karl04",
   "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
 
   "check_inputs": {
