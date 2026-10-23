@@ -1,7 +1,10 @@
 """Step 5a - fem_setup: everything the inverse FEM needs, independent of the FEM core.
 
   1. reference (inflated, registration output) and target (collapsed) surfaces with the same
-     nodes, outward triangles, watertight
+     nodes, outward triangles, watertight. With different nodes (registration.method "none") the
+     target is matched by closest point: align must be "none", the still points and the clustering
+     field use the closest point of each reference point, problem.npz keeps the target surface
+     and fem_fit re-matches the fitted points to it at every evaluation
   2. clamped region: triangles within (sphere radius x anchor_radius_factor) of the anchor point(s):
      the hilum, optionally also the airway / artery / vein ring centres (union of the balls)
   3. rigid alignment of the target (default: on the clamped points, consistent with u = 0 there);
@@ -46,18 +49,36 @@ def run(cfg):
     # 1. surfaces
     ref, tgt = read_surface(cfg.reference, space="LPS"), read_surface(cfg.target, space="LPS")
     tris = faces_of(ref)
-    if ref.n_points != tgt.n_points or not np.array_equal(tris, faces_of(tgt)):
-        raise RuntimeError("%s and %s do not have the same nodes and triangles: the reference must be "
-                           "the registration output of the target" % (cfg.reference.name, cfg.target.name))
-    X_ref, X_raw = np.asarray(ref.points, float), np.asarray(tgt.points, float)
+    # registered: same nodes and triangles (node i of the target = node i of the reference);
+    # otherwise (registration.method "none") the target surface is matched by closest point
+    closest = ref.n_points != tgt.n_points or not np.array_equal(tris, faces_of(tgt))
+    X_ref = np.asarray(ref.points, float)
     if signed_volume(X_ref, tris) < 0:
         tris = tris[:, ::-1].copy()
     adj, bad = face_adjacency(tris)
     if bad:
         raise RuntimeError("%s is not watertight (%d bad edges)" % (cfg.reference.name, bad))
     cen, nrm, area = tri_geometry(X_ref, tris)
-    log.info("reference %.1f mL, target %.1f mL, %d points, %d triangles",
-             signed_volume(X_ref, tris) / 1000, signed_volume(X_raw, tris) / 1000, len(X_ref), len(tris))
+    if closest:
+        T_pts, T_tris = np.asarray(tgt.points, float), faces_of(tgt)
+        if face_adjacency(T_tris)[1]:
+            raise RuntimeError("%s is not watertight" % cfg.target.name)
+        if signed_volume(T_pts, T_tris) < 0:
+            T_tris = T_tris[:, ::-1].copy()
+        if cfg.align != "none":
+            raise RuntimeError("%s and %s do not have the same nodes (unregistered reference): the rigid "
+                               "alignment needs the node correspondence, set fem_setup.align to 'none'"
+                               % (cfg.reference.name, cfg.target.name))
+        X_raw = WallDistance(T_pts, T_tris).closest(X_ref)[0]   # closest point of each reference point
+        log.info("reference %.1f mL, %d points, %d triangles; target %.1f mL, %d points, %d triangles: "
+                 "different nodes (unregistered reference), the target is matched by closest point",
+                 signed_volume(X_ref, tris) / 1000, len(X_ref), len(tris),
+                 signed_volume(T_pts, T_tris) / 1000, len(T_pts), len(T_tris))
+    else:
+        X_raw = np.asarray(tgt.points, float)
+        T_pts, T_tris = np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+        log.info("reference %.1f mL, target %.1f mL, %d points, %d triangles",
+                 signed_volume(X_ref, tris) / 1000, signed_volume(X_raw, tris) / 1000, len(X_ref), len(tris))
 
     # 2. clamped hilum
     names = [cfg.anchor_point] if isinstance(cfg.anchor_point, str) else list(cfg.anchor_point)
@@ -84,18 +105,20 @@ def run(cfg):
     # 3. rigid alignment of the target
     w_hil = np.zeros(len(X_ref))
     w_hil[cpts] = 1.0
-    _, ang, sh = rigid(X_raw, X_ref)
-    _, ang_h, sh_h = rigid(X_raw, X_ref, w_hil)
-    log.info("rigid part target -> reference: full %.2f deg / %.2f mm, on the clamp %.2f deg / %.2f mm; "
-             "clamped points move %.2f mm unaligned", ang, sh, ang_h, sh_h,
-             np.linalg.norm(X_raw[cpts] - X_ref[cpts], axis=1).mean())
+    ang = ang_h = None                                         # no rigid part without correspondence
+    if not closest:
+        _, ang, sh = rigid(X_raw, X_ref)
+        _, ang_h, sh_h = rigid(X_raw, X_ref, w_hil)
+        log.info("rigid part target -> reference: full %.2f deg / %.2f mm, on the clamp %.2f deg / %.2f mm; "
+                 "clamped points move %.2f mm unaligned", ang, sh, ang_h, sh_h,
+                 np.linalg.norm(X_raw[cpts] - X_ref[cpts], axis=1).mean())
     if cfg.align == "none":
         X_tgt = X_raw
     else:
         X_tgt = rigid(X_raw, X_ref, w_hil if cfg.align == "hilum_rigid" else None)[0]
-    d0 = np.linalg.norm(X_tgt - X_ref, axis=1)
+    d0 = np.linalg.norm(X_tgt - X_ref, axis=1)                 # closest point: distance to the target surface
     log.info("target alignment '%s': clamped points %.2f mm from their target, no-deformation error "
-             "%.2f mm mean", cfg.align, d0[cpts].mean(), d0.mean())
+             "%.2f mm mean%s", cfg.align, d0[cpts].mean(), d0.mean(), " (to the closest point)" if closest else "")
     clamp_kind = clamped.astype(np.uint8)                     # 1 = anchor balls, 2 = still
     if cfg.clamp_still_mm is not None:
         still = (d0[tris] < cfg.clamp_still_mm).all(axis=1) & ~clamped
@@ -120,11 +143,14 @@ def run(cfg):
             if signed_volume(wall_pts, wall_tris) < 0:
                 wall_tris = wall_tris[:, ::-1].copy()
         wall = WallDistance(wall_pts, wall_tris)
-        phi0, phit = wall(X_ref)[0], wall(X_tgt)[0]
+        phi0 = wall(X_ref)[0]
         if cfg.wall == "reference":
             phi0 = np.zeros(len(X_ref))               # the reference points lie on it
         wall_allow = cfg.wall_tol_mm + np.maximum(phi0, 0.0)   # points already outside may not go further
-        excess = phit - wall_allow
+        if closest:                                   # the target's own points, against the global margin
+            excess = wall(T_pts)[0] - cfg.wall_tol_mm - max(phi0.max(), 0.0)
+        else:
+            excess = wall(X_tgt)[0] - wall_allow
         log.info("wall %s (%.1f mL), tolerance %.1f mm: reference %d/%d points outside (median %.2f, "
                  "max %.2f mm); aligned target %d points beyond their allowed position (max %.2f mm "
                  "beyond, the fit cannot reach these)", wall_name,
@@ -132,7 +158,7 @@ def run(cfg):
                  np.median(phi0), max(phi0.max(), 0.0), (excess > 0).sum(), max(excess.max(), 0.0))
 
     # 5. clustering field and pressure regions
-    if cfg.cluster_field == "raw":
+    if cfg.cluster_field == "raw" or closest:                  # closest point: nothing rigid to remove
         Xc = X_raw
     else:
         Xc = rigid(X_raw, X_ref, w_hil if cfg.cluster_field == "hilum_rigid" else None)[0]
@@ -142,7 +168,8 @@ def run(cfg):
     feat = un[:, None] if cfg.feature == "normal" else u_tri
     levels, regions = all_levels(feat, adj, ~clamped, cfg.levels, cen, cfg.pos_weight)
     log.info("clustering field '%s': |u| mean %.1f mm, u.n mean %.1f mm (negative = inward); "
-             "levels K = %s", cfg.cluster_field, np.linalg.norm(u, axis=1).mean(), un.mean(),
+             "levels K = %s", "closest point" if closest else cfg.cluster_field,
+             np.linalg.norm(u, axis=1).mean(), un.mean(),
              ", ".join(map(str, levels)))
 
     # 6. volume mesh
@@ -152,7 +179,7 @@ def run(cfg):
     problem = CollapseProblem(nodes=nodes, tets=tets, surface_nodes=surface_nodes, tris=tris,
                               clamped_tri=clamped, target=X_tgt, levels=levels, regions=regions,
                               clean_field=u, wall_points=wall_pts, wall_tris=wall_tris,
-                              wall_allow=wall_allow)
+                              wall_allow=wall_allow, target_points=T_pts, target_tris=T_tris)
     problem.save(out / "problem.npz")
 
     s = polydata(X_ref, tris)
@@ -164,7 +191,7 @@ def run(cfg):
     for K, lab in zip(levels, regions):
         s.cell_data["Regions_K%d" % K] = lab
     write_surface(s, out / "reference.vtp", "LPS")
-    write_surface(polydata(X_tgt, tris), out / "target_aligned.vtp", "LPS")
+    write_surface(polydata(*problem.target_surface), out / "target_aligned.vtp", "LPS")
     vol = pv.UnstructuredGrid({pv.CellType.TETRA: tets}, nodes)
     vol.point_data["Clamped"] = np.isin(np.arange(len(nodes)), surface_nodes[cpts]).astype(np.uint8)
     vol.field_data["SPACE"] = np.array(["LPS"])
@@ -177,8 +204,9 @@ def run(cfg):
         anchor_radius_factor=cfg.anchor_radius_factor, clamp_radius_mm=radius,
         clamped_triangles=int(clamped.sum()), clamped_points=int(len(cpts)),
         clamp_still_mm=cfg.clamp_still_mm, still_triangles=int((clamp_kind == 2).sum()),
+        correspondence="closest point" if closest else "nodes",
         align=cfg.align, rigid_full_deg=ang, rigid_clamp_deg=ang_h,
-        baseline_mean_error_mm=float(d0.mean()), baseline_assd_mm=assd(X_ref, X_tgt, tris),
+        baseline_mean_error_mm=float(d0.mean()), baseline_assd_mm=assd(X_ref, *problem.target_surface, tris_a=tris),
         cluster_field=cfg.cluster_field, feature=cfg.feature, levels=levels.tolist(),
         wall=str(cfg.wall) if cfg.wall is not None else None, wall_tol_mm=cfg.wall_tol_mm,
         volume_nodes=int(len(nodes)), tets=int(len(tets)), mesh_size_mm=cfg.mesh_size_mm), indent=2))

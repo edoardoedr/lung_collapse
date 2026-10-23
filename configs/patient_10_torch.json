@@ -39,7 +39,8 @@
   },
 
   "registration": {
-    "_comment": "inflated/collapsed: labelmap or closed surface; collapsed null = rasterise the step-2 surface. direction: forward (fixed = collapsed, no inversion) | inverse (fixed = inflated, as in Slicer)",
+    "_comment": "method: elastix | none (no registration: the inflated lung remeshed with the surface_mesh settings, fit by closest point). inflated/collapsed: labelmap or closed surface; collapsed null = rasterise the step-2 surface. direction: forward (fixed = collapsed, no inversion) | inverse (fixed = inflated, as in Slicer)",
+    "method": "elastix",
     "inflated": "lung_left.vtk",
     "inflated_label": null,
     "collapsed": null,
@@ -100,7 +101,7 @@
   },
 
   "fem_fit": {
-    "_comment": "solver: name in pipeline/collapse/solvers or 'module:Class'; solver_options go to the core",
+    "_comment": "solver: name in pipeline/collapse/solvers or 'module:Class'; solver_options go to the core. pressure_model: regions (one p/E per fem_setup region, levels coarse -> fine) | gradient (mean p/E + slopes along gradient_axes: ap, si, ml)",
     "output": "lung_fem_fit_torch.vtp",
     "run_name": "fit_torch",
     "solver": "torch",
@@ -113,6 +114,8 @@
     "free_nu": false,
     "nu_bounds": [0.05, 0.40],
     "levels": null,
+    "pressure_model": "regions",
+    "gradient_axes": ["ap", "si"],
     "optimizer": "lsq",
     "jacobian": "analytic",
     "loss": "plane",

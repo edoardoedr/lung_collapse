@@ -14,6 +14,8 @@ Collapsed surface mesh (step 2) -> inflated-space surface with the SAME nodes an
        "forward": fixed = collapsed, moving = inflated. T maps collapsed -> inflated and is
                   applied to the nodes directly; no inversion.
   3. QA: displacement, flipped triangles, volume, Dice vs the inflated mask.
+
+method "none" skips all this: the output is the inflated surface remeshed as in step 2.
 """
 
 import logging
@@ -273,8 +275,25 @@ def unflip(X_ref, X, tris, max_nodes):
 # ----------------------------------------------------------------------------------------------
 # step
 # ----------------------------------------------------------------------------------------------
+def run_unregistered(cfg):
+    """method "none": the inflated lung remeshed as in step 2, written to cfg.output. Its nodes are
+    its own (no correspondence with the collapsed mesh)."""
+    from .surface_mesh import remesh
+    if cfg.inflated.name.lower().endswith(IMAGE_SUFFIXES):
+        raise RuntimeError("registration.method 'none' needs the inflated lung as a surface, not a "
+                           "labelmap (%s)" % cfg.inflated.name)
+    log.info("method 'none': no registration, %s remeshed with the surface_mesh settings", cfg.inflated.name)
+    mesh = remesh(read_surface(cfg.inflated, space=cfg.output_space), cfg.mesh)
+    write_surface(mesh, cfg.output, cfg.output_space)
+    log.info("wrote %s (%s), not registered: fem_setup will match it to the collapsed mesh by closest point",
+             cfg.output, cfg.output_space)
+    return cfg.output
+
+
 def run(cfg):
     """Warp the collapsed surface cfg.surface into inflated space and write cfg.output."""
+    if cfg.method == "none":
+        return run_unregistered(cfg)
     workdir = cfg.workdir
     workdir.mkdir(parents=True, exist_ok=True)
 

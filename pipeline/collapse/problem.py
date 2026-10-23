@@ -1,7 +1,8 @@
 """Solver-independent description of the collapse problem: written by fem_setup, read by fem_fit.
 
 Reference configuration = inflated lung (registration output), target = collapsed lung with the
-same surface points. Plain numpy arrays, LPS, mm, so that any FEM core can read them.
+same surface points, or (unregistered reference) the collapsed surface matched by closest point.
+Plain numpy arrays, LPS, mm, so that any FEM core can read them.
 """
 
 from dataclasses import dataclass, field, fields
@@ -26,10 +27,25 @@ class CollapseProblem:
     wall_points: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
     wall_tris: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.int64))
     wall_allow: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    # unregistered reference (no node correspondence): the collapsed surface itself; `target` is
+    # then the closest point of each reference point on it, and fem_fit re-matches every fitted
+    # point to its closest point. Empty = registered, `target` is node-to-node
+    target_points: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
+    target_tris: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.int64))
 
     @property
     def has_wall(self):
         return len(self.wall_tris) > 0
+
+    @property
+    def closest_point(self):
+        """True when the target is a surface matched by closest point (unregistered reference)."""
+        return len(self.target_tris) > 0
+
+    @property
+    def target_surface(self):
+        """(points, triangles) of the collapsed surface."""
+        return (self.target_points, self.target_tris) if self.closest_point else (self.target, self.tris)
 
     @property
     def reference(self):

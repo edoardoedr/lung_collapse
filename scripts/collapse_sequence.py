@@ -54,6 +54,9 @@ def make_sequence(cfg, frames, mode, volume, fps):
     sign = json.loads(summary.read_text()).get("pressure_sign", 1.0) if summary.is_file() else 1.0
     K = len(q)
     X_ref, X_tgt, tris = problem.reference, problem.target, problem.tris
+    T_pts, T_tris = problem.target_surface
+    # unregistered reference: Error_mm = distance to the closest point of the target surface
+    target_surf = WallDistance(T_pts, T_tris) if problem.closest_point else None
     out = cfg.output_dir / ("sequence" if fit.run_name == "fit" else "sequence_" + fit.run_name)
     out.mkdir(parents=True, exist_ok=True)
     for old in list(out.glob("frame_*.vtp")) + list(out.glob("volume_*.vtk")):
@@ -94,7 +97,8 @@ def make_sequence(cfg, frames, mode, volume, fps):
         s = polydata(X_ref + Us, tris)
         s.point_data["Displacement_mm"] = Us
         s.point_data["Disp_mag_mm"] = np.linalg.norm(Us, axis=1)
-        s.point_data["Error_mm"] = np.linalg.norm(X_ref + Us - X_tgt, axis=1)
+        T = X_tgt if target_surf is None else target_surf.closest(X_ref + Us)[0]
+        s.point_data["Error_mm"] = np.linalg.norm(X_ref + Us - T, axis=1)
         if wall is not None:
             s.point_data["WallDistance_mm"] = wall.distance(X_ref + Us)   # > 0 outside the cavity
         s.cell_data["Pressure_Pa"] = q_tri * lam
@@ -113,7 +117,7 @@ def make_sequence(cfg, frames, mode, volume, fps):
         for lam, n in zip(lams, names):
             f.write('  <DataSet timestep="%.4f" group="" part="0" file="%s"/>\n' % (lam, n))
         f.write(" </Collection>\n</VTKFile>\n")
-    write_surface(polydata(X_tgt, tris), out / "target_aligned.vtp", "LPS")
+    write_surface(polydata(T_pts, T_tris), out / "target_aligned.vtp", "LPS")
     anchor = cfg.hilum.output if cfg.hilum is not None else None
     if anchor is not None and anchor.is_file():
         shutil.copy(anchor, out / "hilum_anchor.mrk.json")
@@ -122,7 +126,7 @@ def make_sequence(cfg, frames, mode, volume, fps):
 
     vols = [abs(polydata(X_ref + seq[j][0], tris).volume) / 1000 for j in (0, len(seq) // 2, -1)]
     log.info("volume: start %.0f mL -> half load %.0f mL -> end %.0f mL (target %.0f mL); %d frame(s) "
-             "by linear morph", *vols, abs(polydata(X_tgt, tris).volume) / 1000, n_lin)
+             "by linear morph", *vols, abs(polydata(T_pts, T_tris).volume) / 1000, n_lin)
     print("\nwritten to %s\n  Slicer  : Slicer --python-script %s\n            (or in the Python console: "
           "p = r'%s'; exec(open(p).read(), {'__file__': p}))\n  ParaView: open %s, Apply, Play" % (out, script, script, out / "collapse.pvd"))
     return out

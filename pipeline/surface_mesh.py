@@ -82,10 +82,8 @@ def min_angles_deg(surf):
     return np.min(angles, axis=0)
 
 
-def run(cfg):
-    """Remesh cfg.input and write it to cfg.output. Returns the output path."""
-    surf = read_surface(cfg.input, space=cfg.output_space, input_space=cfg.input_space)
-
+def remesh(surf, cfg):
+    """Dense surface -> clean, uniform, watertight mesh (the whole step without the file I/O)."""
     surf = clean_surface(surf, cfg)
     log.info("cleaned: %d pts, %d tris, bad edges %d",
              surf.n_points, surf.n_cells, bad_edge_count(surf))
@@ -100,7 +98,12 @@ def run(cfg):
     ang = min_angles_deg(mesh)
     log.info("final: %d pts, %d tris, volume %.1f mL, min angle min/mean %.1f/%.1f deg",
              mesh.n_points, mesh.n_cells, mesh.volume / 1000.0, ang.min(), ang.mean())
+    return mesh
 
+
+def run(cfg):
+    """Remesh cfg.input and write it to cfg.output. Returns the output path."""
+    mesh = remesh(read_surface(cfg.input, space=cfg.output_space, input_space=cfg.input_space), cfg)
     write_surface(mesh, cfg.output, cfg.output_space)
     log.info("wrote %s (%s)", cfg.output, cfg.output_space)
     return cfg.output

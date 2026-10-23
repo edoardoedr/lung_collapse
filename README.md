@@ -19,7 +19,7 @@ From CT segmentations of a lung before and after collapse (VATS surgery) to the 
 - **1b · Input check:** finds segmentation problems (open surfaces, collapsed lung outside the inflated one, narrow notches) before registration and Gmsh fail on them. Colour `checks/*.vtp` in Slicer to see where to fix.
 - **2 · Surface meshing:** the collapsed lung is cleaned and remeshed uniformly to ~480 nodes. This node set is used by every later step.
 - **3 · Hilum anchor:** where the airway, artery and vein trees enter the lung; their ring centres and the hilum are written as spheres for Slicer.
-- **4 · Registration:** elastix (rigid + [affine] + B-spline) on the two lung masks, with the hilum as landmarks, moves the collapsed mesh onto the inflated lung. Node *i* of `lung_inflated_mesh.vtp` corresponds to node *i* of `lung_collapsed_mesh.vtp`.
+- **4 · Registration:** elastix (rigid + [affine] + B-spline) on the two lung masks, with the hilum as landmarks, moves the collapsed mesh onto the inflated lung. Node *i* of `lung_inflated_mesh.vtp` corresponds to node *i* of `lung_collapsed_mesh.vtp`. With `registration.method: "none"` the step only remeshes the inflated lung (same settings as step 2) into `lung_inflated_mesh.vtp`, without correspondence; the FEM fit then matches each point to the closest point of the collapsed surface.
 - **5 · Inverse FEM:** see below.
 - **6–7 · Collapse sequence and visualisation:** see [Viewing the results](#viewing-the-results).
 

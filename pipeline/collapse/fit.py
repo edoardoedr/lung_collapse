@@ -60,14 +60,33 @@ class Loss:
 
     Clamped points are left out: they do not move, so their error is a constant that does not
     change the fit, but it would weigh on the reported errors, the target-error stop and the
-    plateau tests."""
+    plateau tests.
 
-    def __init__(self, cfg, X_tgt, tris, free):
+    surface (unregistered reference, no node correspondence): the target of each fitted point is
+    its closest point on the collapsed surface, n the surface normal there, both recomputed at
+    every residual (match). The Jacobian holds them fixed (Gauss-Newton of point-to-plane ICP:
+    exact for "plane", since the signed distance to a smooth surface has gradient n)."""
+
+    def __init__(self, cfg, X_tgt, tris, free, surface=None):
         self.plane = cfg.loss == "plane"
         self.w = cfg.loss_tangent_weight
-        self.n = vertex_normals(X_tgt, tris)                 # all points (export)
         self.free = np.asarray(free, bool)
+        self.surface = surface                               # WallDistance of the target surface, or None
+        self.target = X_tgt
+        self.n = vertex_normals(X_tgt, tris)                 # all points (export)
         self.nf = self.n[self.free]
+        self.match(X_tgt)
+
+    def match(self, Xs):
+        """Target point of each fitted point Xs (N, 3): fixed, or its closest point on the surface."""
+        if self.surface is not None:
+            self.target, _, self.n = self.surface.closest(Xs)
+            self.nf = self.n[self.free]
+        return self.target
+
+    def residual(self, Xs):
+        """Fitted surface points Xs (N, 3) -> residual (n_free, 3)."""
+        return self.project(Xs - self.match(Xs))
 
     def project(self, d):
         """d (N, 3) for all points -> residual (n_free, 3)."""
@@ -161,7 +180,7 @@ def axis_coords(X_ref, tris, clamped, area, hilum):
 def run_level(L, model, x0, lb, ub, ctx):
     """One level of the pressure model; returns (stop reason, best mean error of the level)."""
     solver, trk, cfg, sign = ctx["solver"], ctx["trk"], ctx["cfg"], ctx["sign"]
-    X_ref, X_tgt, loss, clamped = ctx["X_ref"], ctx["X_tgt"], ctx["loss"], ctx["clamped"]
+    X_ref, loss, clamped = ctx["X_ref"], ctx["loss"], ctx["clamped"]
     pairs, P = model.pairs, model.P
     K = P                                                   # "K" in the logs / history: parameters of p/E
     nu_fixed = cfg.nu
@@ -206,7 +225,7 @@ def run_level(L, model, x0, lb, ub, ctx):
             base = trk.level_best_r if trk.level_best_r is not None else ctx["r_zero"]
             last["r"] = np.r_[2.0 * base, rreg]
             return last["r"], np.inf
-        r = loss.project(X_ref + Us - X_tgt).ravel()
+        r = loss.residual(X_ref + Us).ravel()
         d = np.linalg.norm(r.reshape(-1, 3), axis=1)            # per point, in the loss's metric
         err, rms = float(d.mean()), float(np.sqrt((d ** 2).mean()))
         trk.log(L, K, err, rms, nu, 1, dt)
@@ -301,15 +320,18 @@ def run(cfg):
     adj, _ = face_adjacency(tris)
     free = np.ones(len(X_ref), bool)
     free[problem.clamped_points] = False
-    loss = Loss(cfg, X_tgt, tris, free)
-    d0 = np.linalg.norm(loss.project(X_ref - X_tgt), axis=1)
+    closest = problem.closest_point
+    loss = Loss(cfg, X_tgt, tris, free, WallDistance(*problem.target_surface) if closest else None)
+    r_zero = loss.residual(X_ref)
+    d0 = np.linalg.norm(r_zero, axis=1)
     mism = np.linalg.norm(X_ref - X_tgt, axis=1)[~free]
     log.info("problem: %d surface points (%d clamped, left out of the error: %.2f mm mean / %.2f max from "
-             "their target), %d volume nodes, %d tets, levels K = %s; loss %s%s, no-deformation error "
+             "their target), %d volume nodes, %d tets, levels K = %s; loss %s%s%s, no-deformation error "
              "%.2f mm (point-to-point %.2f)", len(X_ref), (~free).sum(), mism.mean(), mism.max(),
              len(problem.nodes), len(problem.tets), ", ".join(map(str, problem.levels)), cfg.loss,
-             " (tangent weight %g)" % cfg.loss_tangent_weight if loss.plane else "", d0.mean(),
-             np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean())
+             " (tangent weight %g)" % cfg.loss_tangent_weight if loss.plane else "",
+             " to the closest point of the target surface (unregistered reference)" if closest else "",
+             d0.mean(), np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean())
 
     cls = get_solver(cfg.solver)
     if problem.has_wall and not cls.supports_wall:
@@ -339,8 +361,8 @@ def run(cfg):
     slope_max = cfg.q_bounds[1] - cfg.q_bounds[0]
 
     trk = Tracker(cfg, out)
-    ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, X_tgt=X_tgt, loss=loss, clamped=clamped,
-               r_zero=loss.project(X_ref - X_tgt).ravel())
+    ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, loss=loss, clamped=clamped,
+               r_zero=r_zero.ravel())
     q_tri, nu_best = np.where(clamped, np.nan, cfg.q0), cfg.nu
     summary, stall, prev = [], 0, d0.mean()
     stop_reason = "levels exhausted"
@@ -378,10 +400,12 @@ def run(cfg):
     if b is None:
         raise RuntimeError("no successful forward solve, nothing to export")
     Xs = X_ref + b["Us"]
-    err_all = np.linalg.norm(Xs - X_tgt, axis=1)                # point-to-point, whatever the loss
-    err_n_all = np.einsum("ij,ij->i", Xs - X_tgt, loss.n)      # signed, along the target normal
+    T_end = loss.match(Xs)                                      # closest point: of the fitted surface
+    err_all = np.linalg.norm(Xs - T_end, axis=1)                # point-to-point, whatever the loss
+    err_n_all = np.einsum("ij,ij->i", Xs - T_end, loss.n)      # signed, along the target normal
     err, err_n = err_all[free], err_n_all[free]                  # the metrics: free points only
-    rot = dict(target=rigid_part(X_ref, X_tgt), fitted=rigid_part(X_ref, Xs))
+    # without node correspondence the target has no rigid part relative to the reference
+    rot = dict(target=(None, None) if closest else rigid_part(X_ref, X_tgt), fitted=rigid_part(X_ref, Xs))
     s = polydata(Xs, tris)
     s.point_data["Displacement_mm"] = b["Us"]
     s.point_data["Error_mm"] = err_all
@@ -418,7 +442,8 @@ def run(cfg):
                rigid_rotation_deg=dict(target=rot["target"][0], fitted=rot["fitted"][0]),
                rigid_shift_mm=dict(target=rot["target"][1], fitted=rot["fitted"][1]),
                median_err_mm=float(np.median(err)), p95_err_mm=float(np.percentile(err, 95)),
-               max_err_mm=float(err.max()), assd_mm=assd(Xs, X_tgt, tris),
+               max_err_mm=float(err.max()), assd_mm=assd(Xs, *problem.target_surface, tris_a=tris),
+               correspondence="closest point" if closest else "nodes",
                baseline_mean_mm=float(np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean()),
                baseline_loss_mm=float(d0.mean()), K=b["K"], nu=b["nu"], E_Pa=cfg.E_Pa,
                pressures_Pa=b["pressures_Pa"], mean_pressure_Pa=float(np.nanmean(b["q_tri"]) * cfg.E_Pa),
@@ -434,8 +459,12 @@ def run(cfg):
              stop_reason, res["mean_err_mm"], res["mean_normal_err_mm"], res["baseline_mean_mm"], res["median_err_mm"],
              res["p95_err_mm"], res["max_err_mm"], res["assd_mm"], b["K"], b["nu"],
              res["mean_pressure_Pa"], cfg.E_Pa, trk.n_eval, trk.n_fail, res["elapsed_min"])
-    log.info("rigid part vs the inflated lung: target %.1f deg / %.1f mm, fitted %.1f deg / %.1f mm",
-             *rot["target"], *rot["fitted"])
+    if closest:
+        log.info("rigid part vs the inflated lung: fitted %.1f deg / %.1f mm (target: none, no node "
+                 "correspondence)", *rot["fitted"])
+    else:
+        log.info("rigid part vs the inflated lung: target %.1f deg / %.1f mm, fitted %.1f deg / %.1f mm",
+                 *rot["target"], *rot["fitted"])
     if pen is not None:
         log.info("wall: %d points beyond the allowed position, max %.2f mm",
                  res["wall_points_beyond"], res["wall_max_penetration_mm"])

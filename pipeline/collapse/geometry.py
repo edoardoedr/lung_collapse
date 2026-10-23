@@ -86,9 +86,14 @@ class WallDistance:
         return np.array([self.f.EvaluateFunction(x) for x in np.asarray(X, float)])
 
     def __call__(self, X):
+        return self.closest(X)[1:]
+
+    def closest(self, X):
+        """(closest point, phi, n) of each X; also the closest-point target of an unregistered fit."""
         X = np.atleast_2d(np.asarray(X, float))
         cell, cp = self.surf.find_closest_cell(X, return_closest_point=True)
-        return self._contact(X, np.atleast_1d(cell), np.atleast_2d(cp))
+        cp = np.atleast_2d(cp)
+        return (cp, *self._contact(X, np.atleast_1d(cell), cp))
 
     def _contact(self, X, cell, cp):
         """(phi, n) from the closest triangle and point of each X."""
@@ -106,9 +111,10 @@ class WallDistance:
         return np.einsum("ij,ij->i", X - cp, n), n
 
 
-def assd(PA, PB, tris):
-    """Symmetric mean point-to-surface distance between two surfaces with the same triangles."""
-    A, B = polydata(PA, tris), polydata(PB, tris)
+def assd(PA, PB, tris, tris_a=None):
+    """Symmetric mean point-to-surface distance between two surfaces: A (PA, tris_a) and B (PB, tris);
+    tris_a None = the same triangles as B."""
+    A, B = polydata(PA, tris if tris_a is None else tris_a), polydata(PB, tris)
     _, cb = B.find_closest_cell(A.points, return_closest_point=True)
     _, ca = A.find_closest_cell(B.points, return_closest_point=True)
     return float(np.r_[np.linalg.norm(A.points - cb, axis=1), np.linalg.norm(B.points - ca, axis=1)].mean())

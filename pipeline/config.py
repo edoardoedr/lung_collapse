@@ -10,7 +10,7 @@ Keys starting with "_" are ignored, so they can be used as comments.
 """
 
 import json
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 SPACES = ("LPS", "RAS")
@@ -63,9 +63,13 @@ class SurfaceMeshConfig:
 class RegistrationConfig:
     """Step 4: elastix mask registration, collapsed surface -> inflated space (same topology).
 
-    inflated / collapsed: labelmap (.nrrd, .nii, .nii.gz, .mha, .mhd) or closed surface (rasterised)."""
+    inflated / collapsed: labelmap (.nrrd, .nii, .nii.gz, .mha, .mhd) or closed surface (rasterised).
+    method "none": no registration, `output` is the inflated surface remeshed with the surface_mesh
+    settings (own nodes, no correspondence with the collapsed mesh; fem_setup then matches by
+    closest point). The elastix keys are ignored."""
     inflated: Path                     # inflated lung (data_dir)
     output: Path                       # warped surface (output_dir)
+    method: str = "elastix"            # elastix | none (inflated surface remeshed, not registered)
     surface: Path | None = None        # collapsed surface to warp; None = output of surface_mesh
     surface_space: str = "auto"
     collapsed: Path | None = None      # collapsed lung; None = rasterise `surface`
@@ -89,8 +93,11 @@ class RegistrationConfig:
     max_unflip_nodes: int = 40         # nodes re-interpolated to remove flipped triangles; more -> fail
     output_space: str = "LPS"
     workdir: Path | None = None        # elastix files; set to output_dir/registration
+    mesh: SurfaceMeshConfig | None = None   # method "none": remesh settings, set from surface_mesh
 
     def __post_init__(self):
+        if self.method not in ("elastix", "none"):
+            raise ValueError("registration.method must be elastix or none")
         if self.surface_space not in ("auto", *SPACES):
             raise ValueError("registration.surface_space must be auto, LPS or RAS")
         if self.direction not in ("forward", "inverse"):
@@ -285,6 +292,12 @@ def load_config(path, overrides=None):
         else:
             raise ValueError("registration.surface is required when there is no surface_mesh section")
         r.parameter_files = [base / f for f in r.parameter_files]   # relative to the JSON file
+        if r.method == "none":
+            if surface_mesh is None:
+                raise ValueError("registration.method 'none' remeshes the inflated lung with the "
+                                 "surface_mesh settings: the config needs a surface_mesh section")
+            r.mesh = replace(surface_mesh, input=r.inflated, output=r.output, input_space="auto",
+                             output_space=r.output_space)
 
     hilum = None
     if "hilum" in raw:

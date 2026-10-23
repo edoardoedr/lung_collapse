@@ -75,10 +75,11 @@ Turns the dense Slicer surface into the uniform mesh whose nodes are followed th
 
 ## `registration` – inflated lung onto the collapsed mesh nodes (step 4)
 
-Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Output: the same nodes in the inflated shape.
+Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Output: the same nodes in the inflated shape. With `method: "none"` there is no registration: the output is the inflated lung remeshed like step 2, with its own nodes.
 
 | Key | Default | What it is | Range |
 |---|---|---|---|
+| `method` | `elastix` | `elastix`: register as described here. `none`: no registration; `output` is the `inflated` surface remeshed with the `surface_mesh` settings (needs that section; `inflated` must be a surface, not a labelmap). Its nodes do not correspond to the collapsed mesh's, so `fem_setup` matches the target by closest point (see there) and `fem_fit` fits point-to-surface. All other keys of this section are then ignored. | `elastix`, `none` |
 | `inflated` | – (required) | Inflated lung: surface (rasterised) or labelmap. | file in `data_dir` |
 | `inflated_label` | `null` | Label value if `inflated` is a labelmap. `null` = any voxel > 0. | integer or `null` |
 | `collapsed` | `null` | Collapsed lung mask. `null` = rasterise the step-2 mesh (recommended: the mask matches the mesh exactly). | file or `null` |
@@ -109,7 +110,7 @@ Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Ou
 | Key | Default | What it is | Range |
 |---|---|---|---|
 | `reference` | `null` | Inflated surface = undeformed FEM configuration. `null` = registration output. | file or `null` |
-| `target` | `null` | Collapsed surface to reach, same nodes. `null` = step-2 mesh. | file or `null` |
+| `target` | `null` | Collapsed surface to reach. `null` = step-2 mesh. With the same nodes and triangles as `reference` (registered) node *i* must reach node *i*. With different nodes (`registration.method: "none"`) the target is matched by closest point: `align` must be `none`; `clamp_still_mm` and the pressure regions use the distance / displacement of each reference point to its closest point on the target (`cluster_field` is ignored, there is no rigid part to remove); `fem_fit` re-matches every fitted point to its closest target point at each evaluation, and the reported rigid rotation of the target is empty. | file or `null` |
 | `anchor` | `null` | Markups with the hilum. `null` = hilum output. | file or `null` |
 | `anchor_point` | `hilum` | Point(s) of the anchor file whose spheres make the clamped (fixed) region: one name, or a list for the union of their balls, e.g. `["hilum", "airways", "arteries", "veins"]` (the hilar ring centres of each structure, step 3). Only the first ball grows to reach `anchor_min_points`; the others are added as they are. A larger clamp resists the lung's rotation about the hilum (karl04 25 → 62 clamped triangles, patient_10 23 → 53; on patient_2 the vessel balls lie inside the grown hilum ball). The configs use the four points. | names in the anchor file |
 | `anchor_radius_factor` | 2.0 | Clamp radius = sphere radius of `anchor_point` × this (about 30 mm for a 15 mm hilum). Larger = more of the lung held fixed. | 1.5–3 |
