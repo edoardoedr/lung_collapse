@@ -59,7 +59,7 @@ Turns the dense Slicer surface into the uniform mesh whose nodes are followed th
 | `target_nodes` | 480 | Number of nodes of the output mesh (faces ≈ 2 × nodes). Sets the resolution of the whole FEM surface and of the registration correspondence. | 300–2000 (more = finer but slower FEM) |
 | `max_faces` | 1000 | Hard ceiling on the faces: if exceeded, `target_nodes` is reduced. | ≥ 2 × `target_nodes` |
 | `shrink_factor` | 0.9 | Factor applied to `target_nodes` at each retry when `max_faces` is exceeded. | 0.8–0.95 |
-| `max_remesh_attempts` | 6 | Retries before the step fails. | 3–10 |
+| `max_remesh_attempts` | 6 | Retries before the step fails, both for `max_faces` and for a remeshed surface that is not watertight (ACVD can leave a few non-manifold edges; it then retries with ~2 % fewer clusters). | 3–10 |
 | `min_points_per_cluster` | 12 | The input is subdivided until it has at least this many points per output node (ACVD needs a dense input). | 5–20 |
 | `max_subdivisions` | 4 | Maximum subdivisions for the rule above. | 2–5 |
 | `hole_size` | 1e4 | Largest hole [mm] that is filled. The default fills any hole. | keep large |

@@ -58,13 +58,13 @@ def acvd_remesh(surf, n_clusters, min_points_per_cluster, max_subdivisions):
     return as_triangles(clus.create_mesh())
 
 
-def remesh_surface(surf, cfg):
-    n_clusters = cfg.target_nodes
+def remesh_surface(surf, cfg, n_clusters):
+    """ACVD remesh, shrinking n_clusters until faces <= max_faces. Returns (mesh, clusters used)."""
     for _ in range(cfg.max_remesh_attempts):
         mesh = acvd_remesh(surf, n_clusters, cfg.min_points_per_cluster, cfg.max_subdivisions)
         log.info("  clusters=%d -> %d pts, %d tris", n_clusters, mesh.n_points, mesh.n_cells)
         if mesh.n_cells <= cfg.max_faces:
-            return mesh
+            return mesh, n_clusters
         n_clusters = int(n_clusters * cfg.shrink_factor)
     raise RuntimeError("still > %d faces after %d attempts: lower target_nodes"
                        % (cfg.max_faces, cfg.max_remesh_attempts))
@@ -88,13 +88,22 @@ def remesh(surf, cfg):
     log.info("cleaned: %d pts, %d tris, bad edges %d",
              surf.n_points, surf.n_cells, bad_edge_count(surf))
 
-    mesh = remesh_surface(surf, cfg)
-    mesh = smooth(mesh, cfg.post_smooth_iters, cfg.smooth_pass_band)
-    mesh = close_holes(mesh, cfg.hole_size)
-
-    n_bad = bad_edge_count(mesh)
-    if n_bad:
-        raise RuntimeError("remeshed surface is not watertight (%d bad edges)" % n_bad)
+    # ACVD can leave a few non-manifold edges for some cluster counts: retry with slightly fewer
+    # clusters (the first attempt is the one used so far, so watertight cases are unchanged)
+    n_clusters = cfg.target_nodes
+    for attempt in range(cfg.max_remesh_attempts):
+        mesh, n_used = remesh_surface(surf, cfg, n_clusters)
+        mesh = smooth(mesh, cfg.post_smooth_iters, cfg.smooth_pass_band)
+        mesh = close_holes(mesh, cfg.hole_size)
+        n_bad = bad_edge_count(mesh)
+        if not n_bad:
+            break
+        n_clusters = n_used - max(1, round(0.02 * n_used))
+        log.warning("remeshed surface is not watertight (%d bad edges) with %d clusters%s", n_bad, n_used,
+                    ": retrying with %d" % n_clusters if attempt + 1 < cfg.max_remesh_attempts else "")
+    else:
+        raise RuntimeError("remeshed surface is not watertight (%d bad edges) after %d attempts"
+                           % (n_bad, cfg.max_remesh_attempts))
     ang = min_angles_deg(mesh)
     log.info("final: %d pts, %d tris, volume %.1f mL, min angle min/mean %.1f/%.1f deg",
              mesh.n_points, mesh.n_cells, mesh.volume / 1000.0, ang.min(), ang.mean())
