@@ -1,8 +1,8 @@
 {
-  "_comment": "whole pipeline with the torch core (no GetFEM config for this patient), with the cavity wall, fit in fem/fit_torch. data_dir / output_dir relative to this file; step inputs relative to data_dir, outputs to output_dir",
+  "_comment": "whole pipeline, torch core, with the cavity wall; no registration (fit by closest point to the collapsed surface), clamp = hilum region only (anchor balls, no still points). data_dir / output_dir absolute; step inputs relative to data_dir, outputs to output_dir",
   "patient": "karl10",
   "data_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/vtk_surfaces_HD/karl10",
-  "output_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD/karl10_wall",
+  "output_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD/karl10_noreg_hilum_wall",
   "steps": ["check_inputs", "surface_mesh", "hilum", "registration", "fem_setup", "fem_fit"],
 
   "check_inputs": {
@@ -39,32 +39,11 @@
   },
 
   "registration": {
-    "_comment": "method: elastix | none (no registration: the inflated lung remeshed with the surface_mesh settings, fit by closest point). inflated/collapsed: labelmap or closed surface; collapsed null = rasterise the step-2 surface. direction: forward (fixed = collapsed, no inversion) | inverse (fixed = inflated, as in Slicer)",
-    "method": "elastix",
+    "_comment": "no registration: the inflated lung is remeshed with the surface_mesh settings into output; fem_setup matches it to the collapsed mesh by closest point",
+    "method": "none",
     "inflated": "lung_left.vtk",
-    "inflated_label": null,
-    "collapsed": null,
-    "collapsed_label": null,
-    "surface": null,
-    "surface_space": "auto",
-    "direction": "inverse",
-    "landmarks": null,
-    "landmark_points": ["airways", "arteries", "veins", "hilum"],
-    "landmark_weight": 0.001,
-    "hilum_region_mm": 30.0,
     "output": "lung_inflated_mesh.vtp",
-    "output_space": "LPS",
-    "raster_spacing_mm": 1.0,
-    "crop_margin_mm": 20.0,
-    "parameter_maps": ["rigid", "affine", "bspline"],
-    "parameter_files": ["elastix/Parameters_Rigid.txt", "elastix/Parameters_Affine.txt", "elastix/Parameters_BSpline.txt"],
-    "parameter_overrides": {},
-    "random_seed": 42,
-    "inversion_tol_mm": 1e-3,
-    "inversion_max_iter": 100,
-    "inversion_samples": 200000,
-    "max_interpolated_nodes": 10,
-    "max_unflip_nodes": 40
+    "output_space": "LPS"
   },
   "hilum": {
     "_comment": "per structure the largest intersection ring with the lung surface; hilum = centroid of the ring centres. lung must be from the same scan as the trees",
@@ -88,7 +67,7 @@
     "anchor_min_points": 20,
     "anchor_growth": 1.1,
     "anchor_max_growth_steps": 10,
-    "clamp_still_mm": 5.0,
+    "clamp_still_mm": 0.0,
     "wall": "reference",
     "wall_tol_mm": 5.0,
     "align": "none",

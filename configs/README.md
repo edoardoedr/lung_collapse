@@ -1,6 +1,6 @@
 # Configuration reference
 
-One JSON file per patient (`configs/<patient>.json`) drives the whole pipeline. This page lists every key: what it is, what it is for, and the values it can take. The defaults are those in [`pipeline/config.py`](../pipeline/config.py); a key left out of the JSON takes its default.
+One JSON file per patient and variant (`configs/<patient>_torch.json`, `<patient>_wall_torch.json`) drives the whole pipeline; the current ones run without registration and clamp only the hilum region, earlier sets are in `configs/archive/`. This page lists every key: what it is, what it is for, and the values it can take. The defaults are those in [`pipeline/config.py`](../pipeline/config.py); a key left out of the JSON takes its default.
 
 **Range** gives the allowed values (enumerations), or the sensible interval with the reason. Values outside a sensible interval are accepted by the code but usually make a step slow, fail or meaningless.
 
