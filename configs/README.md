@@ -182,7 +182,7 @@ A **level** ends on the first of: lsq convergence (`lsq_*`) or level plateau. Th
 
 ### `solver_options`
 
-Common to `getfem`, `warp` and `torch` unless noted. The defaults are in [`pipeline/collapse/solvers/common.py`](../pipeline/collapse/solvers/common.py).
+Common to `getfem`, `warp` and `torch` unless noted. The defaults are in [`pipeline/collapse/solvers/common.py`](../pipeline/collapse/solvers/common.py) (`support_k`: [`nodal.py`](../pipeline/collapse/solvers/nodal.py)).
 
 | Key | Default | What it is | Range |
 |---|---|---|---|
@@ -204,6 +204,7 @@ Common to `getfem`, `warp` and `torch` unless noted. The defaults are in [`pipel
 | `max_solve_s` | `null` | Seconds after which one forward solve gives up (counted as failed). GetFEM checks it before each Newton run, so it can overrun by one run. The wall configs use 120. | `null`, 60–600 |
 | `linear_solver` | `null` | Sparse linear solver. `getfem`: `null` = MUMPS if available, or a GetFEM name (`mumps`, `superlu`). `warp` and `torch`: `null`/`auto`, `cudss` (GPU), `pardiso` (CPU, `pypardiso`), `scipy`. Do not copy a GetFEM value into a `warp` / `torch` config. | see left |
 | `device` | `null` | `warp` and `torch`: device, e.g. `cuda:0` or `cpu`. `null` = GPU if available. `torch` refuses `mps` (Apple GPU): float32 only and no sparse solver, Newton would not converge. | Warp / torch device name |
+| `support_k` | 0.0 | `warp` and `torch` only: tangential elastic support of the surface, stiffness per unit area relative to E [1/mm]. Every surface node gets the force −k a (I − n nᵀ) u (a = its reference area, n = its reference normal): it resists the lung sliding or rotating along the cavity, not the collapse along the normal. Against the near-mechanism of the hilum-only clamp, where the lung swings about the hilum almost for free and the wall rounds diverge (the cause of most failed wall solves). It takes part of the load: the summary reports `support_share` (support force / pressure force); keep it small (a few %). Scale: tangential slip of ~10 mm at p/E ~1 gives a share ≈ k × 10, so 0.001–0.01. 0 = off. | 0, 0.001–0.01 |
 | `material` | `neo_hookean` | `torch` only: material, a name in [`solvers/materials.py`](../pipeline/collapse/solvers/materials.py). `neo_hookean` = the GetFEM / Warp material. | `neo_hookean`, `mooney_rivlin`, or one you add |
 | `material_params` | `{}` | `torch` only: the material's fixed parameters, e.g. `{"c01_fraction": 0.3}` for `mooney_rivlin` (share of the shear stiffness in the I2 term; 0 = Neo-Hookean). | depends on the material |
 

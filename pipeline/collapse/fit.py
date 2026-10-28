@@ -511,7 +511,9 @@ def run(cfg):
                solve_s_mean=trk.solve_s / max(trk.n_eval, 1), solver_stats=solver.stats(),
                elapsed_min=trk.elapsed() / 60, levels=summary, wall=bool(problem.has_wall),
                wall_max_penetration_mm=None if pen is None else float(max(pen.max(), 0.0)),
-               wall_points_beyond=None if pen is None else int((pen > 0).sum()))
+               wall_points_beyond=None if pen is None else int((pen > 0).sum()),
+               support_k=cfg.solver_options.get("support_k", 0.0),
+               support_share=solver.support_share(b["Us"], b["q_tri"]))
     (out / "result_summary.json").write_text(json.dumps(res, indent=2))
     log.info("result (%s): mean %.3f mm point-to-point, %.3f along the normal (no deformation %.3f point-to-point), "
              "median %.3f, p95 %.3f, max %.3f, ASSD %.3f mm; K=%d, nu=%.3f, mean p=%.0f Pa (E=%.0f Pa); "
@@ -529,6 +531,9 @@ def run(cfg):
     if pen is not None:
         log.info("wall: %d points beyond the allowed position, max %.2f mm",
                  res["wall_points_beyond"], res["wall_max_penetration_mm"])
+    if res["support_share"] is not None:
+        log.info("tangential support k = %g E/mm: %.1f%% of the pressure force (sum of magnitudes)",
+                 res["support_k"], 100 * res["support_share"])
     if grad is not None:
         log.info("gradient: mean p/E %.3f, slopes %s (p/E %.3f .. %.3f on the free triangles)", grad["mean_pE"],
                  ", ".join("%s %+.3f (%+.0f%% of the mean)" % (a, v, 100 * grad["slope_relative"][a])

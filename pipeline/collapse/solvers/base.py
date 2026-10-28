@@ -53,6 +53,10 @@ class ForwardSolver(ABC):
     def reset(self):
         """Forget the warm start: the next solve starts from the reference configuration."""
 
+    def support_share(self, Us, q_tri):
+        """Share of the surface load taken by an elastic support, None if the core has none."""
+        return None
+
     def stats(self):
         """Cumulative counters for the log (e.g. Newton iterations), {} if not kept."""
         return {}

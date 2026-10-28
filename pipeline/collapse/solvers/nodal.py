@@ -26,6 +26,13 @@ options: the GetFEMSolver ones (order must be 1), plus
                  double after success (common.adaptive_path), down to min_load_step of the path
   max_solve_s    None, or seconds after which one solve() gives up (counted as failed)
   slow_ramp      true: when a solve fails also retry with 3 x load_steps (sub-)steps; false = fail fast
+  support_k      tangential elastic support of the surface (not in GetFEM), stiffness per unit area
+                 relative to E [1/mm]: R += k a_i (I - n_i n_i^T) u_i on every surface node, a_i =
+                 its reference area (1/3 of the adjacent triangles), n_i = its reference outward
+                 vertex normal. Resists sliding / rotating along the cavity, not the collapse along
+                 the normal; linear, so the Newton tangent and the Jacobian just gain the constant
+                 block. Physically a thin layer of shear modulus G and thickness h: k = G / (E h).
+                 0 = off (default)
 
 Failed Newton runs are counted by reason in stats() (fail_inverted, fail_maxit, fail_linear,
 fail_nonfinite, fail_time; fail_unsettled = wall rounds exhausted without settling). With self.trace = [] every Newton iteration is appended to it
@@ -46,7 +53,7 @@ import time
 import numpy as np
 import scipy.sparse as sp
 
-from ..geometry import WallDistance
+from ..geometry import WallDistance, vertex_normals
 from .base import ForwardSolver
 from .common import DEFAULTS as GETFEM_DEFAULTS
 from .common import WALL_QUADRATURES, adaptive_path, ramps, wall_gap_change
@@ -66,7 +73,7 @@ class _QuietNvmath(logging.Filter):
 
 logging.getLogger().addFilter(_QuietNvmath())
 
-DEFAULTS = {**GETFEM_DEFAULTS, "linear_solver": None}
+DEFAULTS = {**GETFEM_DEFAULTS, "linear_solver": None, "support_k": 0.0}     # support_k: not in GetFEM
 
 # IM_TRIANGLE(3): barycentric points, weights normalised to the face area
 FACE_QUAD_B = np.array([[1 / 3, 1 / 3, 1 / 3], [0.6, 0.2, 0.2], [0.2, 0.6, 0.2], [0.2, 0.2, 0.6]])
@@ -199,6 +206,22 @@ class NodalSolver(ForwardSolver):
         self.surf_rows = (3 * self.surf_node[:, None] + np.arange(3)).ravel()
         self._build_sparsity()
 
+        # tangential elastic support (support_k): constant block k a (I - n n^T) per surface node
+        self.support = self.support_ff = None
+        k = float(o["support_k"])
+        if k < 0:
+            raise ValueError("%s solver: support_k must be >= 0" % self.name)
+        if k > 0:
+            a = np.zeros(self.nn)
+            np.add.at(a, faces.ravel(), np.repeat(self.area0 / 3.0, 3))
+            n = vertex_normals(X, faces)[self.surf_node]
+            blk = k * a[self.surf_node, None, None] * (np.eye(3) - n[:, :, None] * n[:, None, :])
+            r = 3 * self.surf_node[:, None, None] + np.arange(3)[None, :, None]
+            c = 3 * self.surf_node[:, None, None] + np.arange(3)[None, None, :]
+            r, c = np.broadcast_to(r, blk.shape), np.broadcast_to(c, blk.shape)
+            self.support = sp.csr_matrix((blk.ravel(), (r.ravel(), c.ravel())), shape=(self.ndof, self.ndof))
+            self.support_ff = self.support[self.free][:, self.free].tocsr()
+
         # cavity wall: same data as GetFEMSolver (wallN on the surface nodes, wallG scalar)
         self.wall = None
         if problem.has_wall:
@@ -226,6 +249,9 @@ class NodalSolver(ForwardSolver):
                  "on (stiffness %g, update %s, quadrature %s)" % (self.options["wall_stiffness"], self.options["wall_update"],
                                                   self.options["wall_quadrature"])
                  if self.wall else "off", device, self.lin.backend, extra)
+        if self.support is not None:
+            log.info("%s: tangential surface support k = %g E/mm on %d surface nodes", self.name,
+                     self.options["support_k"], len(self.surf_node))
 
     # ---- sparsity of the free-dof tangent (computed once) ----
     def _build_sparsity(self):
@@ -359,12 +385,18 @@ class NodalSolver(ForwardSolver):
             self.counts["newton_iters"] += it
 
     def _assemble_at(self, U, compute_K):
-        """_assemble, with the wall re-linearised at U first when the contact is part of Newton."""
+        """_assemble, with the wall re-linearised at U first when the contact is part of Newton,
+        plus the tangential support (support_k)."""
         if self.wall_in_newton:
             self._update_wall(U)
         t0 = time.time()
         try:
-            return self._assemble(U, compute_K)
+            R, A = self._assemble(U, compute_K)
+            if self.support is not None and R is not None:
+                R = R + self.support @ U
+                if A is not None:
+                    A = (A + self.support_ff).tocsr()
+            return R, A
         finally:
             self.times["assembly_s"] += time.time() - t0
             self.times["assemblies"] += 1
@@ -480,6 +512,20 @@ class NodalSolver(ForwardSolver):
         dU[self.free] = -self._linsolve(A, B).reshape(self.nfree, -1)
         self.counts["jacobians"] += 1
         return dU[self.surf_rows]
+
+    def support_share(self, Us, q_tri):
+        """How much of the load the tangential support takes: sum of |support force| over sum of
+        |pressure force| (|q| x current area) on the surface, for surface displacement Us (N, 3)
+        and p/E per surface triangle q_tri (NaN = clamped). None without support."""
+        if self.support is None:
+            return None
+        U = np.zeros((self.nn, 3))
+        U[self.surf_node] = Us
+        fs = np.linalg.norm((self.support @ U.ravel()).reshape(-1, 3), axis=1).sum()
+        x, Fc = self.X + U, self.faces
+        area = 0.5 * np.linalg.norm(np.cross(x[Fc[:, 1]] - x[Fc[:, 0]], x[Fc[:, 2]] - x[Fc[:, 0]]), axis=1)
+        fp = (np.abs(np.nan_to_num(np.asarray(q_tri, float))) * area)[~self.clamped].sum()
+        return float(fs / fp) if fp > 0 else None
 
     def stats(self):
         return dict(self.counts)
