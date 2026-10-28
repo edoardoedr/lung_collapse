@@ -98,17 +98,32 @@ class WallDistance:
     def _contact(self, X, cell, cp):
         """(phi, n) from the closest triangle and point of each X."""
         tri = self.T[cell]
-        a, b, c = self.P[tri[:, 0]], self.P[tri[:, 1]], self.P[tri[:, 2]]
-        v0, v1, v2 = b - a, c - a, cp - a
-        d00, d01, d11 = (v0 * v0).sum(1), (v0 * v1).sum(1), (v1 * v1).sum(1)
-        d20, d21 = (v2 * v0).sum(1), (v2 * v1).sum(1)
-        den = np.maximum(d00 * d11 - d01 * d01, 1e-300)
-        wb, wc = (d11 * d20 - d01 * d21) / den, (d00 * d21 - d01 * d20) / den
-        w = np.clip(np.column_stack([1.0 - wb - wc, wb, wc]), 0.0, None)
-        w /= np.maximum(w.sum(1, keepdims=True), 1e-300)
+        w = barycentric(self.P, tri, cp)
         n = np.einsum("ik,ikj->ij", w, self.N[tri])
         n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
         return np.einsum("ij,ij->i", X - cp, n), n
+
+
+def barycentric(P, tri, cp):
+    """Barycentric weights (M, 3) of the points cp (M, 3) in their triangles tri (M, 3 point indices),
+    clipped to the triangle (cp is a closest point, so it lies on it up to round-off)."""
+    a, b, c = P[tri[:, 0]], P[tri[:, 1]], P[tri[:, 2]]
+    v0, v1, v2 = b - a, c - a, cp - a
+    d00, d01, d11 = (v0 * v0).sum(1), (v0 * v1).sum(1), (v1 * v1).sum(1)
+    d20, d21 = (v2 * v0).sum(1), (v2 * v1).sum(1)
+    den = np.maximum(d00 * d11 - d01 * d01, 1e-300)
+    wb, wc = (d11 * d20 - d01 * d21) / den, (d00 * d21 - d01 * d20) / den
+    w = np.clip(np.column_stack([1.0 - wb - wc, wb, wc]), 0.0, None)
+    return w / np.maximum(w.sum(1, keepdims=True), 1e-300)
+
+
+def closest_on_surface(P, tris, X):
+    """Closest point of each X (M, 3) on the surface (P, tris): (triangle index, barycentric weights,
+    closest point = weights x triangle points)."""
+    cell, cp = polydata(P, tris).find_closest_cell(np.atleast_2d(np.asarray(X, float)), return_closest_point=True)
+    cell = np.atleast_1d(cell)
+    w = barycentric(P, tris[cell], np.atleast_2d(cp))
+    return cell, w, np.einsum("ik,ikj->ij", w, P[tris[cell]])
 
 
 def assd(PA, PB, tris, tris_a=None):

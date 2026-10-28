@@ -1,5 +1,5 @@
 """Analyse every fit found under one or more result folders: one table row per fit, paired
-comparisons (registered vs not, wall vs not, regions vs gradient) and the pressure pattern.
+comparisons (registered vs not, clamp, wall vs not, regions vs gradient, one-sided vs symmetric loss) and the pressure pattern.
 
 numpy / matplotlib only (runs on the Mac): it reads fem/setup/problem.npz, setup_summary.json and
 fem/<run>/{best_state.npz, result_summary.json}, nothing else.
@@ -146,7 +146,7 @@ def analyse_run(case_dir, run_dir, prob, setup):
     apex, base = third_ratio(xi["si"][f], qf, w)
 
     row = dict(case=case_dir.name, patient=patient, side=side, registration=reg, clamp=clamp, wall=wall,
-               run=run_dir.name, model=s.get("pressure_model", "regions"), K=s.get("K"),
+               run=run_dir.name, model=model_label(s, run_dir.name), loss=loss_label(s, reg), K=s.get("K"),
                stop=s.get("stop_reason"), evals=s.get("evals"), failed=s.get("failed_solves"),
                minutes=s.get("elapsed_min"),
                surface_points=len(X_ref), clamped_area_frac=area[clamped_tri].sum() / area.sum(),
@@ -167,6 +167,23 @@ def analyse_run(case_dir, run_dir, prob, setup):
         row["slope_" + a] = c
         row["slope_rel_" + a] = c / mean_q
     return row
+
+
+def model_label(s, run_name):
+    """regions | gradient <axes>; a gradient fit that kept the uniform level has no axes in its
+    summary, so they are taken from the run name (fit_grad_ap, fit_grad_apsi), default ap+si."""
+    if s.get("pressure_model", "regions") != "gradient":
+        return "regions"
+    axes = (s.get("gradient") or {}).get("axes") or (
+        ["ap", "si"] if "apsi" in run_name else ["ap"] if "grad_ap" in run_name else ["ap", "si"])
+    return "gradient " + "+".join(axes)
+
+
+def loss_label(s, reg):
+    """nodes (registered: node-to-node) | one-sided | symmetric (closest point)."""
+    if reg == "reg":
+        return "nodes"
+    return "symmetric" if (s.get("loss_symmetric_weight") or 0) > 0 else "one-sided"
 
 
 def collect(roots):
@@ -199,12 +216,14 @@ def collect(roots):
 COMPARE = ["assd_mm", "fit_to_tgt_mm", "tgt_to_fit_mm", "fit_to_tgt_p95_mm", "volume_err_pct",
            "rotation_fit_deg", "pE_mean", "slope_ap", "slope_si", "failed", "minutes"]
 PAIRS = [("registration", "reg", "noreg"), ("clamp", "still 5", "hilum only"), ("wall", False, True),
-         ("model", "regions", "gradient")]
-DIMS = ("patient", "registration", "clamp", "wall", "model")
+         ("model", "regions", "gradient ap+si"), ("model", "regions", "gradient ap"),
+         ("model", "gradient ap", "gradient ap+si"), ("loss", "one-sided", "symmetric")]
+DIMS = ("patient", "registration", "clamp", "wall", "model", "loss")
 
 
 def variant(r):
-    return "%s / %s / %s / %s" % (r["registration"], r["clamp"], "wall" if r["wall"] else "no wall", r["model"])
+    return "%s / %s / %s / %s / %s" % (r["registration"], r["clamp"], "wall" if r["wall"] else "no wall",
+                                       r["model"], r["loss"])
 
 
 def compare(rows):

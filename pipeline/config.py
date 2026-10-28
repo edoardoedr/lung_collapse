@@ -185,6 +185,10 @@ class FemFitConfig:
     # that slid tangentially in the registration (it looks like a rotation) is not forced
     loss: str = "point"
     loss_tangent_weight: float = 0.0
+    # unregistered reference only (closest-point target): weight of the target -> fitted term
+    # (closest point of every target point on the fitted surface), 0 = one-sided fitted -> target;
+    # 1 = both directions weigh the same (each averaged over its own points)
+    loss_symmetric_weight: float = 0.0
     # per level: move on to the next K when the level's best error improved by less than
     # level_min_improve (relative) over the last level_patience optimiser iterations
     # (lsq: one Jacobian each; Nelder-Mead: parameters + 1 forward solves each)
@@ -207,6 +211,8 @@ class FemFitConfig:
             raise ValueError("fem_fit.loss must be point or plane")
         if not 0.0 <= self.loss_tangent_weight <= 1.0:
             raise ValueError("fem_fit.loss_tangent_weight must be in [0, 1]")
+        if self.loss_symmetric_weight < 0.0:
+            raise ValueError("fem_fit.loss_symmetric_weight must be >= 0")
         if self.pressure_model not in ("regions", "gradient"):
             raise ValueError("fem_fit.pressure_model must be regions or gradient")
         bad = [a for a in self.gradient_axes if a not in ("ap", "si", "ml")]

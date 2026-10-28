@@ -26,8 +26,8 @@ from scipy.optimize import least_squares, minimize
 from scipy.optimize._numdiff import approx_derivative
 
 from ..data_io import write_surface
-from .geometry import (WallDistance, assd, face_adjacency, kabsch, polydata, rotation_deg, tri_geometry,
-                       vertex_normals)
+from .geometry import (WallDistance, assd, closest_on_surface, face_adjacency, kabsch, polydata, rotation_deg,
+                       tri_geometry, vertex_normals)
 from .problem import CollapseProblem
 from .regions import region_pairs
 from .run_control import Stop, Tracker, guarded
@@ -65,16 +65,35 @@ class Loss:
     surface (unregistered reference, no node correspondence): the target of each fitted point is
     its closest point on the collapsed surface, n the surface normal there, both recomputed at
     every residual (match). The Jacobian holds them fixed (Gauss-Newton of point-to-plane ICP:
-    exact for "plane", since the signed distance to a smooth surface has gradient n)."""
+    exact for "plane", since the signed distance to a smooth surface has gradient n).
 
-    def __init__(self, cfg, X_tgt, tris, free, surface=None):
+    That term alone is one-sided (fitted -> target): a lung that shrinks onto part of the target
+    scores well while the rest of the target stays uncovered (karl23, patient_1 / 2: 93-98 %
+    collapse instead of 51-86 %). loss_symmetric_weight ws > 0 adds the other direction: for every
+    target point y its closest point z on the fitted surface, z = sum_k b_k x_k over the vertices of
+    the fitted triangle (barycentric b), residual z - y (the whole vector: at a closest point it is
+    normal to the fitted surface, |z - y| = the distance). Target points whose closest point falls
+    on a clamped triangle get a zero residual (it could not change). Both terms are averaged over
+    their own number of points: cost = sum fwd^2 + ws (n_free / n_target) sum bwd^2. The Jacobian
+    holds the triangle and b fixed: dz/dq = sum_k b_k dx_k/dq (exact gradient of the squared
+    distance, the closest point moving along the surface being a second-order effect)."""
+
+    def __init__(self, cfg, X_tgt, tris, free, surface=None, clamped_tri=None):
         self.plane = cfg.loss == "plane"
         self.w = cfg.loss_tangent_weight
         self.free = np.asarray(free, bool)
+        self.n_free = int(self.free.sum())
         self.surface = surface                               # WallDistance of the target surface, or None
         self.target = X_tgt
+        self.tris = tris
         self.n = vertex_normals(X_tgt, tris)                 # all points (export)
         self.nf = self.n[self.free]
+        self.sym = float(cfg.loss_symmetric_weight) if surface is not None else 0.0
+        if self.sym:
+            self.Y = surface.P                               # target surface points
+            self.clamped_tri = np.asarray(clamped_tri, bool)
+            self.scale = np.sqrt(self.sym * self.n_free / len(self.Y))
+            self.back = None                                 # (fitted triangle, weights, kept) per target point
         self.match(X_tgt)
 
     def match(self, Xs):
@@ -85,8 +104,32 @@ class Loss:
         return self.target
 
     def residual(self, Xs):
-        """Fitted surface points Xs (N, 3) -> residual (n_free, 3)."""
-        return self.project(Xs - self.match(Xs))
+        """Fitted surface points Xs (N, 3) -> flat residual: 3 n_free rows (fitted -> target), then,
+        with the symmetric term, 3 n_target rows (target -> fitted, scaled)."""
+        r = self.project(Xs - self.match(Xs)).ravel()
+        return np.r_[r, self.scale * self.backward(Xs).ravel()] if self.sym else r
+
+    def backward(self, Xs):
+        """(n_target, 3) closest point on the fitted surface Xs - target point, 0 where that closest
+        point is on a clamped triangle; keeps the triangles / weights for the Jacobian."""
+        cell, b, z = closest_on_surface(Xs, self.tris, self.Y)
+        keep = ~self.clamped_tri[cell]
+        self.back = (self.tris[cell], b, keep)
+        return (z - self.Y) * keep[:, None]
+
+    def error(self, r):
+        """Flat residual -> (mean, rms) distance per point in the loss's metric; with the symmetric
+        term (fwd + ws bwd) / (1 + ws) of the two means, bwd over the kept target points."""
+        r = r.reshape(-1, 3)
+        df = np.linalg.norm(r[:self.n_free], axis=1)
+        if not self.sym:
+            return float(df.mean()), float(np.sqrt((df ** 2).mean()))
+        db = np.linalg.norm(r[self.n_free:], axis=1)[self.back[2]] / self.scale
+        if not len(db):
+            db = np.zeros(1)
+        ws = self.sym
+        return (float((df.mean() + ws * db.mean()) / (1 + ws)),
+                float(np.sqrt(((df ** 2).mean() + ws * (db ** 2).mean()) / (1 + ws))))
 
     def project(self, d):
         """d (N, 3) for all points -> residual (n_free, 3)."""
@@ -102,7 +145,13 @@ class Loss:
         if self.plane:
             Jn = self.nf[:, :, None] * np.einsum("ik,ikp->ip", self.nf, J3)[:, None, :]
             J3 = Jn + self.w * (J3 - Jn)
-        return J3.reshape(-1, J.shape[1])
+        J3 = J3.reshape(-1, J.shape[1])
+        if not self.sym:
+            return J3
+        tri, b, keep = self.back                            # of the last residual (same x)
+        Jall = J.reshape(len(self.n), 3, -1)
+        Jb = np.einsum("mk,mkjp->mjp", b * keep[:, None], Jall[tri])
+        return np.vstack([J3, self.scale * Jb.reshape(-1, J.shape[1])])
 
 
 def rigid_part(X_from, X_to):
@@ -225,9 +274,8 @@ def run_level(L, model, x0, lb, ub, ctx):
             base = trk.level_best_r if trk.level_best_r is not None else ctx["r_zero"]
             last["r"] = np.r_[2.0 * base, rreg]
             return last["r"], np.inf
-        r = loss.residual(X_ref + Us).ravel()
-        d = np.linalg.norm(r.reshape(-1, 3), axis=1)            # per point, in the loss's metric
-        err, rms = float(d.mean()), float(np.sqrt((d ** 2).mean()))
+        r = loss.residual(X_ref + Us)
+        err, rms = loss.error(r)                                # per point, in the loss's metric
         trk.log(L, K, err, rms, nu, 1, dt)
         q_tri = model.q_tri(q, clamped)
         # q / tri_labels as the core sees them (collapse_sequence re-solves with them), params = x
@@ -321,17 +369,22 @@ def run(cfg):
     free = np.ones(len(X_ref), bool)
     free[problem.clamped_points] = False
     closest = problem.closest_point
-    loss = Loss(cfg, X_tgt, tris, free, WallDistance(*problem.target_surface) if closest else None)
+    loss = Loss(cfg, X_tgt, tris, free, WallDistance(*problem.target_surface) if closest else None,
+                problem.clamped_tri)
+    if cfg.loss_symmetric_weight and not closest:
+        log.warning("loss_symmetric_weight %g ignored: the reference is registered (node-to-node "
+                    "correspondence, already symmetric)", cfg.loss_symmetric_weight)
     r_zero = loss.residual(X_ref)
-    d0 = np.linalg.norm(r_zero, axis=1)
+    e0, _ = loss.error(r_zero)
     mism = np.linalg.norm(X_ref - X_tgt, axis=1)[~free]
     log.info("problem: %d surface points (%d clamped, left out of the error: %.2f mm mean / %.2f max from "
-             "their target), %d volume nodes, %d tets, levels K = %s; loss %s%s%s, no-deformation error "
+             "their target), %d volume nodes, %d tets, levels K = %s; loss %s%s%s%s, no-deformation error "
              "%.2f mm (point-to-point %.2f)", len(X_ref), (~free).sum(), mism.mean(), mism.max(),
              len(problem.nodes), len(problem.tets), ", ".join(map(str, problem.levels)), cfg.loss,
              " (tangent weight %g)" % cfg.loss_tangent_weight if loss.plane else "",
              " to the closest point of the target surface (unregistered reference)" if closest else "",
-             d0.mean(), np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean())
+             " + target -> fitted (symmetric, weight %g)" % loss.sym if loss.sym else "",
+             e0, np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean())
 
     cls = get_solver(cfg.solver)
     if problem.has_wall and not cls.supports_wall:
@@ -364,7 +417,7 @@ def run(cfg):
     ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, loss=loss, clamped=clamped,
                r_zero=r_zero.ravel())
     q_tri, nu_best = np.where(clamped, np.nan, cfg.q0), cfg.nu
-    summary, stall, prev = [], 0, d0.mean()
+    summary, stall, prev = [], 0, e0
     stop_reason = "levels exhausted"
     with guarded(trk, int(60 * (cfg.time_budget_min + cfg.hard_grace_min))):
         for L, model in enumerate(models, start=1):
@@ -404,6 +457,12 @@ def run(cfg):
     err_all = np.linalg.norm(Xs - T_end, axis=1)                # point-to-point, whatever the loss
     err_n_all = np.einsum("ij,ij->i", Xs - T_end, loss.n)      # signed, along the target normal
     err, err_n = err_all[free], err_n_all[free]                  # the metrics: free points only
+    t2f = None
+    if closest:                                                 # target -> fitted, as the symmetric term
+        Y = problem.target_points
+        cell, _, z = closest_on_surface(Xs, tris, Y)
+        keep = ~problem.clamped_tri[cell]
+        t2f = float(np.linalg.norm(z - Y, axis=1)[keep].mean()) if keep.any() else 0.0
     # without node correspondence the target has no rigid part relative to the reference
     rot = dict(target=(None, None) if closest else rigid_part(X_ref, X_tgt), fitted=rigid_part(X_ref, Xs))
     s = polydata(Xs, tris)
@@ -435,7 +494,8 @@ def run(cfg):
                     pE_min=float(qf.min()), pE_max=float(qf.max()))
     res = dict(solver=cfg.solver, stop_reason=stop_reason, pressure_model=cfg.pressure_model, gradient=grad,
                loss=cfg.loss,
-               loss_tangent_weight=cfg.loss_tangent_weight, mean_err_mm=float(err.mean()),
+               loss_tangent_weight=cfg.loss_tangent_weight, loss_symmetric_weight=loss.sym,
+               mean_err_mm=float(err.mean()), target_to_fitted_mm=t2f,
                mean_normal_err_mm=float(np.abs(err_n).mean()), best_loss_err_mm=float(b["err"]),
                metric_points=int(free.sum()), clamped_points=int((~free).sum()),
                clamped_mismatch_mm=dict(mean=float(mism.mean()), max=float(mism.max())),
@@ -445,7 +505,7 @@ def run(cfg):
                max_err_mm=float(err.max()), assd_mm=assd(Xs, *problem.target_surface, tris_a=tris),
                correspondence="closest point" if closest else "nodes",
                baseline_mean_mm=float(np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean()),
-               baseline_loss_mm=float(d0.mean()), K=b["K"], nu=b["nu"], E_Pa=cfg.E_Pa,
+               baseline_loss_mm=float(e0), K=b["K"], nu=b["nu"], E_Pa=cfg.E_Pa,
                pressures_Pa=b["pressures_Pa"], mean_pressure_Pa=float(np.nanmean(b["q_tri"]) * cfg.E_Pa),
                pressure_sign=sign, evals=trk.n_eval, failed_solves=trk.n_fail,
                solve_s_mean=trk.solve_s / max(trk.n_eval, 1), solver_stats=solver.stats(),
@@ -460,6 +520,7 @@ def run(cfg):
              res["p95_err_mm"], res["max_err_mm"], res["assd_mm"], b["K"], b["nu"],
              res["mean_pressure_Pa"], cfg.E_Pa, trk.n_eval, trk.n_fail, res["elapsed_min"])
     if closest:
+        log.info("target -> fitted surface: mean %.3f mm (target points not on the clamp)", t2f)
         log.info("rigid part vs the inflated lung: fitted %.1f deg / %.1f mm (target: none, no node "
                  "correspondence)", *rot["fitted"])
     else:

@@ -99,6 +99,44 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
   - Pressure rule (reg, wall, 15 patients): mean p/E ≈ 0.04 + 1.61 × collapse, max residual 0.10. Anterior > posterior in 15 / 15 (reg), 12 / 15 (noreg); apex < base 13 / 15. A linear gradient explains only 4–47 % of the regional p/E variance; many fits have regions at the p/E bound 3. With 15 patients the slope ↔ clamp correlation drops (rel ap ~ clamp 0.38, was 0.82 on 8).
   - Gradient fits (8, reg): 4.1 mm worse ASSD than regions in every patient.
 - [ ] Decided (user, 2026-10-27): no registration from now on. Run the new configs (`configs/<p>[_wall]_torch.json`: no registration, clamp = hilum region only, `clamp_still_mm` 0) on all 16 patients, then `summarize_fits.py` (clamp comparison "still 5 → hilum only" on the noreg runs): shape error, rotation, wall activity and the p/E-vs-collapse rule without the still-point clamp.
+  - First results (2026-10-28, 11 patients; karl19, patient_1 / 2 / 3 / 10 missing). Medians without karl23, still 5 → hilum only:
+    - clamped surface 43 % → 5 %;
+    - no wall: ASSD 2.20 → 2.69 mm, rotation 4.1 → 9.1°;
+    - **pressure rule much cleaner:** mean p/E ≈ −0.09 + 2.11 × collapse, r 0.97, max residual 0.17 (still 5: r 0.74, max residual 0.33); anterior > posterior in 10 / 10.
+    - **karl23 hilum only broke down:** fitted volume 177 mL vs 1245 collapsed, ASSD 24 mm, rotation 47°. The closest-point loss only measures fitted → target, so the lung shrank into one part of the target (target → fitted 40 mm). The fix: a symmetric loss (also target → fitted) or a volume term.
+    - **The wall now acts** (3–73 points beyond it) and its failures come back: 8 of 11 fits stopped at K = 4–14 with 11–15 failed solves, 21–31 min, ASSD 4.5 mm. Only karl06, 08 and 18 are fine.
+  - Update (2026-10-28, 15 patients, karl19 missing):
+    - **Shrinkage also in patient_1 and patient_2:** fitted collapse 95 / 98 % vs real 59 / 86 %, ASSD 25 / 27 mm. patient_2 stopped at K = 1, already at the p/E bound 3.
+    - **Medians over the 12 good fits, no wall:** ASSD 2.89 mm (still 5: 2.20), rotation 10.3° (4.5°). Mean p/E ≈ −0.10 + 2.09 × collapse, r 0.97, max residual 0.19 (still 5: r 0.70, max residual 0.33). Anterior > posterior in 12 / 12, apex < base in 10 / 12.
+    - **Wall:** 12 failed solves per fit (median), 24 min, ASSD 4.62 mm. patient_3 wall: 32 failed solves, 65 min.
+- [x] Symmetric loss for the no-registration fits (2026-10-28): `fem_fit.loss_symmetric_weight` (1 in all current configs). It adds target → fitted to the closest-point residual, against the shrinkage of karl23 / patient_1 / patient_2. Checked on the Mac (cost gradient vs FD 2e-10). Fake linear core on karl01: volume 1346 → 1467 mL (target 1553), target → fitted 2.78 → 2.07 mm.
+- [ ] Rerun on the server with the symmetric loss (plan, user 2026-10-28). Old results moved to `archive/`, kept for the reg vs noreg comparison.
+  1. Regions, hilum-only clamp, no wall (`fem/fit_sym`): do clusters + symmetric loss converge, is the over-collapse gone?
+  2. Then gradient ap and ap + si: is E = ρgL / slope more consistent? Also, from the regions fits, the zones for the gradient.
+- [ ] karl19: the pipeline stops in `registration` (method none) at `surface_mesh.clean_surface` of the inflated `lung_right.vtk`, "triangulation left non-triangle cells". The old `karl19_noreg` failed the same way. Check the input file (cell types) on the server.
+- [ ] Wall failures with the hilum-only clamp (discussed 2026-10-28). Cause: near-mechanism. A small clamp and frictionless contact let the lung rotate / slide along the wall almost for free, and the `outer` rounds diverge. Ideas, in order:
+  1. Measure how far the no-wall hilum-only fits leave the cavity (Mac, from the existing results). If only a few mm, the wall may not be needed.
+  2. Weak **tangential elastic support**: springs k_t (I − n nᵀ) u on the free surface nodes, n = reference normal. Possibly only where in contact. A path-independent "elastic friction": smooth, linear, analytic Jacobian unchanged, a few lines in `nodal.py`. Option off by default; tune k_t on patient_3_wall / karl04_wall with `wall_diagnose.py`. Cost: the springs take part of the load (p/E shifts), so report their energy share.
+  3. Anatomical clamp: hilum + pulmonary ligament (medial band from the hilum to the base); needs an automatic per-patient definition.
+  - Coulomb friction rejected: the pleura is lubricated (very low physical μ); the solution would depend on the load path, which makes the fit objective noisy and the Jacobian ill-defined; the tangent would be non-smooth and non-symmetric.
+- [ ] Physical meaning of the fitted pressures (discussed 2026-10-28): p/E is an equivalent surface load lumping elastic recoil, weight and the support of the neighbours.
+  - The mean level is mostly the material's bulk response. Small-strain hydrostatic: p/E = c / (3(1 − 2ν)) = 1.67 c at ν = 0.4; fitted ≈ 2.09 c. So it scales with the chosen ν.
+  - The anterior > posterior gradient is probably gravity in the supine scan, as the removal of the pleural pressure gradient. The inflated lung is in equilibrium: its weight is carried by the vertical gradient of pleural pressure. The pneumothorax makes the pleural pressure uniform, so with a stress-free inflated reference the collapse load is uniform + linear in height. The slope is ρ g per unit height, and the weight then goes to the dependent wall.
+    - A body force on top of the stress-free reference would count gravity twice.
+    - Hence: fitted ap slope (across the AP depth L) = ρ g L / E, so E ≈ ρ g L / slope.
+    - With ρ = 250 kg/m³ (assumed, inflated lung) and the hilum-only noreg regions fits (linear slope of the regional p/E, 12 good patients): median E 2.3 kPa, range 0.4 kPa (karl20, slope 1.32) to 8.4 kPa (karl24, 0.05).
+  - Possible tests:
+    - impose the slope from ρ and a common E (one parameter fewer);
+    - or fit E per patient through the slope, and check that it is plausible and consistent across patients;
+    - regions as δp around that fixed gradient. The Ward clusters do not change (computed from the target in `fem_setup`), only their values.
+    - The linear gradient explains only 4–47 % of the regional p/E variance, so the δp stay patchy.
+  - Check the patient position of the collapsed CT (supine vs lateral decubitus): it sets the direction of the gradient. The user says the patients should be supine (2026-10-28).
+  - **Gradient fits, hilum-only noreg, no wall (2026-10-28, 11 karl patients):** `fit_grad_ap` (uniform + ap) and `fit_grad_apsi` (+ si).
+    - **Shape:** median ASSD 7.9 / 7.1 mm without karl23, against 2.7 mm for regions. The slope reduces the fit error by 0–25 % of the uniform level (karl18 ap: no gain, uniform kept).
+    - **Signs:** ap > 0 in 9 / 10 (ap only); with si added, karl10 flips (ap −0.05, si +0.39). si < 0 in 8 / 10.
+    - **E = ρgL / slope** (ap only, ρ = 250 kg/m³): median 4.4 kPa, IQR 3.1–6.6, range 0.5 (karl20) to 9.1 kPa (karl24). Not one common E.
+    - **Over-collapse:** fitted collapse > real in most patients (karl01 33 vs 25 %, karl10 74 vs 56 %, karl17 36 vs 24 %, karl18 38 vs 31 %, karl20 77 vs 58 %). The one-sided closest-point loss biases p/E upward, and hence the slopes and E. karl23 is broken here too (95 %, ASSD 28 mm, slope at the bound −4).
+    - **Conclusion:** the gravity reading is plausible (sign, order of magnitude of E) but not proven: E spread ×18, shape ~8 mm. Redo with the symmetric loss before drawing conclusions.
 - [ ] Target-free setup: surface mesh, hilum + clamp and volume mesh from the inflated CT only (no registration, alignment or still points).
 - [ ] Forward-only mode: fixed pressure model (gradient parameters, exact collapse % by a search on the mean p/E, arbitrary fields) → one solve → surface + sequence.
 - [ ] Leave-one-out prediction on the real patients: mean p/E from the collapse %, slopes from the others, compared with the real collapsed lung and with the patient's own fits.
