@@ -126,7 +126,19 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
   1. Measure how far the no-wall hilum-only fits leave the cavity (Mac, from the existing results). If only a few mm, the wall may not be needed.
   2. Weak **tangential elastic support**: springs k_t (I − n nᵀ) u on the free surface nodes, n = reference normal. Possibly only where in contact. A path-independent "elastic friction": smooth, linear, analytic Jacobian unchanged, a few lines in `nodal.py`. Option off by default; tune k_t on patient_3_wall / karl04_wall with `wall_diagnose.py`. Cost: the springs take part of the load (p/E shifts), so report their energy share.
      - [x] Implemented (2026-10-28, user's go): `solver_options.support_k` (warp / torch, not GetFEM), on every surface node, off by default. The summary has `support_k` and `support_share` (sum of support force magnitudes / sum of pressure force magnitudes). Checked on the Mac (numpy small-strain core on karl01_noreg_hilum, p/E 0.02–0.04): Jacobian vs FD 5–8e-8; mean tangential displacement 0.51 → 0.20 / 0.12 / 0.03 mm at k 0.003 / 0.01 / 0.1, normal 0.43 → 0.35 / 0.34 / 0.32 mm, share 2 / 4 / 10 %.
-     - [ ] On the server: `wall_diagnose.py` on patient_3_wall / karl04_wall with k 0, 0.001, 0.003, 0.01; then full fits with the chosen k (with and without wall), comparing failed solves, time, rotation, ASSD, share.
+     - [x] `wall_diagnose.py`, p/E 0.5, K = 4, 10 increments (2026-10-28):
+       - k = 0 fails on all three cases (karl04, karl23, patient_3): `unsettled`, then `time`.
+       - Every k ≥ 0.001 reaches 100 % with no failure, 0.3–2.3 s per increment, 2–4 wall rounds, penetration ≤ 0.41 mm. A larger k means fewer rounds and Newton iterations; patient_3 at k 0.01 needs 4 iterations per increment.
+       - The support also takes load: max|U| at 100 % goes 40.6 / 29.4 / 22.0 mm on karl04 (k 0.001 / 0.003 / 0.01), 29.6 / 19.8 / 16.9 on karl23, 22.6 / 20.1 / 18.6 on patient_3. The fit will raise p/E to compensate; `support_share` tells by how much.
+     - [x] First full fits with k 0.001 / 0.003, symmetric loss, 14 patients, with and without wall (2026-10-29). All 28 cases of each k ran in parallel, which made every solve ~15× slower: Jacobian 0.85–1.85 s vs 0.1, same Newton iterations. Times are not meaningful, and with a wall most failures are `fail_time` (120 s limit). `run_all.sh` now takes `JOBS=n`.
+       - **No wall, k = 0 / 0.001 / 0.003 (medians):**
+         - ASSD 2.92 / 2.53 / 2.52 mm; rotation 11.0 / 8.4 / 6.1°.
+         - Rotation per patient: karl23 73 / 42 / 11°, karl04 32 / 17 / 9°, patient_1 34 / 20 / 18°, patient_10 20 / 14 / 9°.
+         - Support share 4.9 / 11.9 %; mean p/E up ~5 / ~10 %; collapse still matched (median gap ≤ 1 point).
+         - Failed solves 0 / 20 / 61. At k 0.001 only patient_1 (20, ASSD 2.9 → 4.6). At k 0.003: karl23 32 (maxit, ASSD 6.2), karl01 16, patient_1 10, karl20 3.
+         - These failures are Newton maxit, not time: real, cause not yet known. Possibly the fixed reference normal of the springs at large local rotations.
+       - **Wall:** still 10–22 failed solves on 10 / 14 and early stops (K 4–14), but confounded by the slowdown. The diagnosis run alone took 0.3–2.3 s per increment. To redo with `JOBS=4`.
+     - [ ] Wall fits with k 0.001 (and 0.003) rerun with `JOBS=4` with the chosen k (with and without wall), comparing failed solves, time, rotation, ASSD, share.
   3. Anatomical clamp: hilum + pulmonary ligament (medial band from the hilum to the base); needs an automatic per-patient definition.
   - Coulomb friction rejected: the pleura is lubricated (very low physical μ); the solution would depend on the load path, which makes the fit objective noisy and the Jacobian ill-defined; the tangent would be non-smooth and non-symmetric.
 - [ ] Physical meaning of the fitted pressures (discussed 2026-10-28): p/E is an equivalent surface load lumping elastic recoil, weight and the support of the neighbours.

@@ -5,6 +5,10 @@
 #   bash scripts/run_all.sh                                      # every configs/*_torch.json
 #   bash scripts/run_all.sh karl04 karl04_wall                   # only these
 #   bash scripts/run_all.sh karl04 karl04_wall -- --steps fem_setup fem_fit   # only the FEM steps
+#   JOBS=4 bash scripts/run_all.sh ...                           # at most 4 cases at a time (default: all)
+#
+# Many cases at once share one GPU and the CPUs: with 28 the solves were ~15x slower, and with a
+# wall the max_solve_s limit then fails solves that converge in seconds when run alone.
 
 cd "$(dirname "$0")/.." || exit 1
 CASES=() EXTRA=()
@@ -23,7 +27,11 @@ run_case() {
     echo "$(date +%H:%M) $c: exit $rc"
 }
 
+JOBS=${JOBS:-0}
 for c in "${CASES[@]}"; do
+    if [[ $JOBS -gt 0 ]]; then
+        while [[ $(jobs -rp | wc -l) -ge $JOBS ]]; do wait -n; done
+    fi
     run_case "$c" &
 done
 wait
