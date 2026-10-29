@@ -4,6 +4,8 @@
     python scripts/wall_diagnose.py --config configs/karl04_wall_torch.json --q 0.5 --options '{"wall_update": "newton"}'
 
 Needs the fem_setup output of the config, and a core built on nodal.py (warp, torch): no GetFEM.
+With --from-fit RUN it ramps instead to the best pressures of that fit (fem/RUN/best_state.npz), the
+load a fit with the wall actually needs (regions up to the p/E bound).
 Reaches mean p/E --q in --steps increments from the reference (as compare_warp_getfem.py [b]),
 each warm-started from the previous one, and prints per increment: converged or not, Newton runs
 and iterations, wall rounds, failure reasons, time, contact points, penetration and the smallest
@@ -61,6 +63,9 @@ def main():
     ap.add_argument("--nu", type=float, default=None, help="default: fem_fit.nu")
     ap.add_argument("--steps", type=int, default=10, help="load increments")
     ap.add_argument("--options", default="{}", help="JSON merged into solver_options")
+    ap.add_argument("--from-fit", metavar="RUN", default=None,
+                    help="ramp to the best pressures of fit RUN (fem/RUN/best_state.npz: its regions, p/E and nu) "
+                         "instead of --level / --q")
     args = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
@@ -77,17 +82,25 @@ def main():
     wall = WallDistance(problem.wall_points, problem.wall_tris) if problem.has_wall else None
 
     sign = fit.sign_check(s, problem, fc)
-    L = min(args.level, len(problem.levels) - 1)
-    K, labels = int(problem.levels[L]), problem.regions[L]
-    s.set_regions(labels, K)
-    q = sign * args.q * (1.0 + 0.3 * np.linspace(-1.0, 1.0, K))
     nu = fc.nu if args.nu is None else args.nu
+    if args.from_fit:
+        b = np.load(fc.workdir.parent / args.from_fit / "best_state.npz")
+        labels, q = np.asarray(b["tri_labels"]), sign * np.asarray(b["q"], float)   # q: as the core sees it
+        K = len(q)
+        nu = float(b["nu"]) if args.nu is None else args.nu
+        src = "best of %s (p/E %.2f .. %.2f)" % (args.from_fit, np.abs(q).min(), np.abs(q).max())
+    else:
+        L = min(args.level, len(problem.levels) - 1)
+        K, labels = int(problem.levels[L]), problem.regions[L]
+        q = sign * args.q * (1.0 + 0.3 * np.linspace(-1.0, 1.0, K))
+        src = "mean p/E %g" % args.q
+    s.set_regions(labels, K)
     o = s.options
-    print("case %s, core %s, K=%d, mean p/E %g, nu %.2f, %d increments | wall_update %s, stiffness %g, eps %g, "
-          "settle %g mm, max rounds %d, load_steps %d, warm_substeps %s, slow_ramp %s, max_solve_s %s"
-          % (cfg.patient, fc.solver, K, args.q, nu, args.steps, o["wall_update"], o["wall_stiffness"],
+    print("case %s, core %s, K=%d, %s, nu %.2f, %d increments | wall_update %s, stiffness %g, eps %g, "
+          "settle %g mm, max rounds %d, load_steps %d, warm_substeps %s, slow_ramp %s, max_solve_s %s, support_k %g"
+          % (cfg.patient, fc.solver, K, src, nu, args.steps, o["wall_update"], o["wall_stiffness"],
              o["wall_eps"], o["wall_settle_mm"], o["wall_max_updates"], o["load_steps"], o["warm_substeps"],
-             o["slow_ramp"], o["max_solve_s"]))
+             o["slow_ramp"], o["max_solve_s"], o.get("support_k", 0.0)))
     print("%5s %4s %6s %6s %6s %6s %-34s %8s %9s %8s %7s %7s"
           % ("load", "ok", "newton", "iters", "rounds", "paths", "failures (inv/maxit/lin/nan/time/unsettled)",
              "time s", "contact", "pen mm", "max|U|", "min J"))

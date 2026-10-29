@@ -137,8 +137,22 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
          - Support share 4.9 / 11.9 %; mean p/E up ~5 / ~10 %; collapse still matched (median gap ≤ 1 point).
          - Failed solves 0 / 20 / 61. At k 0.001 only patient_1 (20, ASSD 2.9 → 4.6). At k 0.003: karl23 32 (maxit, ASSD 6.2), karl01 16, patient_1 10, karl20 3.
          - These failures are Newton maxit, not time: real, cause not yet known. Possibly the fixed reference normal of the springs at large local rotations.
+       - **No wall, points > 5 mm outside the inflated lung:** 218 / 162 / 152 over the 14 patients at k 0 / 0.001 / 0.003.
+         - Per patient: karl04 21 / 4 / 0, karl17 37 / 26 / 16, patient_10 11 / 2 / 2.
+         - Not fixed: karl23 34 / 27 / 37 (max 12–14 mm); patient_1 gets worse, 2 / 10 / 19.
+       - **Wall, ASSD k 0 / 0.001 / 0.003:**
+         - Better on several: karl04 8.3 / 5.6 / 5.0, karl02 6.6 / 6.5 / 2.7, karl17 4.8 / 3.7 / 2.5, karl24 4.2 / 2.4 / 2.3, patient_10 5.9 / 4.0 / 3.4.
+         - Worse where the fit stopped at K 4–8: karl20 7.4 / 8.5 / 11.6, karl01 3.5 / 4.3 / 6.3, karl23 and patient_1 11–15.
        - **Wall:** still 10–22 failed solves on 10 / 14 and early stops (K 4–14), but confounded by the slowdown. The diagnosis run alone took 0.3–2.3 s per increment. To redo with `JOBS=4`.
-     - [ ] Wall fits with k 0.001 (and 0.003) rerun with `JOBS=4` with the chosen k (with and without wall), comparing failed solves, time, rotation, ASSD, share.
+     - [x] Wall fits with k 0.001 rerun one at a time (`JOBS=1`, 2026-10-29). The failures are real, not the slowdown: still ~12 failed solves (11–22) on 10 of 14 patients. The reasons are `unsettled` and `maxit`; `time` is only their consequence. Only karl06 / karl08 / karl18 / karl24 converge, in < 1 min.
+       - **ASSD with wall, k 0 → 0.001:**
+         - Better: karl04 8.3 → 5.6, karl20 7.4 → 5.9, patient_1 11.4 → 7.5, patient_3 6.1 → 3.5, patient_10 5.9 → 3.9, karl24 4.2 → 2.4, karl17 4.8 → 3.4.
+         - Still far from the same fits without wall (2.3–4.6).
+         - Support share 1.8–8.4 %, penetration ≤ 0.6 mm, rotation 2–19°.
+       - **Where it fails (karl04 log):** the first solve of levels 5 and 6 fails, although its load is the best state's own load, warm-started from that state.
+         - So the outer wall rounds do not settle again from an equilibrium state: they cycle on the contact.
+         - The best K = 14 pressures have a region at the p/E bound 3 (9000 Pa) pushing into the wall. The diagnosis at uniform p/E 0.5 never reached such a load.
+         - New `wall_diagnose.py --from-fit RUN` ramps to the best pressures of a fit, to see this case. with the chosen k (with and without wall), comparing failed solves, time, rotation, ASSD, share.
   3. Anatomical clamp: hilum + pulmonary ligament (medial band from the hilum to the base); needs an automatic per-patient definition.
   - Coulomb friction rejected: the pleura is lubricated (very low physical μ); the solution would depend on the load path, which makes the fit objective noisy and the Jacobian ill-defined; the tangent would be non-smooth and non-symmetric.
 - [ ] Physical meaning of the fitted pressures (discussed 2026-10-28): p/E is an equivalent surface load lumping elastic recoil, weight and the support of the neighbours.
