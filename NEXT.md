@@ -152,7 +152,27 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
        - **Where it fails (karl04 log):** the first solve of levels 5 and 6 fails, although its load is the best state's own load, warm-started from that state.
          - So the outer wall rounds do not settle again from an equilibrium state: they cycle on the contact.
          - The best K = 14 pressures have a region at the p/E bound 3 (9000 Pa) pushing into the wall. The diagnosis at uniform p/E 0.5 never reached such a load.
-         - New `wall_diagnose.py --from-fit RUN` ramps to the best pressures of a fit, to see this case. with the chosen k (with and without wall), comparing failed solves, time, rotation, ASSD, share.
+         - New `wall_diagnose.py --from-fit RUN` ramps to the best pressures of a fit, to see this case.
+       - **`--from-fit` on karl04_wall (k 0.001, 20 increments, 2026-10-29):**
+         - The best pressures are reachable from zero: 100 %, ~90 s in total. Four increments needed 17–20 Newton runs (one `unsettled`, then smaller steps).
+         - min J falls steadily to **0.086**, with max|U| 98 mm.
+         - Cause, from the saved states (Mac): the 50 % collapses crush the surface tetrahedra.
+           - karl04 wall: min J 0.086, 122 tets with J < 0.2.
+           - Without wall: karl04 0.04–0.08, karl23 0.07, patient_1 0.06; median J ~0.5.
+           - karl06 (23 % collapse): min J 0.37, 0 tets below 0.2.
+         - The worst tets are all on the surface, mostly under the regions at p/E ≥ 2.5, which are 2–6 % of the triangles.
+         - So the wall failures come from contact on nearly degenerate elements, at local volume ratios close to airless tissue (~0.1–0.2), which Neo-Hookean does not limit.
+         - Options put to the user: `max_solve_s` 300 (numerical); stronger `reg` or q bound 2 (regularisation); finer surface mesh; a lung material that stiffens as J nears the tissue fraction (physics, torch `materials.py`).
+       - **karl04 wall tests, k 0.001, one at a time (2026-10-30):**
+         - `max_solve_s` 300 (`fit_sym_k0.001_t300`): bit-identical result to 120 s (6.07 mm, ASSD 5.63, K = 14, 22 failed), 97 vs 44 min.
+           - Every converged solve took ≤ 2.6 s and every failed one never converged: the ladder ran out at 200–230 s or hit 300 s.
+           - So the time limit is not the cause, and `max_solve_s` could drop to ~20 s with the same result (karl04 ~44 → ~10 min).
+         - q bound 2 (`fit_sym_k0.001_q2`): worse, 8.04 mm / ASSD 6.76, stuck at K = 4 (a region at the bound 2). It still fails from K = 8 (20 failed).
+           - So the high pressures are needed, and they are not what makes the solves fail.
+         - **Failure pattern (history + log):** the first solve of every level (= the best state's load) converges in 1 s. Then almost every lsq trial fails, almost all `unsettled` (level 3: 140 unsettled, 0 inverted, 0 maxit).
+           - lsq ends level 3 as "converged": TRF shrank the step after each failure down to `lsq_xtol` 1e-6. So even tiny steps from a converged anchor fail.
+           - Points to the outer wall rounds not settling when restarted from an equilibrium state with a perturbed load, rather than to the step size or the crushed elements.
+         - New `wall_diagnose.py --perturb r ...`: after the ramp, solves warm-started from the final state with p/E × (1 + r u), and prints the gap error of every wall round. To run: `--from-fit fit_sym_k0.001 --steps 20 --perturb 0 1e-4 0.01 0.05`. with the chosen k (with and without wall), comparing failed solves, time, rotation, ASSD, share.
   3. Anatomical clamp: hilum + pulmonary ligament (medial band from the hilum to the base); needs an automatic per-patient definition.
   - Coulomb friction rejected: the pleura is lubricated (very low physical μ); the solution would depend on the load path, which makes the fit objective noisy and the Jacobian ill-defined; the tangent would be non-smooth and non-symmetric.
 - [ ] Physical meaning of the fitted pressures (discussed 2026-10-28): p/E is an equivalent surface load lumping elastic recoil, weight and the support of the neighbours.

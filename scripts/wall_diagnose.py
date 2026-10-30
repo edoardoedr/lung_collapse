@@ -5,7 +5,9 @@
 
 Needs the fem_setup output of the config, and a core built on nodal.py (warp, torch): no GetFEM.
 With --from-fit RUN it ramps instead to the best pressures of that fit (fem/RUN/best_state.npz), the
-load a fit with the wall actually needs (regions up to the p/E bound).
+load a fit with the wall actually needs (regions up to the p/E bound). With --perturb r ... it then
+re-solves from the final state with the pressures perturbed by up to r (relative, per region), as
+the fit's trials do, and prints the gap error of every wall round.
 Reaches mean p/E --q in --steps increments from the reference (as compare_warp_getfem.py [b]),
 each warm-started from the previous one, and prints per increment: converged or not, Newton runs
 and iterations, wall rounds, failure reasons, time, contact points, penetration and the smallest
@@ -66,6 +68,11 @@ def main():
     ap.add_argument("--from-fit", metavar="RUN", default=None,
                     help="ramp to the best pressures of fit RUN (fem/RUN/best_state.npz: its regions, p/E and nu) "
                          "instead of --level / --q")
+    ap.add_argument("--perturb", type=float, nargs="*", default=[],
+                    help="after the ramp, solves warm-started from the final state with p/E x (1 + r u), "
+                         "u uniform in [-1, 1] per region, for each relative size r given (as the fit's trials)")
+    ap.add_argument("--trials", type=int, default=3, help="perturbed solves per size (default 3)")
+    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
@@ -132,6 +139,31 @@ def main():
                  sum(1 for r in s.trace if r["event"] == "path"), fails, dt, ncon, pen,
                  np.linalg.norm(Us, axis=1).max(), min_J(s, U)))
     s.trace = None
+
+    if args.perturb and failed_trace is None:
+        # the fit's situation: a trial near a converged state, warm-started from it with its load
+        U_base = s.get_state()
+        load = np.where(labels >= 0, q[np.maximum(labels, 0)], np.nan)
+        rng = np.random.default_rng(args.seed)
+        print("\nperturbed solves from the final state (wall rounds: gap error of each re-linearisation, mm, "
+              "first attempt; settled below %g):" % o["wall_settle_mm"])
+        print("%7s %5s %4s %8s %6s %-34s  %s" % ("size", "trial", "ok", "time s", "paths",
+                                                "failures (inv/maxit/lin/nan/time/unsettled)", "wall rounds"))
+        for r in args.perturb:
+            for t in range(args.trials):
+                qp = q * (1.0 + r * rng.uniform(-1.0, 1.0, K))
+                s.set_state(U_base, load)
+                s.trace = []
+                c0, t0 = s.stats(), time.time()
+                Us = s.solve(qp, nu)
+                dt = time.time() - t0
+                c = {key: s.stats()[key] - c0.get(key, 0) for key in s.stats()}
+                rounds = [rr["change"] for rr in first_attempt(s.trace) if rr["event"] == "wall"]
+                print("%7.3f %5d %4s %8.1f %6d %-34s  %s%s"
+                      % (r, t, "ok" if Us is not None else "NO", dt,
+                         sum(1 for rr in s.trace if rr["event"] == "path"), "/".join(str(c[f]) for f in FAILS),
+                         " ".join("%.2f" % v for v in rounds[:20]), " ..." if len(rounds) > 20 else ""))
+                s.trace = None
 
     if failed_trace is not None:
         print("\nfirst attempt of the failed increment:")
