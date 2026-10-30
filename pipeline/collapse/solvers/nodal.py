@@ -239,6 +239,7 @@ class NodalSolver(ForwardSolver):
         # 9 mm with an unchanged load), recent converged states' ones for set_state, and the one
         # the next _solve starts from instead of re-linearising
         self._lin_U, self._lin_cache, self._lin_start = None, [], None
+        self._worst = -1                                         # surface point of the last round's gap error
         self.Ucur = np.zeros(self.ndof)                          # current Newton state
         self.nu = 0.3
         self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0, jacobians=0,
@@ -413,7 +414,8 @@ class NodalSolver(ForwardSolver):
         Us = (self.Ucur if U is None else U).reshape(-1, 3)[self.surf_node]
         phi, n = self.wall(self.surf_pts + Us)
         allow = self.problem.wall_allow
-        change = wall_gap_change(Us, self.wallN[self.surf_node], self.wallG[self.surf_node], phi, allow)
+        change, self._worst = wall_gap_change(Us, self.wallN[self.surf_node], self.wallG[self.surf_node], phi,
+                                              allow, return_index=True)     # worst surface point
         self.counts["wall_updates"] += 1
         self.wallN[self.surf_node] = n
         self.wallG[self.surf_node] = np.einsum("ij,ij->i", n, Us) - phi + allow
@@ -434,7 +436,7 @@ class NodalSolver(ForwardSolver):
             prev = self._get_lin()
             change = self._update_wall()
             if self.trace is not None:
-                self.trace.append(dict(event="wall", change=change))
+                self.trace.append(dict(event="wall", change=change, worst=self._worst))
             if change < self.options["wall_settle_mm"]:
                 self._put_lin(prev)                              # the one this state is in equilibrium
                 return True                                      # with (also for the Jacobian)

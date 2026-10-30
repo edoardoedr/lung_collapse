@@ -57,6 +57,24 @@ def first_attempt(trace):
     return out
 
 
+def worst_points(problem, trace, top=6):
+    """Surface points that set the wall rounds' gap error (worst point of each round)."""
+    w = [(r["worst"], r["change"]) for r in trace if r["event"] == "wall" and r.get("worst", -1) >= 0]
+    if not w:
+        return
+    X = problem.reference
+    cl = np.asarray(problem.clamped_points)
+    idx = np.array([i for i, _ in w])
+    print("\npoints with the largest gap error per wall round (%d rounds; reference position, LPS and RAS):" % len(w))
+    print("  %6s %6s %8s %24s %24s %10s" % ("point", "rounds", "max mm", "LPS", "RAS", "to clamp"))
+    for i in sorted(set(idx.tolist()), key=lambda i: -(idx == i).sum())[:top]:
+        e = max(c for j, c in w if j == i)
+        x = X[i]
+        d = np.linalg.norm(X[cl] - x, axis=1).min() if len(cl) else np.nan
+        print("  %6d %6d %8.2f %24s %24s %8.1f mm" % (i, (idx == i).sum(), e, "(%.1f, %.1f, %.1f)" % tuple(x),
+                                                    "(%.1f, %.1f, %.1f)" % (-x[0], -x[1], x[2]), d))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", required=True)
@@ -157,6 +175,7 @@ def main():
               "first attempt; settled below %g):" % o["wall_settle_mm"])
         print("%7s %5s %4s %8s %6s %-34s  %s" % ("size", "trial", "ok", "time s", "paths",
                                                 "failures (inv/maxit/lin/nan/time/unsettled)", "wall rounds"))
+        bad = []
         for r in args.perturb:
             for t in range(args.trials):
                 qp = q * (1.0 + r * rng.uniform(-1.0, 1.0, K))
@@ -167,11 +186,14 @@ def main():
                 dt = time.time() - t0
                 c = {key: s.stats()[key] - c0.get(key, 0) for key in s.stats()}
                 rounds = [rr["change"] for rr in first_attempt(s.trace) if rr["event"] == "wall"]
+                if Us is None:
+                    bad.extend(s.trace)
                 print("%7.1e %5d %4s %8.1f %6d %-34s  %s%s"
                       % (r, t, "ok" if Us is not None else "NO", dt,
                          sum(1 for rr in s.trace if rr["event"] == "path"), "/".join(str(c[f]) for f in FAILS),
                          " ".join("%.2f" % v for v in rounds[:20]), " ..." if len(rounds) > 20 else ""))
                 s.trace = None
+        worst_points(problem, bad)
 
     if failed_trace is not None:
         print("\nfirst attempt of the failed increment:")
@@ -195,6 +217,7 @@ def main():
             elif e == "path":
                 print("  %-6s      %s, %d step(s)" % (e, "from the last converged state" if r["warm"] else
                                                      "ramp from the reference", r["steps"]))
+        worst_points(problem, failed_trace)
         paths = [r for r in failed_trace if r["event"] in ("path", "fail")]
         print("\nall attempts of the failed increment:")
         for r in paths:

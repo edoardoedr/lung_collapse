@@ -15,7 +15,7 @@ WALL_QUADRATURES = ("face", "nodal")
 WALL_NEAR_MM = 1.0       # points closer to the wall than this (gap > -1 mm) count for wall_settle_mm
 
 
-def wall_gap_change(Us, n_old, G_old, phi, allow):
+def wall_gap_change(Us, n_old, G_old, phi, allow, return_index=False):
     """Settling measure of the wall rounds [mm]: how far the previous linearisation's gap
     (u.n_old - G_old) is from the true gap (phi - allow) at the current state, over the points near
     the wall. Not the change of G itself: G = n.u - phi + allow moves with the normal times the
@@ -25,7 +25,10 @@ def wall_gap_change(Us, n_old, G_old, phi, allow):
     g_old = np.einsum("ij,ij->i", n_old, Us) - G_old
     g_new = phi - allow
     near = np.maximum(g_old, g_new) > -WALL_NEAR_MM
-    return float(np.abs(g_old - g_new)[near].max()) if near.any() else 0.0
+    err = np.where(near, np.abs(g_old - g_new), -1.0)
+    i = int(err.argmax())
+    change = float(err[i]) if near.any() else 0.0
+    return (change, i if near.any() else -1) if return_index else change
 
 
 def ramps(n0, warm, substeps, slow_ramp, adaptive=False):
