@@ -252,7 +252,7 @@ def run_level(L, model, x0, lb, ub, ctx):
     # optimiser's current iterate), not the last converged solve, which is often a rejected trial
     # far from the next one; with a wall a solve from there tends to fail (karl04: 10-26 failed
     # solves in a row, 2 min each)
-    anchor = dict(cost=np.inf, state=None, load=None, current=True)
+    anchor = dict(cost=np.inf, state=None, load=None, current=True, q=None)
 
     def evaluate(x):
         trk.check()
@@ -271,6 +271,11 @@ def run_level(L, model, x0, lb, ub, ctx):
         if Us is None:
             trk.n_fail += 1
             trk.log(L, K, np.nan, np.nan, nu, 0, dt)
+            if anchor["q"] is not None:                     # how far the failed trial was from its start
+                d = np.abs(qs - anchor["q"]) / np.maximum(np.abs(anchor["q"]), 1e-3)
+                log.info("[L%d K=%d] eval %4d failed after %.0f s: trial vs anchor p/E, relative change "
+                         "max %.2e (core region %d), rms %.2e", L, K, trk.level_evals, dt, d.max(),
+                         int(d.argmax()), np.sqrt(np.mean(d ** 2)))
             base = trk.level_best_r if trk.level_best_r is not None else ctx["r_zero"]
             last["r"] = np.r_[2.0 * base, rreg]
             return last["r"], np.inf
@@ -293,7 +298,8 @@ def run_level(L, model, x0, lb, ub, ctx):
         last["r"] = np.r_[r, rreg]
         cost = float(np.dot(last["r"], last["r"]))
         if cost < anchor["cost"]:
-            anchor.update(cost=cost, state=state["solver_state"], load=sign * q_tri, current=True)
+            anchor.update(cost=cost, state=state["solver_state"], load=sign * q_tri, current=True,
+                          q=np.array(qs, float))
         else:
             anchor["current"] = anchor["state"] is None         # the solver now holds this trial
         trk.improve(err, r, state)
