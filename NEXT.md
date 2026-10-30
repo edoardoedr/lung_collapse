@@ -172,7 +172,21 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
          - **Failure pattern (history + log):** the first solve of every level (= the best state's load) converges in 1 s. Then almost every lsq trial fails, almost all `unsettled` (level 3: 140 unsettled, 0 inverted, 0 maxit).
            - lsq ends level 3 as "converged": TRF shrank the step after each failure down to `lsq_xtol` 1e-6. So even tiny steps from a converged anchor fail.
            - Points to the outer wall rounds not settling when restarted from an equilibrium state with a perturbed load, rather than to the step size or the crushed elements.
-         - New `wall_diagnose.py --perturb r ...`: after the ramp, solves warm-started from the final state with p/E × (1 + r u), and prints the gap error of every wall round. To run: `--from-fit fit_sym_k0.001 --steps 20 --perturb 0 1e-4 0.01 0.05`. with the chosen k (with and without wall), comparing failed solves, time, rotation, ASSD, share.
+         - New `wall_diagnose.py --perturb r ...`: after the ramp, solves warm-started from the final state with p/E × (1 + r u), and prints the gap error of every wall round. To run: `--from-fit fit_sym_k0.001 --steps 20 --perturb 0 1e-4 0.01 0.05`.
+         - Results:
+           - From the ramp's final state: r = 0 / 1e-4 / 0.01 all converge in ~1 s (one round, gap error 0.13 mm). At 0.05, 2 of 3 converge at once; the third drifts (0.86 → 5.7 mm over 15 rounds), then recovers by halving.
+           - In the fit, the new failed-trial log line shows that steps of relative size 1e-6 fail too (`max_solve_s` 20).
+           - From the fit's saved state (`--fit-state`), even r = 0 fails: the gap error of the rounds drifts 0.67 → 0.81 → 1.11 → … → 9.3 mm, with the load unchanged.
+         - **Cause: a settled state is not a fixed point of the outer rounds.**
+           - The round loop stopped when the previous linearisation's gap error was < `wall_settle_mm`. But it left the *fresh* linearisation (at the final state) in place, and every warm start re-linearised again at its start state.
+           - With the new linearisation the state is not in equilibrium. Newton moves, and at these loads the rounds drift (frictionless near-mechanism plus contact forces pressing into a curved wall).
+           - So every fit trial, however small, restarted from a non-equilibrium. Whether it settled depended on luck; the ramp's final state happened to sit at 0.13 mm.
+         - **Fix (nodal.py, 2026-10-30, numerical only):**
+           - When a round settles, the solver keeps the linearisation the state is in equilibrium with. The Jacobian uses it too, so it is now consistent with the solution map.
+           - The solver remembers that linearisation for the last 256 converged states. A warm start from one of them (also via `set_state` with that state) starts from it instead of re-linearising, so an unchanged load returns the same state at once and small steps stay small.
+           - States loaded from a file (`--fit-state`, `best_state.npz`) have no linearisation and still re-linearise.
+           - GetFEM unchanged.
+           - Not yet run on the server. with the chosen k (with and without wall), comparing failed solves, time, rotation, ASSD, share.
   3. Anatomical clamp: hilum + pulmonary ligament (medial band from the hilum to the base); needs an automatic per-patient definition.
   - Coulomb friction rejected: the pleura is lubricated (very low physical μ); the solution would depend on the load path, which makes the fit objective noisy and the Jacobian ill-defined; the tangent would be non-smooth and non-symmetric.
 - [ ] Physical meaning of the fitted pressures (discussed 2026-10-28): p/E is an equivalent surface load lumping elastic recoil, weight and the support of the neighbours.

@@ -234,6 +234,11 @@ class NodalSolver(ForwardSolver):
         self.fq = np.zeros(len(faces))
         self.U, self.q_last, self.nu_last = None, None, None     # last converged state, its q and nu
         self.fq_last = None                                      # face pressures of self.U (any partition)
+        # outer wall rounds: the linearisation self.U is in equilibrium with (the fresh one at a
+        # settled state is not: restarting from it the rounds can drift, karl04 gap error 0.67 ->
+        # 9 mm with an unchanged load), recent converged states' ones for set_state, and the one
+        # the next _solve starts from instead of re-linearising
+        self._lin_U, self._lin_cache, self._lin_start = None, [], None
         self.Ucur = np.zeros(self.ndof)                          # current Newton state
         self.nu = 0.3
         self.counts = dict(newton_calls=0, newton_iters=0, wall_updates=0, failed_paths=0, jacobians=0,
@@ -418,21 +423,35 @@ class NodalSolver(ForwardSolver):
         """Newton; with a wall, alternated with the wall re-linearisation until the gap settles."""
         if self.wall is None or self.wall_in_newton:
             return self._newton()
-        self._update_wall()
+        if self._lin_start is not None:                          # warm start: the start state's own
+            self._put_lin(self._lin_start)                       # linearisation, so an unchanged load
+            self._lin_start = None                               # returns that state at once
+        else:
+            self._update_wall()
         for _ in range(self.options["wall_max_updates"]):
             if not self._newton():
                 return False
+            prev = self._get_lin()
             change = self._update_wall()
             if self.trace is not None:
                 self.trace.append(dict(event="wall", change=change))
             if change < self.options["wall_settle_mm"]:
-                return True
+                self._put_lin(prev)                              # the one this state is in equilibrium
+                return True                                      # with (also for the Jacobian)
         # not settled: the state may have slid through the linearised wall (karl04: up to 98 mm)
         return self._fail("unsettled")
 
-    def _path(self, U0, f0, f, n):
-        """n sub-steps from state (U0, face pressures f0) to face pressures f; True if all converged."""
+    def _get_lin(self):
+        return self.wallN[self.surf_node].copy(), self.wallG[self.surf_node].copy()
+
+    def _put_lin(self, lin):
+        self.wallN[self.surf_node], self.wallG[self.surf_node] = lin[0], lin[1]
+
+    def _path(self, U0, f0, f, n, lin0=None):
+        """n sub-steps from state (U0, face pressures f0) to face pressures f; True if all converged.
+        lin0: the wall linearisation U0 is in equilibrium with (first sub-step starts from it)."""
         self.Ucur = np.array(U0, dtype=float)
+        self._lin_start = lin0
         for s in range(1, n + 1):
             self._set_fq(f0 + (f - f0) * s / n)
             if self.trace is not None:
@@ -442,12 +461,17 @@ class NodalSolver(ForwardSolver):
                 return False
         return True
 
-    def _adaptive(self, U0, f0, f, n):
-        """adaptive_path from state (U0, face pressures f0) to f, first step 1/n of the path."""
+    def _adaptive(self, U0, f0, f, n, lin0=None):
+        """adaptive_path from state (U0, face pressures f0) to f, first step 1/n of the path.
+        lin0: the wall linearisation U0 is in equilibrium with (steps from U0 start from it)."""
         self.Ucur = np.array(U0, dtype=float)
+        start = self.Ucur.copy()
+        self._lin_start = lin0
 
         def set_state(U):
             self.Ucur = U
+            if lin0 is not None and np.array_equal(U, start):
+                self._lin_start = lin0
 
         def on_step(s, h):
             if self.trace is not None:
@@ -472,7 +496,10 @@ class NodalSolver(ForwardSolver):
         for warm, n in ramps(o["load_steps"], self.U is not None, sub, o["slow_ramp"], o["adaptive_steps"]):
             if self.trace is not None:
                 self.trace.append(dict(event="path", warm=warm, steps=n))
-            if path(self.U if warm else np.zeros(self.ndof), f0 if warm else np.zeros_like(f), f, n):
+            ok = path(self.U if warm else np.zeros(self.ndof), f0 if warm else np.zeros_like(f), f, n,
+                      self._lin_U if warm else None)
+            self._lin_start = None
+            if ok:
                 return self.Ucur.copy()
         return None
 
@@ -482,6 +509,10 @@ class NodalSolver(ForwardSolver):
         if U is None:
             return None
         self.U, self.q_last, self.nu_last, self.fq_last = U, q.copy(), float(nu), self.fq.copy()
+        self._lin_U = None
+        if self.wall is not None and not self.wall_in_newton:
+            self._lin_U = self._get_lin()
+            self._lin_cache = (self._lin_cache + [(U.copy(), self._lin_U)])[-256:]
         return U.reshape(-1, 3)[self.surf_node].copy()
 
     def jacobian(self, q, nu, with_nu=False):
@@ -536,6 +567,9 @@ class NodalSolver(ForwardSolver):
     def set_state(self, state, load=None):
         self.U = None if state is None else np.asarray(state, dtype=float).copy()
         self.q_last = self.nu_last = None
+        self._lin_U = None                                       # known only for a recent converged state
+        if self.U is not None:
+            self._lin_U = next((lin for Uc, lin in reversed(self._lin_cache) if np.array_equal(Uc, self.U)), None)
         self.fq_last = None
         if self.U is not None and load is not None:
             self.fq_last = np.where(self.clamped, 0.0, self.options["pressure_sign"] * np.nan_to_num(
@@ -543,6 +577,7 @@ class NodalSolver(ForwardSolver):
 
     def reset(self):
         self.U, self.q_last, self.nu_last, self.fq_last = None, None, None, None
+        self._lin_U, self._lin_cache, self._lin_start = None, [], None
 
     def export_volume(self, path, state):
         import pyvista as pv
