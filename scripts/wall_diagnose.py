@@ -71,6 +71,9 @@ def main():
     ap.add_argument("--perturb", type=float, nargs="*", default=[],
                     help="after the ramp, solves warm-started from the final state with p/E x (1 + r u), "
                          "u uniform in [-1, 1] per region, for each relative size r given (as the fit's trials)")
+    ap.add_argument("--fit-state", action="store_true",
+                    help="with --from-fit: no ramp, the perturbed solves start from the state the fit saved "
+                         "(best_state.npz solver_state), as the fit's own trials do")
     ap.add_argument("--trials", type=int, default=3, help="perturbed solves per size (default 3)")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -113,7 +116,9 @@ def main():
              "time s", "contact", "pen mm", "max|U|", "min J"))
     rows, failed_trace = [], None
     s.reset()
-    for k in range(1, args.steps + 1):
+    if args.fit_state and not args.from_fit:
+        raise SystemExit("--fit-state needs --from-fit")
+    for k in ([] if args.fit_state else range(1, args.steps + 1)):
         lam = k / args.steps
         s.trace = []
         c0, t0 = s.stats(), time.time()
@@ -142,8 +147,11 @@ def main():
 
     if args.perturb and failed_trace is None:
         # the fit's situation: a trial near a converged state, warm-started from it with its load
-        U_base = s.get_state()
         load = np.where(labels >= 0, q[np.maximum(labels, 0)], np.nan)
+        U_base = np.asarray(b["solver_state"], float) if args.fit_state else s.get_state()
+        if args.fit_state:
+            print("start: the fit's saved state (max|U| %.1f mm, min J %.3f)"
+                  % (np.linalg.norm(U_base.reshape(-1, 3), axis=1).max(), min_J(s, U_base)))
         rng = np.random.default_rng(args.seed)
         print("\nperturbed solves from the final state (wall rounds: gap error of each re-linearisation, mm, "
               "first attempt; settled below %g):" % o["wall_settle_mm"])
@@ -159,7 +167,7 @@ def main():
                 dt = time.time() - t0
                 c = {key: s.stats()[key] - c0.get(key, 0) for key in s.stats()}
                 rounds = [rr["change"] for rr in first_attempt(s.trace) if rr["event"] == "wall"]
-                print("%7.3f %5d %4s %8.1f %6d %-34s  %s%s"
+                print("%7.1e %5d %4s %8.1f %6d %-34s  %s%s"
                       % (r, t, "ok" if Us is not None else "NO", dt,
                          sum(1 for rr in s.trace if rr["event"] == "path"), "/".join(str(c[f]) for f in FAILS),
                          " ".join("%.2f" % v for v in rounds[:20]), " ..." if len(rounds) > 20 else ""))
