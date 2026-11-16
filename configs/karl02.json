@@ -111,7 +111,7 @@
     "order": 1,
     "load_steps": 8,
     "newton_tol": 1e-07,
-    "newton_maxit": 30,
+    "newton_maxit": 50,
     "warm_substeps": true,
     "wall_max_updates": 15,
     "wall_settle_mm": 0.5,

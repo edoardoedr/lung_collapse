@@ -6,7 +6,8 @@ Guidance for Claude Code in this repository. What lives where:
 |---|---|
 | [README.md](README.md) | user quick-start: the model, steps, running, viewing |
 | [configs/README.md](configs/README.md) | every config key with meaning and range |
-| [METHODOLOGY.md](METHODOLOGY.md) | the physical model, equations, forward and inverse run, solver |
+| [METHODOLOGY.md](METHODOLOGY.md) | paper-style methods: geometry, physical model, equations, solver, forward and inverse problem, assumptions and what is not modelled, approaches abandoned |
+| `*.svg` (root), `scripts/figures/` | the three figures (workflow, physical model, forward / inverse) and the Python that draws them: `cd scripts/figures && python3 workflow.py && python3 model.py && python3 fit.py`, then copy the `.svg` to the root |
 | [analysis/results.md](analysis/results.md) | results, evidence behind the design choices, problems found |
 | [NEXT.md](NEXT.md) | plan and to-do list |
 | [REWRITE_PLAN.md](REWRITE_PLAN.md) | the plan of the rewrite on branch `refactoring_to_v2` (2026-11-16) and its status |
@@ -66,7 +67,7 @@ Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output. Man
 ## Configs
 
 - **One file per patient**, `configs/<p>.json` (16), made by `scripts/migrate_config.py` from the old `<p>_wall_torch.json`: gravity supine → supine, E 1.7 kPa, q0 fitted (start 0.5), ν 0.40, wall = the inflated surface with 5 mm margin, smooth-field wall (`solver.wall_update: "potential"`, grid 1.5 mm, σ 3 mm), torch core, steps `check_inputs` → `fit`. They keep the **old `output_dir`** (`<p>_noreg_hilum_wall`), so the geometry, hilum and `fem/setup/problem.npz` already on the server are reused: run `--steps fit` (after `add_wall_field.py` where the setup has no wall field yet: only karl01, karl04, karl20, karl23 have it).
-- **Patients:** left lung karl01, karl10, karl17, karl18, karl20, karl23, karl24, patient_1, patient_2, patient_3, patient_10; right lung karl02, karl04, karl06, karl08, karl19. karl = HD dataset, patient_* = CZ dataset. karl19 stops on its input (NEXT.md). patient_2 was excluded from the wall runs (user, 2026-10-05): ask before running it.
+- **Patients:** left lung karl01, karl10, karl17, karl18, karl20, karl23, karl24, patient_1, patient_2, patient_3, patient_10; right lung karl02, karl04, karl06, karl08, karl19. karl = HD dataset, patient_* = CZ dataset. karl19 stops on its input (NEXT.md). patient_2 is included again (user, 2026-11-17; it had been left out of the old wall runs).
 - The old runs are reproduced with overrides: regions fit = `physics.gravity=null 'physics.perturbation={"regions":[1,4,8,14,25,40]}' fit.best_by=mean` (the existing `problem.npz` has those regions); free ap slope = `physics.gravity=null 'physics.perturbation={"gradient":["ap"]}'`; outer wall = `solver.wall_update=outer`.
 - Unknown keys raise an error; `_`-prefixed keys are comments; `data_dir` / `output_dir` relative to the JSON, inputs to `data_dir`, outputs to `output_dir`.
 
@@ -128,14 +129,14 @@ Not obvious from the code; the reasons and numbers are in analysis/results.md.
 - Torch / Warp vs GetFEM (karl04, before the rewrite): no wall rel ~1e-15, `outer` wall ≤ 1e-11; Jacobian vs FD ~1e-8. Not rerun after the rewrite (the cores' assembly did not change; `nodal.py` did: load vector with the body magnitude, options removed).
 - Smooth-field wall on the server (torch, 4 patients, 2026-11-16): Jacobian vs FD 9e-7; E 1.7 and 1 kPa fits from rest with no failed solve (analysis/results.md 7b).
 - On the Mac (numpy core, karl04): wall tangent vs FD 1e-7, Jacobian with contact 3e-8, body-force column 1e-7; the rewritten `fit` reproduces the server result of the previous code (ASSD 9.00 mm, p0 1283 vs 1282 Pa, 11 solves); a fit of (q0, E) on a synthetic target recovers them; forward to a volume ratio in 3 solves.
-- **Not yet run on the server after the rewrite:** the new `fit` / `collapse` steps with torch, `geometry` / `fem_setup` (their output must equal the existing files), every script in `scripts/`. Not validated against GetFEM: the smooth-field wall and the body force (GetFEM has neither), `mooney_rivlin`.
+- After the rewrite, on the server (torch, karl04, 2026-11-16): the new `fit` reproduces the previous code evaluation by evaluation (ASSD 9.001 mm, 11 solves); `check_jacobian.py` core 2.6e-8, load model 2.2e-9; `add_wall_field.py` on 12 setups.
+- **Not yet run on the server after the rewrite:** the `collapse` step, a body-force run, the regions / gradient perturbations, `geometry` / `fem_setup` (their output must equal the existing files), `fit_cohort.py`, `summarize_runs.py`, `compare_warp_getfem.py`, `wall_diagnose.py`, `collapse_sequence.py`. Not validated against GetFEM: the smooth-field wall and the body force (GetFEM has neither), `mooney_rivlin`.
 
 ## Open technical points
 
 Open tasks and decisions are in NEXT.md, open problems in analysis/results.md section 9. Code-level ones only:
 
-- Newton reaches `newton_maxit` 30 inside some solves with the `potential` wall (recovered by smaller steps): try 50.
-- Smoothing σ 3 mm lets points leave the true wall by ~2.5 mm beyond the margin: compare σ 2 / 3 / 5.
+- Decided (user, 2026-11-17): `newton_maxit` 50 in the configs (30 was reached inside some solves with the `potential` wall), wall smoothing σ 3 mm kept (points leave the true wall by ~2.5 mm beyond the margin).
 - `level_min_improve` 0.005 may stop levels early (0.001–0.002 suggested).
 - `scripts/summarize_fits.py` reads only the old layout; `summarize_runs.py` is the simple table for the new one (no pressure-pattern analysis, no plots).
 - Possible speed-ups: torch assembly (`torch.compile`, closed-form Neo-Hookean tangent).

@@ -78,9 +78,9 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
 
 **Now**
 
-- [ ] Run the rewritten code on the server (REWRITE_PLAN.md, "Status"): `add_wall_field.py` on the 12 setups without the field, the `fit` step on karl04 against the previous result (ASSD 9.00 mm, p0 1282 Pa, 11 solves), `check_jacobian.py`, a forward run with `volume_ratio`, then `geometry` + `fem_setup` in a fresh `output_dir` against the existing files.
+- [ ] Run the rewritten code on the server (REWRITE_PLAN.md, "Status"). Done 2026-11-16: wall field in the setups, `fit` on karl04 identical to the previous code, `check_jacobian.py` OK. To do: a forward run with `volume_ratio`, the lateral position, the regions fit, `geometry` + `fem_setup` in a fresh `output_dir` against the existing files.
 - [ ] Redo the common-E scan on all patients with the smooth-field wall (`scripts/fit_cohort.py`, E 700 / 1000 / 1300 / 1700 / 3000): the preference for 1.7 kPa was partly an artefact of the outer wall. Then decide the common E, or fit E per patient (`physics.E_Pa` with `fit`).
-- [ ] Decide with the user: `newton_maxit` 50 (30 is reached inside some solves), wall smoothing 2 / 3 / 5 mm (3 lets points leave the true wall ~2.5 mm beyond the margin), `fit.best_by` default (`rms` now), patient_2 with the wall.
+- [x] Decided (user, 2026-11-17): `newton_maxit` 50, wall smoothing 3 mm kept, patient_2 included with the wall. Still open: `fit.best_by` default (`rms` now).
 
 - [ ] karl19: the pipeline stops in `registration` (method none) at `surface_mesh.clean_surface` of the inflated `lung_right.vtk`, "triangulation left non-triangle cells". Check the input file (cell types) on the server.
 - [ ] Check the rotation in the collapse sequences where the collapse is large: karl23 73°, patient_2 44°, patient_1 34°, karl04 32° (median 11°).

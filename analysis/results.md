@@ -266,6 +266,8 @@ karl04 on the Mac with the numpy test core and a 4 mm wall grid (`tests/test_ste
 | si slope on top of gravity, ν fitted in [0.2, 0.45] | ASSD 8.53 mm, 18 solves, 0 failed; ν goes to its lower bound 0.2 (q0 0.27): ν trades with q0 for the volume, to look at on the server |
 | Body force (supine → left lateral) | resultant = weight along the collapse position; Jacobian column vs FD 1e-7 |
 
+**Server, torch core (2026-11-16, karl04, `runs/v2_check`):** the rewritten `fit` reproduces the previous code evaluation by evaluation (same mean / rms at every solve: 9.716 / 14.856, 8.620 / 13.011, ... 8.844 / 12.774): ASSD 9.001 mm, p0 1283 Pa, 11 solves, 0 failed, 39 s. `check_jacobian.py` with the smooth-field wall: core columns (4 bands + ν) vs finite differences max 2.6e-8, load-model column (q0) 2.2e-9. Wall field added to 8 more setups (16–28 s each, no target point beyond its margin). Still to run: forward, lateral position, regions, `geometry` / `fem_setup` from scratch (REWRITE_PLAN.md, "Status", steps 4–7).
+
 ## 8. Evidence behind the design choices
 
 - **No alignment, `plane` loss** (2026-10-05, registered setup): with `hilum_rigid` alignment karl04 was 14.6 mm from the real collapsed surface, against 3.1–3.3 mm unaligned with the plane loss; the alignment rotated the target ~16° and put up to 22 target points beyond the wall (20.6 mm).

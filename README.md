@@ -19,7 +19,11 @@ pressure on the surface / E  =  q0  +  γ (h − h_mean),      γ = density · g
 
 Each physical parameter is either **given** (a number) or **fitted** to the collapsed lung (`{"fit": true, "init": ..., "bounds": [...]}`).
 
+![Physical model](collapse_model.svg)
+
 ## Steps
+
+![Pipeline overview](collapsed_lung_project_workflow.svg)
 
 | Step | Code | What it does | Main output |
 |---|---|---|---|
@@ -134,7 +138,7 @@ load('<output_dir>/runs/fit/sequence', '<output_dir>/runs/E1000/sequence')
 | File | Content |
 |---|---|
 | [configs/README.md](configs/README.md) | every config key |
-| [METHODOLOGY.md](METHODOLOGY.md) | the model, the equations, the fit |
+| [METHODOLOGY.md](METHODOLOGY.md) | the model, the equations, the solver, the fit, what is not modelled (with the [forward / inverse figure](inverse_fem_pressure_fit_detail.svg)) |
 | [analysis/results.md](analysis/results.md) | results and the evidence behind the choices |
 | [NEXT.md](NEXT.md) | plan and to-do |
 | [CLAUDE.md](CLAUDE.md) | development notes: code architecture, validation, tests |

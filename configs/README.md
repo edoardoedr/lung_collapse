@@ -153,7 +153,7 @@ Examples:
 | `min_load_step` | 1/64 | Smallest adaptive step, as a fraction of the path: below it the solve fails. | 1/256–1/16 |
 | `warm_substeps` | `false` | Without `adaptive_steps`: retry a failed warm start in sub-steps before ramping from rest. | `true` / `false` |
 | `newton_tol` | 1e-7 | Newton tolerance. | 1e-9–1e-6 |
-| `newton_maxit` | 30 | Newton iterations per load step. With the `potential` wall some steps reach 30 and are redone smaller: 50 may be faster. | 20–60 |
+| `newton_maxit` | 30 | Newton iterations per load step. The configs use 50: with the `potential` wall some steps reached 30 and were redone smaller. | 20–60 |
 | `max_solve_s` | `null` | Seconds after which one forward solve gives up (a failed solve is a rejected trial of the fit). The configs use 120. | `null`, 60–600 |
 | `wall_max_updates` | 6 | `outer` only: maximum rounds per solve; not settled by then = failed. The configs use 15. | 4–15 |
 | `wall_settle_mm` | 0.05 | `outer` only: the rounds stop when the linearised gap is within this of the true one near the wall. The configs use 0.5. | 0.01–1 mm |

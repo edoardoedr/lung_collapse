@@ -74,7 +74,7 @@ def migrate(old, E=1700.0, wall_update="potential", run_name=None):
         "solver": {"_comment": "core: torch | warp | getfem (validation); the rest are the core's options "
                                "(pipeline/collapse/solvers/nodal.py)",
                    "core": ff.get("solver", "torch"), "wall_update": wall_update,
-                   **{k: v for k, v in so.items() if k not in DROPPED_SOLVER}},
+                   **{k: v for k, v in so.items() if k not in DROPPED_SOLVER}, "newton_maxit": 50},
         "collapse": {"sequence_frames": 0},
         "fit": {"symmetric_weight": ff.get("loss_symmetric_weight", 1.0), "best_by": "rms",
                 **{k: ff[k] for k in FIT_KEYS if k in ff}},
