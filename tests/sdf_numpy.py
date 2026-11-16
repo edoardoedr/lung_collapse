@@ -49,3 +49,33 @@ def grid(points, tris, spacing, margin, smoothing):
     if smoothing > 0:
         d = ndimage.gaussian_filter(d, smoothing / spacing, mode="nearest")
     return d.astype(np.float32), lo
+
+
+def closest_points(points, tris, X, chunk=1500):
+    """Closest point of each X on the triangle surface: (triangle index, closest point)."""
+    P = np.asarray(points, float)
+    A, B, C = (P[tris[:, k]][None] for k in range(3))
+    n = np.cross(B - A, C - A)
+    nn = (n * n).sum(-1)
+    cells, cps = [], []
+    for s in range(0, len(X), chunk):
+        Q = np.asarray(X, float)[s:s + chunk, None, :]
+        cand, d2 = [], []
+        for U, V in ((A, B), (B, C), (C, A)):
+            uv = V - U
+            t = np.clip(((Q - U) * uv).sum(-1) / (uv * uv).sum(-1), 0.0, 1.0)
+            c = U + t[..., None] * uv
+            cand.append(c)
+            d2.append(((Q - c) ** 2).sum(-1))
+        dist = ((Q - A) * n).sum(-1)
+        proj = Q - (dist / nn)[..., None] * n
+        inside = ((np.cross(B - A, proj - A) * n).sum(-1) >= 0) & ((np.cross(C - B, proj - B) * n).sum(-1) >= 0) \
+            & ((np.cross(A - C, proj - C) * n).sum(-1) >= 0)
+        cand.append(proj)
+        d2.append(np.where(inside, dist ** 2 / nn, np.inf))
+        d2 = np.stack(d2, 0)                                    # (4, n, m)
+        k = d2.reshape(4, len(Q), -1).min(0).argmin(1)          # best triangle per point
+        which = d2[:, np.arange(len(Q)), k].argmin(0)
+        cells.append(k)
+        cps.append(np.stack(cand, 0)[which, np.arange(len(Q)), k])
+    return np.concatenate(cells), np.concatenate(cps)

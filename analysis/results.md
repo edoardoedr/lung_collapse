@@ -225,6 +225,47 @@ Not a server result: karl04 (`_wall` setup, 1355 nodes, 6777 tets) on the Mac wi
 - Newton takes ~20–25 iterations per run, close to `newton_maxit` 30: watch `fail_maxit` on the server.
 - To confirm on the server with the torch core and the 1.5 mm grid (commands in REWRITE_PLAN.md Phase 1 / NEXT.md).
 
+**Server, torch core, grid 1.5 mm, σ 3 mm (2026-11-16, `fit_gE1700_pot`: E 1.7 kPa, only q0 fitted, cold start, no continuation, `JOBS=4`).** The E 1 kPa runs (`fit_gE1000_pot`) are not analysed yet (logs not received).
+
+| Patient | ASSD outer (5b) | ASSD potential | Solves (failed) | Fit time | Newton `maxit` inside solves | Beyond the margin: exact wall | smoothed field |
+|---|---|---|---|---|---|---|---|
+| karl01 | 5.76 | 5.58 | 4 (0) | 20 s | 0 | 54 points, max 2.35 mm | 44, max 0.09 mm |
+| karl04 | 9.16 | 9.00 | 11 (0) | 50 s | 4 | 54 points, max 2.47 mm | 50, max 0.15 mm |
+| karl20 | 13.87 | 13.18 | 6 (0) | 34 s | 1 | 15 points, max 2.42 mm | 11, max 0.10 mm |
+| karl23 | 17.21 | 16.03 | 8 (0) | 38 s | 2 | 11 points, max 1.90 mm | 6, max 0.09 mm |
+
+**E 1 kPa with the potential wall (`fit_gE1000_pot`, same settings): reached on all 4, no failed solve, no continuation.** With the outer rounds karl01 and karl04 could not reach it (section 5b).
+
+| Patient | free slope (4b) | E 1.0 outer | E 1.0 potential | E 1.7 potential | Solves (failed) at E 1.0 | Time | p0 at E 1.0 |
+|---|---|---|---|---|---|---|---|
+| karl01 | 5.76 | not reached | 5.67 | **5.58** | 6 (0) | 0.3 min | 442 Pa |
+| karl04 | 8.62 | not reached | **8.45** | 9.00 | 10 (0) | 0.6 min | 723 Pa |
+| karl20 | 9.80 | 11.40 | **10.86** | 13.18 | 11 (0) | 0.9 min | 1031 Pa |
+| karl23 | 14.24 | 15.52 | **14.81** | 16.03 | 13 (0) | 0.9 min | 900 Pa |
+
+- The continuation (`gravity_prefit`, `gravity_bisect`) is not needed with the potential wall: every fit starts from rest with the whole gravity term.
+- Newton reaches `newton_maxit` (30) inside some solves (1–8 runs per fit, more at E 1 kPa; recovered by the sub-steps, no failed solve): try 50.
+- E 1 kPa is now better than 1.7 on 3 of these 4 (karl04 even better than its free-slope fit with the outer wall), so the common-E scan of section 5b has to be redone on all patients with the potential wall before fixing E: the earlier preference for 1.7 was partly an artefact of the wall solver.
+
+- Jacobian with the wall vs finite differences (karl04, K = 4, q 0.35–0.65): max rel 8.7e-7, all 5 columns.
+- Wall field (4 patients): built in 23–37 s; smoothed distance of the reference points median 0.3, range −1.5 .. +3.3 mm (the smoothed wall lies up to ~3 mm inside the true one at pointed parts, covered by the per-point margin); |∇φ̃| at the reference points 0.37–1.00 (below 1 at sharp corners, where the gap is under-measured); no target point beyond its margin.
+- Cost of the smoothing: against the exact wall the points go up to ~2.4 mm beyond the 5 mm margin (0.3 mm with the outer rounds on karl04).
+
+### 7c. Rewritten code (branch `refactoring_to_v2`), local checks only (2026-11-16)
+
+karl04 on the Mac with the numpy test core and a 4 mm wall grid (`tests/test_steps.py`); the server runs of the new steps are still to do (REWRITE_PLAN.md, "Status").
+
+| Check | Result |
+|---|---|
+| New `fit`, default physics (gravity supine, E 1.7 kPa, q0 fitted) | ASSD 9.00 mm, p0 1283 Pa, collapse 45 %, 11 solves, 0 failed: the same as the previous code on the server with torch (9.00 mm, 1282 Pa, 11 solves) |
+| Fit of (q0, E) on a synthetic target (forward run at q0 0.35, E 1200 Pa; start 0.5, 2500) | q0 0.3500, E 1200 Pa, ASSD 0.0004 mm, 16 solves |
+| Forward to a volume ratio 0.80 | q0 0.310 (p0 527 Pa) in 3 solves |
+| Regions [1, 4] on top of gravity (diagnostic) | ASSD 9.00 → 7.63 mm with 4 regions, 21 solves, 0 failed |
+| Regions [1, 4] alone, no gravity (the old regions fit) | ASSD 7.87 mm, 17 solves, 0 failed |
+| Free ap slope, no gravity (the old gradient fit) | ASSD 8.57 mm, 19 solves, 0 failed (old code on the server, outer wall: 8.62) |
+| si slope on top of gravity, ν fitted in [0.2, 0.45] | ASSD 8.53 mm, 18 solves, 0 failed; ν goes to its lower bound 0.2 (q0 0.27): ν trades with q0 for the volume, to look at on the server |
+| Body force (supine → left lateral) | resultant = weight along the collapse position; Jacobian column vs FD 1e-7 |
+
 ## 8. Evidence behind the design choices
 
 - **No alignment, `plane` loss** (2026-10-05, registered setup): with `hilum_rigid` alignment karl04 was 14.6 mm from the real collapsed surface, against 3.1–3.3 mm unaligned with the plane loss; the alignment rotated the target ~16° and put up to 22 target points beyond the wall (20.6 mm).

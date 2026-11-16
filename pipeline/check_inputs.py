@@ -7,7 +7,7 @@
      shrinks); points outside by more than outside_tol_mm are flagged
   4. narrow notches (folds, open fissures) in both lungs: the mask is closed with a ball of
      notch_radius_mm and points lying deeper than notch_depth_mm inside the closed volume are
-     flagged. They break the registration (flipped triangles) and Gmsh (self-intersections)
+     flagged. They break Gmsh (self-intersections)
   5. volume ratio inflated / collapsed
 
 Findings are logged as warnings; the step fails only if fail_on_warning. Outputs in
@@ -25,7 +25,7 @@ from scipy.ndimage import distance_transform_edt, map_coordinates
 
 from .collapse.geometry import WallDistance, face_adjacency, faces_of, signed_volume
 from .data_io import detect_space, read_surface, write_surface
-from .registration import geometry, grid_around, rasterize
+from .raster import geometry, grid_around, rasterize
 
 log = logging.getLogger(__name__)
 
@@ -99,6 +99,9 @@ def flag_notches(name, surf, cfg, warnings):
 
 
 def run(cfg):
+    if cfg.collapsed is None:
+        raise RuntimeError("check_inputs compares the collapsed lung with the inflated one: without "
+                           "inputs.collapsed leave this step out")
     out = cfg.workdir
     out.mkdir(parents=True, exist_ok=True)
     warnings = []
@@ -145,7 +148,7 @@ def run(cfg):
         vi = abs(signed_volume(np.asarray(inflated.points), wt)) / 1000.0
         log.info("volume inflated / collapsed: %.1f / %.1f mL = x%.2f", vi, vc, vi / vc)
         if vi / vc > cfg.max_volume_ratio:
-            warnings.append("inflated / collapsed volume x%.1f > %.1f: the registration will be hard"
+            warnings.append("inflated / collapsed volume x%.1f > %.1f: a very large collapse"
                             % (vi / vc, cfg.max_volume_ratio))
 
         c = collapsed.copy()

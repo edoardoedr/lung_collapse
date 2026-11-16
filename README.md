@@ -1,104 +1,113 @@
-# Collapsed lung pipeline
+# Lung collapse pipeline
 
-From CT segmentations of a lung before and after collapse (VATS surgery) to the regional pleural pressures that reproduce the collapse in a finite-element model. The fitted simulations are the training data for a GNN surrogate.
+A finite-element model of the collapse of a lung in VATS surgery, built from CT segmentations. Given the inflated lung, it predicts the collapsed one from a few physical parameters (stiffness, density, patient position, how much the lung collapses); given also the collapsed lung, it fits those parameters to it. The simulations are the training data for a GNN surrogate.
 
-![Pipeline overview](collapsed_lung_project_workflow.svg)
+**The model** (details and equations in [METHODOLOGY.md](METHODOLOGY.md)): the inflated lung is an elastic body, fixed at the hilum. In the pneumothorax it loses the pleural pressure that kept it open, and with it the pressure gradient that carried its weight, so it shrinks and settles on the chest wall:
 
-| Step | Name in the config | Code | Main output |
+```
+pressure on the surface / E  =  q0  +  γ (h − h_mean),      γ = density · g / E
+```
+
+| Parameter | Config key | Meaning |
+|---|---|---|
+| E | `physics.E_Pa` | effective stiffness of the lung tissue [Pa] |
+| ν | `physics.material.nu` | compressibility (the lung loses air) |
+| density | `physics.tissue_density` | mean density of the inflated lung [kg/m³] |
+| position | `physics.gravity` | patient position in the inflated CT and during the collapse (sets "up": h) |
+| q0 | `physics.collapse` | uniform pressure / E: it sets how much the lung collapses. Given as `q0`, as `p0_Pa`, or as the `volume_ratio` to reach |
+| wall | `fem_setup.wall`, `physics.wall` | the chest cavity the lung may not leave |
+
+Each physical parameter is either **given** (a number) or **fitted** to the collapsed lung (`{"fit": true, "init": ..., "bounds": [...]}`).
+
+## Steps
+
+| Step | Code | What it does | Main output |
 |---|---|---|---|
-| 1 · Segmentation | – (manual, 3D Slicer) | – | `Input_Data/<patient>/*.vtk` |
-| 1b · Input check | `check_inputs` | [check_inputs.py](pipeline/check_inputs.py) | `checks/` |
-| 2 · Surface meshing | `surface_mesh` | [surface_mesh.py](pipeline/surface_mesh.py) | `lung_collapsed_mesh.vtp` |
-| 3 · Hilum anchor | `hilum` | [hilum.py](pipeline/hilum.py) | `hilum_anchor.mrk.json` |
-| 4 · Registration | `registration` | [registration.py](pipeline/registration.py) | `lung_inflated_mesh.vtp` |
-| 5a · FEM setup | `fem_setup` | [collapse/setup.py](pipeline/collapse/setup.py) | `fem/setup/problem.npz` |
-| 5b · FEM fit | `fem_fit` | [collapse/fit.py](pipeline/collapse/fit.py) | `lung_fem_fit*.vtp` |
-| 6 · Collapse sequence | separate script | [collapse_sequence.py](scripts/collapse_sequence.py) | `sequence*/` |
-| 7 · Visualisation | 3D Slicer | [slicer_compare_sequences.py](scripts/slicer_compare_sequences.py) | – |
-
-- **1b · Input check:** finds segmentation problems (open surfaces, collapsed lung outside the inflated one, narrow notches) before registration and Gmsh fail on them. Colour `checks/*.vtp` in Slicer to see where to fix.
-- **2 · Surface meshing:** the collapsed lung is cleaned and remeshed uniformly to ~480 nodes. This node set is used by every later step.
-- **3 · Hilum anchor:** where the airway, artery and vein trees enter the lung; their ring centres and the hilum are written as spheres for Slicer.
-- **4 · Registration:** elastix (rigid + [affine] + B-spline) on the two lung masks, with the hilum as landmarks, moves the collapsed mesh onto the inflated lung. Node *i* of `lung_inflated_mesh.vtp` corresponds to node *i* of `lung_collapsed_mesh.vtp`. With `registration.method: "none"` the step only remeshes the inflated lung (same settings as step 2) into `lung_inflated_mesh.vtp`, without correspondence; the FEM fit then matches each point to the closest point of the collapsed surface.
-- **5 · Inverse FEM:** see below.
-- **6–7 · Collapse sequence and visualisation:** see [Viewing the results](#viewing-the-results).
-
-## Repository layout
-
-```
-main.py              runs the steps listed in a config
-configs/             one JSON per case (+ README.md: every key explained), elastix parameter files
-pipeline/            steps 1b–4; collapse/ = step 5 (setup, fit, FEM cores in solvers/)
-scripts/             collapse sequence, 3D Slicer loader, run_all.sh, validation tools
-Input_Data/          patient data (not in git)
-results/             outputs (not in git)
-CLAUDE.md            development notes: details of every step, validation, open problems
-```
+| segmentation | manual, 3D Slicer | surfaces of the lungs, airways and vessels | `<data_dir>/*.vtk` |
+| `check_inputs` | [check_inputs.py](pipeline/check_inputs.py) | finds segmentation problems before they break the meshing (needs the collapsed lung) | `checks/` |
+| `geometry` | [surface_mesh.py](pipeline/surface_mesh.py) | clean, uniform surface meshes (~480 nodes) of the inflated lung and, if given, of the collapsed one | `lung_inflated_mesh.vtp`, `lung_collapsed_mesh.vtp` |
+| `hilum` | [hilum.py](pipeline/hilum.py) | where airways, arteries and veins enter the lung | `hilum_anchor.mrk.json` |
+| `fem_setup` | [collapse/setup.py](pipeline/collapse/setup.py) | clamp at the hilum, chest wall, tetrahedral mesh | `fem/setup/problem.npz` |
+| `collapse` | [collapse/forward.py](pipeline/collapse/forward.py) | **forward:** all parameters given → collapsed lung | `runs/<run_name>/` |
+| `fit` | [collapse/fit.py](pipeline/collapse/fit.py) | **inverse:** fits the parameters marked `fit` to the collapsed lung | `runs/<run_name>/` |
 
 ## Setup
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt       # Python >= 3.10
 ```
 
-Requires Python ≥ 3.10.
+The `collapse` and `fit` steps also need the library of the FEM core chosen in `solver.core`:
 
-`fem_fit` also needs the library of the FEM core selected in the config, which is not on PyPI and is imported only by that step:
-
-- **GetFEM:** `conda install -c conda-forge getfem` (linux-64, osx-64, win-64), or on Ubuntu `apt install python3-getfem` with the system Python (built against `numpy<2`).
-- **Warp:** `pip install warp-lang`, optionally `"nvmath-python[cu12]"` (cuDSS on GPU) and `pypardiso`.
-- **PyTorch:** `pip install torch` (≥ 2.0, for `torch.func`), same optional linear solvers as Warp.
+- **PyTorch** (default): `pip install torch` (≥ 2.0), optionally `"nvmath-python[cu12]"` (cuDSS on GPU) and `pypardiso`.
+- **Warp:** `pip install warp-lang`, same optional linear solvers.
+- **GetFEM** (validation only): `conda install -c conda-forge getfem`.
 
 ## Running
 
 ```bash
-python main.py --config configs/patient_10_torch.json                         # the whole pipeline
-python main.py --config configs/patient_10_torch.json --steps hilum           # only some steps
-python main.py --config configs/patient_10_torch.json --steps fem_setup fem_fit   # redo only the FEM
+python main.py --config configs/karl04.json                       # the steps listed in the config
+python main.py --config configs/karl04.json --steps fit           # only some steps
 ```
 
-One-off changes without editing the config: `--set section.key=value ...` (value parsed as JSON), e.g. `python main.py --config configs/karl04_torch.json --steps fem_fit --set fem_fit.loss=point fem_fit.run_name=fit_torch_point fem_fit.output=lung_fem_fit_torch_point.vtp` (a second fit next to the first); a misspelt key is rejected as in the file, and the overrides are written to the log.
+One-off changes without editing the config: `--set key=value ...` (value parsed as JSON; a misspelt key is an error). Give each variant its own `run_name`, so it goes to its own folder:
 
-All cases at once (in parallel, logs in `logs_run_all/`): `bash scripts/run_all.sh [case ...] [-- main.py arguments]`, e.g. `bash scripts/run_all.sh karl04 karl04_wall -- --steps fem_setup fem_fit`.
+```bash
+# fit the collapse pressure with another stiffness
+python main.py --config configs/karl04.json --steps fit --set physics.E_Pa=1000 run_name=E1000
 
-Steps always run in pipeline order. If a step fails, the error is written to `logs/pipeline.log` and the run stops.
+# fit the stiffness too
+python main.py --config configs/karl04.json --steps fit \
+    --set 'physics.E_Pa={"fit": true, "init": 1700, "bounds": [300, 10000]}' run_name=fitE
+
+# predict: collapse to half the volume, patient on the left side, with a sequence for Slicer
+python main.py --config configs/karl04.json --steps collapse \
+    --set 'physics.collapse={"volume_ratio": 0.5}' 'physics.gravity={"reference": "supine", "collapse": "left_lateral"}' \
+          collapse.sequence_frames=30 run_name=half_lateral
+```
+
+Several patients: `JOBS=4 bash scripts/run_all.sh [case ...] [-- main.py arguments]` (logs in `logs_run_all/`). One parameter shared by all patients, scanned over values: `python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000`. A table of all runs: `python scripts/summarize_runs.py <results folder>`.
+
+Steps always run in pipeline order. If a step fails, the error is in `logs/pipeline.log` and the run stops.
 
 ## Input data
 
-One folder per patient in `Input_Data/`, surface models exported from 3D Slicer (`.vtk`): the collapsed lung (`lung_left_collapsed.vtk`), the inflated lung (`lung_left.vtk`) and the airway, artery and vein trees (`lung_airways.vtk`, `lung_arteries.vtk`, `lung_veins.vtk`). `left` / `right` as for the patient.
+One folder per patient (`data_dir`), surface models exported from 3D Slicer (`.vtk`), all from the same scan: the inflated lung (`lung_left.vtk`), the airway, artery and vein trees, and optionally the collapsed lung (`lung_left_collapsed.vtk`). Without the collapsed lung set `inputs.collapsed` to `null`, `hilum.lung` to `"inflated"` and use the `collapse` step only.
 
 ## Configuration
 
-One JSON per case in [`configs/`](configs/); **every key, with its purpose and range, is explained in [`configs/README.md`](configs/README.md).**
+One JSON per patient in [`configs/`](configs/); **every key is explained in [`configs/README.md`](configs/README.md).** In short:
 
-Each patient has two configs, both running the whole pipeline with the PyTorch core:
+| Section | Content |
+|---|---|
+| `inputs` | the surface files |
+| `check_inputs`, `geometry`, `hilum`, `fem_setup` | how the model is built (mesh sizes, clamp, wall) |
+| `physics` | the model's parameters, given or fitted |
+| `solver` | FEM core (`torch`, `warp`, `getfem`) and its numerical options |
+| `collapse`, `fit` | options of the forward and of the inverse run |
+| `run_name` | folder of this run under `runs/` |
 
-| Config | Cavity wall | Results |
-|---|---|---|
-| `<p>_torch.json` | no | `results/<p>/` |
-| `<p>_wall_torch.json` | yes | `results/<p>_wall/` |
+## Results
 
-Patients: karl01, karl10, karl17 (left lung), karl02, karl04, karl06, karl08 (right), patient_2, patient_10 (left). To use GetFEM or Warp instead, set `fem_fit.solver` (and drop the options that core does not know, e.g. `device`, `material`).
-
-
-## Inverse FEM
-
-![Inverse FEM detail](inverse_fem_pressure_fit_detail.svg)
-
-- **`fem_setup`** (seconds): fixes the lung at the hilum and the vessel entries plus the points that barely move, aligns the collapsed lung on them, splits the surface into pressure regions (1 → 40) and builds the tetrahedral mesh.
-- **`fem_fit`** (1–2 min with Warp / PyTorch on GPU): finds the pressure of each region so that the inflated lung, pushed by them, matches the collapsed one; coarse to fine, with an exact Jacobian. GetFEM, Warp and PyTorch solve the same model and are interchangeable (`fem_fit.solver`).
-- **Pressure model** (`fem_fit.pressure_model`): `regions` (default) = one pressure per region, up to 40, the most accurate but specific to the patient; `gradient` = a mean pressure plus a linear slope from back to front and from base to apex (`gradient_axes`), a few numbers that can be carried over to another lung. Example: `python main.py --config configs/karl04_torch.json --steps fem_fit --set fem_fit.pressure_model=gradient fem_fit.run_name=fit_gradient fem_fit.output=lung_fem_fit_gradient.vtp`. With `fem_fit.gravity_E_Pa` (Pa) the front-to-back slope is not fitted but set by the lung's weight for that stiffness (`tissue_density`, default 250 kg/m³).
-- **Result:** `lung_fem_fit*.vtp` (the fitted surface, with `Error_mm`, `Pressure_Pa`, `Clamped`) and `fem/<run_name>/result_summary.json` (errors on the free points, pressures, rotation, timing).
-
-## Viewing the results
-
-**One case, animated:**
-
-```bash
-python scripts/collapse_sequence.py --config configs/<p>_torch.json      # where the FEM core is installed
+```
+<output_dir>/
+├── lung_inflated_mesh.vtp, lung_collapsed_mesh.vtp    surface meshes (geometry)
+├── hilum_anchor.mrk.json                              hilum + airway / artery / vein entries
+├── checks/  hilum/
+├── fem/setup/           problem.npz, reference.vtp, target.vtp, volume.vtu, setup_summary.json
+├── runs/<run_name>/     surface.vtp     collapsed lung: Displacement_mm, Pressure_Pa, Error_mm, WallPenetration_mm
+│                        summary.json    physical parameters (E, p0, q0, ν, gravity), collapse %, errors, solves
+│                        state.npz       the solution, to re-solve it (sequence)
+│                        sequence/       collapse sequence for Slicer / ParaView
+│                        history.csv, best_state.npz, best_params.json    (fit)
+└── logs/                pipeline.log, config used
 ```
 
-writes `results/<p>/sequence_fit_torch/` (frames, target, hilum, and `load_collapse_in_slicer.py`). Copy the folder to the machine with Slicer (`tar -czf seq.tar.gz results/<p>/sequence_fit_torch`) and open it:
+All surfaces are in LPS, with the space stored in the file.
+
+## Viewing
+
+**Animated:** `python scripts/collapse_sequence.py --config configs/<p>.json [--set run_name=...]` (or `collapse.sequence_frames` in a forward run) writes `runs/<run_name>/sequence/`. Copy the folder to the machine with Slicer and open it:
 
 ```bash
 /Applications/Slicer.app/Contents/MacOS/Slicer --python-script <folder>/load_collapse_in_slicer.py
@@ -111,31 +120,21 @@ p = '<folder>/load_collapse_in_slicer.py'
 exec(open(p).read(), {'__file__': p})
 ```
 
-**Several fits side by side** (e.g. with and without the wall), in Slicer's Python console:
+**Several runs side by side,** in Slicer's Python console:
 
 ```python
 exec(open('<repo>/scripts/slicer_compare_sequences.py').read())
-R = '<repo>/results/'
-load(R + 'karl04_wall/sequence_fit_torch', R + 'karl04/sequence_fit_torch')
+load('<output_dir>/runs/fit/sequence', '<output_dir>/runs/E1000/sequence')
 ```
 
-The sequences are coloured in order (orange, blue, green, yellow) and play on one slider; the grey wireframe is the target (collapsed lung) of the first one. Each `load(...)` adds a new slider; File → Close Scene to start again.
+**Static:** drag `runs/<run_name>/surface.vtp` and `fem/setup/target.vtp` into Slicer and colour the surface by `Error_mm`.
 
-**Static:** drag `lung_fem_fit_torch.vtp` and `fem/setup/target_aligned.vtp` into Slicer and colour the fit by `Error_mm`.
+## More
 
-## Outputs
-
-```
-results/<p>/
-├── lung_collapsed_mesh.vtp     collapsed lung, remeshed (step 2)
-├── hilum_anchor.mrk.json       hilum + airway / artery / vein entries (step 3)
-├── lung_inflated_mesh.vtp      inflated lung, same nodes (step 4)
-├── lung_fem_fit*.vtp           fitted surface (step 5)
-├── sequence*/                  collapse sequence for Slicer / ParaView (step 6)
-├── checks/  hilum/  registration/
-├── fem/setup/                  problem.npz, reference.vtp, target_aligned.vtp, volume.vtu
-├── fem/<run_name>/             result_summary.json, history.csv, best_state.npz
-└── logs/                       pipeline.log, config used
-```
-
-All surfaces are in LPS, with the space stored in the file. Details of each step, validation results and open problems: [CLAUDE.md](CLAUDE.md).
+| File | Content |
+|---|---|
+| [configs/README.md](configs/README.md) | every config key |
+| [METHODOLOGY.md](METHODOLOGY.md) | the model, the equations, the fit |
+| [analysis/results.md](analysis/results.md) | results and the evidence behind the choices |
+| [NEXT.md](NEXT.md) | plan and to-do |
+| [CLAUDE.md](CLAUDE.md) | development notes: code architecture, validation, tests |

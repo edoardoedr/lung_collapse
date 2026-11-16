@@ -271,7 +271,9 @@ class GetFEMSolver(ForwardSolver):
                 return self.md.variable("u").copy()
         return None
 
-    def solve(self, q, nu):
+    def solve(self, q, nu, body=0.0):
+        if body:
+            raise NotImplementedError("the getfem solver has no body force (different reference / collapse positions)")
         q = np.asarray(q, float)
         U = self._full(q, float(nu))
         if U is None:
@@ -281,7 +283,9 @@ class GetFEMSolver(ForwardSolver):
             return U[self.surf_dof]
         return np.asarray(gf.compute_interpolate_on(self.mfu, U, self.surf_pts.T)).reshape(3, -1).T
 
-    def jacobian(self, q, nu, with_nu=False):
+    def jacobian(self, q, nu, with_nu=False, with_body=False):
+        if with_body:
+            return None
         """Sensitivities at the converged state: K_t dU/dp = d(rhs)/dp on the free dofs, with
         one factorisation of the tangent matrix; no nonlinear solve. The rhs is linear in each
         q_k, so its derivative is the pressure term assembled with q_k = 1 (sign calibrated once
@@ -337,7 +341,7 @@ class GetFEMSolver(ForwardSolver):
     def get_state(self):
         return None if self.U is None else self.U.copy()
 
-    def set_state(self, state, load=None):
+    def set_state(self, state, load=None, body=0.0):
         """load is not used: the next solve jumps from state to its load (then ramps from zero)."""
         self.U = None if state is None else np.asarray(state).copy()
         self.q_last = self.nu_last = None

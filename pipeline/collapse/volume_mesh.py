@@ -67,7 +67,7 @@ def tet_mesh(P, tris, workdir, mesh_size, timeout_s):
     raw = workdir / "volume_raw.npz"
     if r.returncode != 0 or not raw.is_file():
         msg = (r.stderr or r.stdout)[-2000:]
-        hint = ("\nthe surface intersects itself (flipped triangles from the registration?): "
+        hint = ("\nthe surface intersects itself (a fold in the segmentation?): "
                 "check the reference surface" if "PLC Error" in msg else "")
         raise RuntimeError("Gmsh failed:\n%s%s" % (msg, hint))
     with np.load(raw) as d:

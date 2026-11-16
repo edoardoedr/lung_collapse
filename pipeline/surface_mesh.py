@@ -1,4 +1,4 @@
-"""Step 2 - surface meshing.
+"""geometry step - surface meshing.
 
 Slicer segmentation surface (dense, staircase artefacts) -> smooth, watertight,
 near-uniform triangle mesh with ~target_nodes nodes, via ACVD clustering (pyacvd).
@@ -111,8 +111,15 @@ def remesh(surf, cfg):
 
 
 def run(cfg):
-    """Remesh cfg.input and write it to cfg.output. Returns the output path."""
-    mesh = remesh(read_surface(cfg.input, space=cfg.output_space, input_space=cfg.input_space), cfg)
-    write_surface(mesh, cfg.output, cfg.output_space)
-    log.info("wrote %s (%s)", cfg.output, cfg.output_space)
-    return cfg.output
+    """geometry step: remesh the inflated lung (the model's surface) and, if there is one, the
+    collapsed lung (the target), with the same settings. Returns the output paths."""
+    done = []
+    for name, src in (("inflated", cfg.inflated), ("collapsed", cfg.collapsed)):
+        if src is None:
+            continue
+        log.info("%s lung: %s", name, src.name)
+        mesh = remesh(read_surface(src, space="LPS", input_space=cfg.input_space), cfg)
+        write_surface(mesh, cfg.outputs[name], "LPS")
+        log.info("wrote %s (LPS)", cfg.outputs[name])
+        done.append(cfg.outputs[name])
+    return done

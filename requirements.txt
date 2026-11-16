@@ -2,7 +2,7 @@ numpy
 pyvista
 pyacvd
 vtk
-itk-elastix
+itk
 scipy
 scikit-learn    # fem_setup: pressure regions (Ward)
 gmsh            # fem_setup: tetrahedral mesh

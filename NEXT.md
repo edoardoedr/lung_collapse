@@ -4,16 +4,10 @@ Plan agreed on 2026-10-15: from the patient fits to collapsing any inflated lung
 
 ## Where we are (2026-11-16)
 
-- **Regions fit without wall: done and reliable** on 15 of 16 patients (median ASSD 2.9 mm, no failed solve, < 1 min).
-- **Gradient fit (symmetric loss, no wall): done** on 15 patients, median ASSD 8.3 (ap) / 7.8 mm (ap + si), the 3 broken cases repaired, collapse within ~2.5 points. ap slope > 0 in 13 / 15, but E = ρ̄gL/θ_ap spreads ×17 (0.7–12.8 kPa).
-- **Common E (2026-11-16):** E 1.7 kPa for all patients costs < 0.5 mm on 8 / 12 vs the free slope, almost no failed solves; outliers karl10 / karl18 / karl20 / karl23.
-- **Gradient `ap` + wall (2026-11-16): done** on 14 patients: median ASSD 7.1 mm (8.2 without wall), failed solves 14 % (regions + wall 25–29 %), 0 failures on 6; E = ρ̄gL/θ_ap 0.5–2.9 kPa (×6, median 1.7).
-- **Wall:** still failing where collapse and slope are large (karl20, karl23 ~1/3 of the solves); every regions wall fit predates the 2026-10-30 fix. `support_k` helps on some patients, hurts on others.
-- **Nothing yet towards the GNN** (steps 3–4 below).
-
-Numbers in analysis/results.md, sections 2, 4, 5 and 6.
-
-**Next (user, 2026-11-16):** wall as a smooth potential, then a rewrite on a new branch (`refactoring_to_v2`) around the physical load model, one config per patient with every physical parameter given or fitted: [REWRITE_PLAN.md](REWRITE_PLAN.md).
+- **The code is now the physical model** (branch `refactoring_to_v2`, [REWRITE_PLAN.md](REWRITE_PLAN.md)): one config per patient, every physical parameter (E, ν, density, patient position, uniform pressure / collapse %) given or fitted; forward run (`collapse`) and inverse run (`fit`); wall as a smooth field inside Newton; body force for a collapse position different from the CT's. Tested on the Mac with a numpy core; **the new steps still have to run on the server** (first item of the to-do).
+- **Smooth-field wall (server, 4 patients):** fits from rest at E 1.7 and 1 kPa with no failed solve, < 1 min, ASSD equal or better than with the outer rounds; E 1 kPa, not reachable before, is now better than 1.7 on 3 of 4 (analysis/results.md 7b).
+- **Before the rewrite** (old code, on `main`): regions fit without wall reliable on 15 of 16 patients (median ASSD 2.9 mm); gradient fits ~7–8 mm; common E 1.7 kPa within 0.5 mm of the free slope on 8 / 12 with the outer wall (analysis/results.md sections 2, 4, 5).
+- **Nothing yet towards the GNN** (steps 3–4 below), but the forward mode it needs now exists.
 
 ## The pipeline
 
@@ -84,6 +78,10 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
 
 **Now**
 
+- [ ] Run the rewritten code on the server (REWRITE_PLAN.md, "Status"): `add_wall_field.py` on the 12 setups without the field, the `fit` step on karl04 against the previous result (ASSD 9.00 mm, p0 1282 Pa, 11 solves), `check_jacobian.py`, a forward run with `volume_ratio`, then `geometry` + `fem_setup` in a fresh `output_dir` against the existing files.
+- [ ] Redo the common-E scan on all patients with the smooth-field wall (`scripts/fit_cohort.py`, E 700 / 1000 / 1300 / 1700 / 3000): the preference for 1.7 kPa was partly an artefact of the outer wall. Then decide the common E, or fit E per patient (`physics.E_Pa` with `fit`).
+- [ ] Decide with the user: `newton_maxit` 50 (30 is reached inside some solves), wall smoothing 2 / 3 / 5 mm (3 lets points leave the true wall ~2.5 mm beyond the margin), `fit.best_by` default (`rms` now), patient_2 with the wall.
+
 - [ ] karl19: the pipeline stops in `registration` (method none) at `surface_mesh.clean_surface` of the inflated `lung_right.vtk`, "triangulation left non-triangle cells". Check the input file (cell types) on the server.
 - [ ] Check the rotation in the collapse sequences where the collapse is large: karl23 73°, patient_2 44°, patient_1 34°, karl04 32° (median 11°).
 
@@ -95,14 +93,14 @@ Uniform pleural pressure + loss of the pleural gradient that carried the lung's 
 - [x] Gradient `ap` with the wall (k = 0) (2026-11-16, analysis/results.md 4b): shape 8.2 → 7.1 mm, failures halved (14 %) but not gone (karl20 / karl23 ~1/3), slope ×2–3 larger than without wall, E 0.5–2.9 kPa (×6 instead of ×17).
 - [x] Common E with the wall (scan 1 / 1.7 / 3 kPa, 2026-11-16, analysis/results.md 5b): E 1.7 kPa within 0.5 mm of the free slope on 8 / 12, outliers karl10 / karl18 (no gradient) and karl20 / karl23 (E ~0.5); almost no failed solves; E 1 kPa mostly not reachable (wall). To redo: E 1 kPa for karl06, karl17, karl24 (interrupted, invalid).
 - [ ] Leave-one-out check of the transferable model: q0 from the collapse % (rule from the other patients) + slope from E 1.7 kPa, one forward solve per patient, vs the fitted ones.
-- [ ] Wall as a smooth potential (`wall_update: "potential"`, `fem_setup.wall_grid_mm`; METHODOLOGY.md section 6): implemented and tested on the Mac (2026-11-16, branch `refactoring_to_v2`). To do on the server: Jacobian check, outer vs potential on karl04, E scan on karl01 / karl04 / karl20 / karl23, smoothing 2 / 3 / 5 mm; then choose the default (REWRITE_PLAN.md Phase 1).
+- [x] Wall as a smooth potential (`solver.wall_update: "potential"`; METHODOLOGY.md section 3): done 2026-11-16, checked on the server on 4 patients (analysis/results.md 7b). Open: smoothing 2 / 3 / 5 mm.
 - [ ] Later: deformable wall (section 8 (b)): stiffness per part of the cavity (ribs high, diaphragm / mediastinum low, from position and normal on the inflated surface).
-- [ ] With gravity, check whether `support_k` is still needed (probably not).
-- [ ] Physical parametrisation in `fit.py`: q = q0 + γ (h − h̄) in mm along e_g, γ = ρ̄g / E ≥ 0, report E and p0; option of one E common to all patients (one shared parameter, q0 per patient or from the collapse %).
+- [x] `support_k` removed with the rewrite (gravity + wall instead).
+- [x] Physical parametrisation (`pipeline/collapse/load.py`): q = q0 + γ (h − h̄), E and p0 reported, E fittable; a common E by `scripts/fit_cohort.py`.
 - No inflated CT images (user, 2026-11-13): only the segmented surfaces, so no HU, no per-element tissue fraction and no measured density. ρ̄ is assumed (~250 kg/m³).
 - [ ] Barrier material (J ≥ φ_t) in `materials.py` (torch only) with a **uniform** φ_t, or φ_t(h) linear in height with an assumed gradient. Bound from the data: φ_t ≤ V_collapsed / V_inflated of every patient (patient_2: 0.14). Physics change: test on a few patients against Neo-Hookean.
 - [ ] Check the patient position of the collapsed CT (supine vs lateral decubitus): it sets e_g. The data say supine (anterior > posterior in 15 / 15).
-- [ ] Later: predict the collapse in lateral decubitus (the VATS position) by changing only e_g.
+- [ ] Predict the collapse in lateral decubitus (the VATS position): implemented (`physics.gravity: {"reference": "supine", "collapse": "left_lateral"}`, body force), tested only on the Mac; run it on a few patients and look at the sequences.
 
 **Wall (decide)**
 
@@ -115,8 +113,8 @@ Uniform pleural pressure + loss of the pleural gradient that carried the lung's 
 
 **Towards the GNN**
 
-- [ ] Target-free setup: surface mesh, hilum + clamp and volume mesh from the inflated CT only (no registration, alignment or still points).
-- [ ] Forward-only mode: fixed pressure model (gradient parameters, exact collapse % by a search on the mean p/E, arbitrary fields) → one solve → surface + sequence.
+- [x] Target-free setup: `geometry`, `hilum` (`lung: "inflated"`) and `fem_setup` work from the inflated lung only. To check on the patients: the hilum from the inflated lung against the one from the collapsed lung.
+- [x] Forward-only mode (`collapse` step): physics given, or the volume ratio to reach (search on q0) → surface + sequence; works without the collapsed lung (`inputs.collapsed: null`).
 - [ ] Leave-one-out prediction on the real patients: mean p/E from the collapse %, slopes from the others, compared with the real collapsed lung and with the patient's own fits.
 - [ ] Dataset generator: N pressure fields per inflated lung, saved as nodes / tets / pressures / displacements in a format PyTorch / PyG reads.
 - [ ] Collect more inflated lungs (contralateral, public datasets) and, above all, more real inflated + collapsed pairs.

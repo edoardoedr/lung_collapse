@@ -1,6 +1,6 @@
 """Load several collapse sequences side by side in 3D Slicer, on one shared time slider.
 
-Each sequence folder is one written by scripts/collapse_sequence.py (frame_*.vtp, target_aligned.vtp),
+Each sequence folder is one written by scripts/collapse_sequence.py (frame_*.vtp, target.vtp),
 e.g. results/karl04/sequence_fit_torch and results/karl04/sequence_fit_torch_plane. In Slicer's
 Python console:
 
@@ -58,7 +58,9 @@ def load(*folders):
         proxy.GetDisplayNode().SetColor(*COLORS[j % len(COLORS)])
         proxy.GetDisplayNode().SetScalarVisibility(False)
         print("  %-40s %s, %d frames" % (name, CNAMES[j % len(CNAMES)], seq.GetNumberOfDataNodes()))
-    target = os.path.join(first, "target_aligned.vtp")
+    target = os.path.join(first, "target.vtp")
+    if not os.path.isfile(target):                               # sequences written before the rewrite
+        target = os.path.join(first, "target_aligned.vtp")
     if os.path.isfile(target):
         tgt = slicer.util.loadModel(target)
         tgt.SetName("target")

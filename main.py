@@ -1,11 +1,11 @@
-"""Collapsed-lung pipeline entry point.
+"""Lung-collapse pipeline entry point.
 
-    python main.py --config configs/patient1.json
-    python main.py --config configs/patient1.json --steps surface_mesh
-    python main.py --config configs/patient1_torch.json --set fem_fit.loss=plane fem_fit.run_name=fit_torch_plane
+    python main.py --config configs/karl04.json
+    python main.py --config configs/karl04.json --steps fem_setup fit
+    python main.py --config configs/karl04.json --steps collapse --set physics.collapse='{"volume_ratio": 0.5}' run_name=half
 
-Runs the steps listed in the config (or in --steps), always in pipeline order.
-Step 1 (segmentation) is done by hand in 3D Slicer and is not here.
+Runs the steps listed in the config (or in --steps), always in pipeline order. The segmentation
+is done by hand in 3D Slicer and is not here.
 """
 
 import argparse
@@ -14,18 +14,18 @@ import shutil
 import sys
 import time
 
-from pipeline import check_inputs, hilum, registration, surface_mesh
-from pipeline.collapse import fit, setup
+from pipeline import check_inputs, hilum, surface_mesh
+from pipeline.collapse import fit, forward, setup
 from pipeline.config import load_config
 
-# step name -> run(step_config), in pipeline order
+# step name -> (run, what it gets from the config), in pipeline order
 STEPS = {
-    "check_inputs": check_inputs.run,      # step 1b, sanity check of the input surfaces
-    "surface_mesh": surface_mesh.run,      # step 2
-    "hilum": hilum.run,                    # step 3, before registration: provides its landmarks
-    "registration": registration.run,      # step 4
-    "fem_setup": setup.run,                # step 5a, independent of the FEM core
-    "fem_fit": fit.run,                    # step 5b, FEM core chosen in the config
+    "check_inputs": (check_inputs.run, lambda c: c.check_inputs),   # sanity check of the input surfaces
+    "geometry": (surface_mesh.run, lambda c: c.geometry),           # surface meshes: inflated (+ collapsed)
+    "hilum": (hilum.run, lambda c: c.hilum),                        # hilum anchor from airways / vessels
+    "fem_setup": (setup.run, lambda c: c.fem_setup),                # clamp, wall, volume mesh -> problem.npz
+    "collapse": (forward.run, lambda c: c),                         # forward: physics given -> collapsed lung
+    "fit": (fit.run, lambda c: c),                                  # inverse: fit the marked parameters
 }
 
 log = logging.getLogger("pipeline")
@@ -46,7 +46,7 @@ def main():
     ap.add_argument("--config", required=True, help="patient JSON config")
     ap.add_argument("--steps", nargs="+", choices=list(STEPS), help="override the config's step list")
     ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[],
-                    help="override config keys for this run, e.g. fem_fit.loss=plane fem_fit.run_name=fit_plane")
+                    help="override config keys for this run, e.g. physics.E_Pa=1000 run_name=gE1000")
     args = ap.parse_args()
 
     cfg = load_config(args.config, args.set)
@@ -61,16 +61,13 @@ def main():
     shutil.copy(cfg.source, log_dir / ("config_used_%s.json" % cfg.source.stem))
     log.info("patient %s, config %s%s", cfg.patient, cfg.source, ", overrides: " + " ".join(args.set) if args.set else "")
 
-    for name, run in STEPS.items():
+    for name, (run, section) in STEPS.items():
         if name not in requested:
             continue
-        step_cfg = getattr(cfg, name)
-        if step_cfg is None:
-            sys.exit("step '%s' requested but the config has no '%s' section" % (name, name))
         log.info("=== %s ===", name)
         t0 = time.time()
         try:
-            run(step_cfg)
+            run(section(cfg))
         except Exception:
             log.exception("=== %s FAILED ===", name)
             sys.exit(1)

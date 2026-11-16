@@ -1,19 +1,19 @@
 """Why does a solve with the wall fail? Newton trace of a Warp / torch core along a load ramp.
 
-    python scripts/wall_diagnose.py --config configs/karl04_wall_torch.json
-    python scripts/wall_diagnose.py --config configs/karl04_wall_torch.json --q 0.5 --options '{"wall_update": "newton"}'
+    python scripts/wall_diagnose.py --config configs/karl04.json
+    python scripts/wall_diagnose.py --config configs/karl04.json --q 0.5 --set solver.wall_update=outer physics.E_Pa=1000
+    python scripts/wall_diagnose.py --config configs/karl04.json --from-fit fit --perturb 0.05 0.2
 
 Needs the fem_setup output of the config, and a core built on nodal.py (warp, torch): no GetFEM.
-With --from-fit RUN it ramps instead to the best pressures of that fit (fem/RUN/best_state.npz), the
-load a fit with the wall actually needs (regions up to the p/E bound). With --perturb r ... it then
-re-solves from the final state with the pressures perturbed by up to r (relative, per region), as
-the fit's trials do, and prints the gap error of every wall round.
-Reaches mean p/E --q in --steps increments from the reference (as compare_warp_getfem.py [b]),
-each warm-started from the previous one, and prints per increment: converged or not, Newton runs
-and iterations, wall rounds, failure reasons, time, contact points, penetration and the smallest
-element volume ratio J. For the first failed increment it prints the Newton iterations of its
-first attempt (residual, line-search step, points in contact, deepest gap). The full trace is
-written to output_dir/fem/<run_name>/wall_diagnose.csv.
+The load is the config's physical one (uniform p/E --q plus its gravity term), or, with
+--from-fit RUN, the load of that run (runs/RUN/state.npz). It is reached in --steps increments
+from the reference, each warm-started from the previous one; per increment: converged or not,
+Newton runs and iterations, wall rounds (wall_update outer), failure reasons, time, contact
+points, penetration and the smallest element volume ratio J. For the first failed increment it
+prints the Newton iterations of its first attempt (residual, line-search step, points in contact,
+deepest gap). With --perturb r ... it then re-solves from the final state with the pressures
+perturbed by up to r (relative, per core region), as the fit's trials do. The full trace is
+written to output_dir/runs/<run_name>/wall_diagnose.csv.
 """
 
 import argparse
@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pipeline.collapse import fit                                    # noqa: E402
 from pipeline.collapse.geometry import WallDistance                  # noqa: E402
+from pipeline.collapse.load import LoadModel                         # noqa: E402
 from pipeline.collapse.problem import CollapseProblem                # noqa: E402
 from pipeline.collapse.solvers import get_solver                     # noqa: E402
 from pipeline.collapse.solvers.nodal import NodalSolver              # noqa: E402
@@ -78,57 +79,65 @@ def worst_points(problem, trace, top=6):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", required=True)
-    ap.add_argument("--level", type=int, default=1, help="index of the fem_setup level (default 1 = second)")
-    ap.add_argument("--q", type=float, default=0.2, help="mean p/E to reach")
-    ap.add_argument("--nu", type=float, default=None, help="default: fem_fit.nu")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main.py")
+    ap.add_argument("--q", type=float, default=0.2, help="uniform p/E (q0) to reach, with the config's gravity term")
+    ap.add_argument("--nu", type=float, default=None, help="default: physics.material.nu")
     ap.add_argument("--steps", type=int, default=10, help="load increments")
-    ap.add_argument("--options", default="{}", help="JSON merged into solver_options")
+    ap.add_argument("--options", default="{}", help="JSON merged into the core's options")
     ap.add_argument("--from-fit", metavar="RUN", default=None,
-                    help="ramp to the best pressures of fit RUN (fem/RUN/best_state.npz: its regions, p/E and nu) "
-                         "instead of --level / --q")
+                    help="ramp to the load of run RUN (runs/RUN/state.npz: its pressures, body force and nu) "
+                         "instead of --q")
     ap.add_argument("--perturb", type=float, nargs="*", default=[],
                     help="after the ramp, solves warm-started from the final state with p/E x (1 + r u), "
                          "u uniform in [-1, 1] per region, for each relative size r given (as the fit's trials)")
     ap.add_argument("--fit-state", action="store_true",
                     help="with --from-fit: no ramp, the perturbed solves start from the state the fit saved "
-                         "(best_state.npz solver_state), as the fit's own trials do")
+                         "(state.npz solver_state), as the fit's own trials do")
     ap.add_argument("--trials", type=int, default=3, help="perturbed solves per size (default 3)")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                         datefmt="%H:%M:%S")
-    cfg = load_config(args.config)
-    fc = cfg.fem_fit
-    problem = CollapseProblem.load(fc.setup / "problem.npz")
-    opts = dict(fc.solver_options, **json.loads(args.options))
-    s = get_solver(fc.solver)(problem, opts)
+    cfg = load_config(args.config, args.set)
+    ph = cfg.physics
+    problem = CollapseProblem.load(cfg.setup_dir / "problem.npz")
+    opts = dict(cfg.solver_options(), **json.loads(args.options))
+    s = get_solver(cfg.solver.core)(problem, opts)
     if not isinstance(s, NodalSolver):
-        raise SystemExit("solver '%s' has no Newton trace: use a warp or torch config" % fc.solver)
+        raise SystemExit("solver '%s' has no Newton trace: use a warp or torch config" % cfg.solver.core)
     if not problem.has_wall:
         print("note: this fem_setup has no wall")
     wall = WallDistance(problem.wall_points, problem.wall_tris) if problem.has_wall else None
 
-    sign = fit.sign_check(s, problem, fc)
-    nu = fc.nu if args.nu is None else args.nu
+    sign = fit.sign_check(s, problem, cfg.fit.sign_check_q, ph.nu.value)
+    nu = ph.nu.value if args.nu is None else args.nu
+    model = LoadModel(ph, problem, fit.hilum_position(cfg))
     if args.from_fit:
-        b = np.load(fc.workdir.parent / args.from_fit / "best_state.npz")
+        b = np.load(cfg.run_dir.parent / args.from_fit / "state.npz")
         labels, q = np.asarray(b["tri_labels"]), sign * np.asarray(b["q"], float)   # q: as the core sees it
-        K = len(q)
+        body, body_dir = float(b["body"]), np.asarray(b["body_direction"], float)
         nu = float(b["nu"]) if args.nu is None else args.nu
-        src = "best of %s (p/E %.2f .. %.2f)" % (args.from_fit, np.abs(q).min(), np.abs(q).max())
+        src = "run %s (p/E %.2f .. %.2f)" % (args.from_fit, np.abs(q).min(), np.abs(q).max())
     else:
-        L = min(args.level, len(problem.levels) - 1)
-        K, labels = int(problem.levels[L]), problem.regions[L]
-        q = sign * args.q * (1.0 + 0.3 * np.linspace(-1.0, 1.0, K))
-        src = "mean p/E %g" % args.q
+        level = model._level(True, nu_free=False)               # q0 + the config's gravity term
+        x = np.array([args.q])
+        labels, q, body, body_dir = level.labels, sign * level.q_solver(x), level.body(x), model.body_direction
+        src = "q0 %g, %s" % (args.q, fit.describe_load(model, ph))
+    K = len(q)
     s.set_regions(labels, K)
+    if body:
+        s.set_body(body_dir)
+
+    def solve(qq, bb):
+        return s.solve(qq, nu, bb) if body else s.solve(qq, nu)
+
     o = s.options
-    print("case %s, core %s, K=%d, %s, nu %.2f, %d increments | wall_update %s, stiffness %g, eps %g, "
-          "settle %g mm, max rounds %d, load_steps %d, warm_substeps %s, slow_ramp %s, max_solve_s %s, support_k %g"
-          % (cfg.patient, fc.solver, K, src, nu, args.steps, o["wall_update"], o["wall_stiffness"],
+    print("case %s, core %s, %d core regions, %s, nu %.2f, %d increments | wall_update %s, stiffness %g, eps %g, "
+          "settle %g mm, max rounds %d, load_steps %d, warm_substeps %s, max_solve_s %s"
+          % (cfg.patient, cfg.solver.core, K, src, nu, args.steps, o["wall_update"], o["wall_stiffness"],
              o["wall_eps"], o["wall_settle_mm"], o["wall_max_updates"], o["load_steps"], o["warm_substeps"],
-             o["slow_ramp"], o["max_solve_s"], o.get("support_k", 0.0)))
+             o["max_solve_s"]))
     print("%5s %4s %6s %6s %6s %6s %-34s %8s %9s %8s %7s %7s"
           % ("load", "ok", "newton", "iters", "rounds", "paths", "failures (inv/maxit/lin/nan/time/unsettled)",
              "time s", "contact", "pen mm", "max|U|", "min J"))
@@ -140,7 +149,7 @@ def main():
         lam = k / args.steps
         s.trace = []
         c0, t0 = s.stats(), time.time()
-        Us = s.solve(q * lam, nu)
+        Us = solve(q * lam, body * lam)
         dt = time.time() - t0
         c = {key: s.stats()[key] - c0.get(key, 0) for key in s.stats()}
         for r in s.trace:
@@ -179,10 +188,10 @@ def main():
         for r in args.perturb:
             for t in range(args.trials):
                 qp = q * (1.0 + r * rng.uniform(-1.0, 1.0, K))
-                s.set_state(U_base, load)
+                s.set_state(U_base, load, body)
                 s.trace = []
                 c0, t0 = s.stats(), time.time()
-                Us = s.solve(qp, nu)
+                Us = solve(qp, body)
                 dt = time.time() - t0
                 c = {key: s.stats()[key] - c0.get(key, 0) for key in s.stats()}
                 rounds = [rr["change"] for rr in first_attempt(s.trace) if rr["event"] == "wall"]
@@ -224,7 +233,7 @@ def main():
             print("  " + ("%s, %d step(s)" % ("warm" if r["warm"] else "from zero", r["steps"]) if r["event"] == "path"
                           else "   -> failed: %s" % r["reason"]))
 
-    out = fc.workdir / "wall_diagnose.csv"
+    out = cfg.run_dir / "wall_diagnose.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     keys = sorted({k for r in rows for k in r})
     with open(out, "w", newline="") as f:

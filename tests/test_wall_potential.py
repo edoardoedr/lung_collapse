@@ -14,7 +14,7 @@ from pipeline.collapse.problem import CollapseProblem
 SETUP = stubs.ROOT / "results/karl04_noreg_hilum_wall/fem/setup/problem.npz"
 CACHE = stubs.ROOT / "tests/.cache/karl04_wall_grid.npz"
 SPACING, MARGIN, SMOOTH, TOL = 4.0, 16.0, 3.0, 5.0
-OPTS = dict(wall_update="potential", adaptive_steps=True, warm_substeps=True, slow_ramp=False, newton_tol=1e-9)
+OPTS = dict(wall_update="potential", adaptive_steps=True, warm_substeps=True, newton_tol=1e-9)
 _cache = {}
 
 
@@ -66,7 +66,7 @@ def test_tangent_vs_fd():
     n[p.surface_nodes] = p.reference - p.reference.mean(0)
     U = (7.0 * n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9) + rng.normal(0, 0.2, n.shape)).ravel()
     U[np.setdiff1d(np.arange(s.ndof), s.free)] = 0.0
-    s.fq[:] = 0.0
+    s.fq = np.zeros(len(s.faces))
     s.nu = 0.4
     R, A = s._assemble_at(U, True)
     R0, A0 = s._assemble(U, True, wall=False)
@@ -123,6 +123,36 @@ def test_solve_and_jacobian():
     assert err < 1e-5, err
     return ("%d points in contact, max gap %.3f mm, %d Newton runs / %d iterations, 0 wall rounds; "
             "Jacobian vs FD rel %.1e" % ((g > 0).sum(), g.max(), c["newton_calls"], c["newton_iters"], err))
+
+
+def test_body_force():
+    """Body force: resultant, and its Jacobian column against finite differences (with contact)."""
+    p = problem()
+    if p is None:
+        return "skipped"
+    s = solver(p)
+    d = np.array([1.0, -1.0, 0.0])                              # e_B - e_A: supine -> left lateral
+    s.set_body(d)
+    vol = s.vol0.sum()
+    assert np.allclose(s.body_vec.reshape(-1, 3).sum(0), vol * d)
+    q, beta = load(p, 0.25, 1.4e-3), 1.4e-3
+    Us = s.solve(q, 0.4, body=beta)
+    assert Us is not None, s.stats()
+    J = s.jacobian(q, 0.4, with_body=True)[:, -1]
+    state, fq = s.get_state(), s.fq.copy()
+    e, out = 1e-7, []
+    for sgn in (1.0, -1.0):
+        s.set_state(state, None, body=beta)
+        s.fq_last = fq.copy()
+        out.append(s.solve(q, 0.4, body=beta + sgn * e))
+    fd = ((out[0] - out[1]) / (2 * e)).ravel()
+    err = np.linalg.norm(J - fd) / np.linalg.norm(fd)
+    assert err < 1e-5, err
+    s2 = solver(p)
+    U0 = s2.solve(q, 0.4)
+    shift = (Us - U0).mean(0)
+    assert shift @ d > 0, shift                                 # the lung moves along the added weight
+    return "mean shift %s mm along the added weight, Jacobian column vs FD rel %.1e" % (np.round(shift, 1), err)
 
 
 if __name__ == "__main__":

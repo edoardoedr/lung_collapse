@@ -1,18 +1,14 @@
-"""Step 5b - fem_fit: regional pleural pressures that collapse the inflated lung onto the target.
+"""fit step: the physics parameters marked "fit" in the config (and the optional perturbation) are
+fitted so that the inflated lung collapses onto the collapsed one.
 
-  1. load output_dir/fem/setup/problem.npz and the FEM core named in the config
+  1. load output_dir/fem/setup/problem.npz and the FEM core
   2. sign check: q > 0 must move the surface inward (else q is flipped for this core)
-  3. coarse-to-fine levels, each warm-started from the best so far: pressure_model "regions" = one
-     p/E per region of each fem_setup level; "gradient" = a uniform p/E, then mean + linear slopes
-     along anatomical axes (PressureModel);
-     per level, bounded least squares (lsq) on the point residual (loss "point": fitted - target;
-     "plane": its component along the target normal, tangential part weighted by
-     loss_tangent_weight) + smoothness between adjacent regions, or Nelder-Mead (nm); Poisson's ratio optionally free. The lsq Jacobian
-     comes from the core (one linear solve per column) when it provides one, else from finite
-     differences (one nonlinear solve per column)
-     with a cavity wall in fem_setup, the core also keeps the surface inside it (contact)
+  3. the levels of the load model (load.py), each warm-started from the best state so far; per
+     level a bounded least squares (scipy TRF) on the surface distance in both directions (Loss)
+     + the smoothness between adjacent regions, with the analytic Jacobian of the core
   4. stops on: target error | time budget | plateau | levels exhausted | Ctrl+C / SIGTERM
-  5. output: fitted surface (main result) + output_dir/fem/fit/ (history, checkpoints, summary)
+  5. output_dir/runs/<run_name>/: surface.vtp, state.npz, summary.json (results.py), history.csv,
+     best_state.npz / best_params.json (checkpoints)
 
 Only the solver knows the FEM library: see solvers/base.py for the contract.
 """
@@ -22,91 +18,101 @@ import logging
 import time
 
 import numpy as np
-from scipy.optimize import least_squares, minimize
-from scipy.optimize._numdiff import approx_derivative
+from scipy.optimize import least_squares
 
-from ..data_io import write_surface
-from .geometry import (WallDistance, assd, closest_on_surface, face_adjacency, kabsch, polydata, rotation_deg,
-                       tri_geometry, vertex_normals)
+from .geometry import WallDistance, closest_on_surface, tri_geometry, vertex_normals
+from .load import LoadModel
 from .problem import CollapseProblem
-from .regions import region_pairs
+from .results import write_run
 from .run_control import Stop, Tracker, guarded
 from .solvers import get_solver
 
 log = logging.getLogger(__name__)
 
 
-def sign_check(solver, problem, cfg):
+def make_solver(cfg, problem, model=None):
+    """The FEM core of the config on this problem; with a load model, also its body force."""
+    cls = get_solver(cfg.solver.core)
+    if problem.has_wall and not cls.supports_wall:
+        raise RuntimeError("fem_setup has a wall but solver '%s' does not support it" % cfg.solver.core)
+    solver = cls(problem, cfg.solver_options())
+    if model is not None and model.has_body:
+        if not solver.supports_body:
+            raise RuntimeError("solver '%s' has no body force: it cannot run different reference / collapse "
+                               "positions" % cfg.solver.core)
+        solver.set_body(model.body_direction)
+    return solver
+
+
+def sign_check(solver, problem, q, nu):
     """+1 if q > 0 collapses with this core, -1 if the core has the opposite convention."""
     solver.set_regions(np.where(problem.clamped_tri, -1, 0), 1)
-    Us = solver.solve(np.array([cfg.sign_check_q]), cfg.nu)
+    Us = solver.solve(np.array([q]), nu)
     if Us is None:
         raise RuntimeError("first forward solve failed (clamp / volume mesh quality?)")
     free = np.setdiff1d(np.arange(len(Us)), problem.clamped_points)
     un = np.einsum("ij,ij->i", Us, vertex_normals(problem.reference, problem.tris))[free].mean()
     solver.reset()
     if un > 0:
-        log.warning("sign check: q > 0 moves the surface outward with '%s' -> q is flipped "
-                    "(fix the core's sign convention)", cfg.solver)
+        log.warning("sign check: q > 0 moves the surface outward with this core -> q is flipped "
+                    "(fix the core's sign convention)")
         return -1.0
-    log.info("sign check OK: q = %.2f moves the surface %.2f mm inward on average", cfg.sign_check_q, -un)
+    log.info("sign check OK: q = %.2f moves the surface %.2f mm inward on average", q, -un)
     return 1.0
 
 
+def hilum_position(cfg):
+    """(3,) LPS position of the hilum from the setup summary, None if not there."""
+    ss = cfg.setup_dir / "setup_summary.json"
+    return np.array(json.loads(ss.read_text())["anchor_center_lps"][0]) if ss.is_file() else None
+
+
+def describe_load(model, ph):
+    g = ph.gravity
+    if g is None:
+        return "no gravity"
+    return ("gravity %s -> %s, extent %.0f mm, slope %.3f p/E at E %.0f Pa%s"
+            % (*g["names"], model.extent, model.slope_of_E(ph.E_Pa.value), ph.E_Pa.value,
+               " (+ body force)" if model.has_body else ""))
+
+
 class Loss:
-    """Residual of the free surface points, d = fitted - target: P d with P = I ("point") or
-    n n^T + w (I - n n^T) ("plane", n = target vertex normal, w = loss_tangent_weight). The same P
-    applies to the Jacobian rows, so the analytic Jacobian of any core still works.
+    """Distance between the fitted surface and the collapsed one, in both directions.
 
-    Clamped points are left out: they do not move, so their error is a constant that does not
-    change the fit, but it would weigh on the reported errors, the target-error stop and the
-    plateau tests.
+    Fitted -> target: for each free fitted point x its closest point c on the target surface and
+    the normal n there (interpolated vertex normals), residual n n^T (x - c): the distance along
+    the normal, so sliding along the surface costs nothing. c and n are recomputed at every
+    evaluation; the Jacobian holds them fixed (Gauss-Newton of point-to-plane ICP).
 
-    surface (unregistered reference, no node correspondence): the target of each fitted point is
-    its closest point on the collapsed surface, n the surface normal there, both recomputed at
-    every residual (match). The Jacobian holds them fixed (Gauss-Newton of point-to-plane ICP:
-    exact for "plane", since the signed distance to a smooth surface has gradient n).
+    That term alone is one-sided: a lung that shrinks onto part of the target scores well while
+    the rest of the target stays uncovered. Target -> fitted (weight ws): for every target point y
+    its closest point z on the fitted surface, z = sum_k b_k x_k over the vertices of the fitted
+    triangle (barycentric b), residual z - y, zero when z falls on a clamped triangle. Both terms
+    are averaged over their own number of points: cost = sum fwd^2 + ws (n_free / n_target) sum bwd^2.
+    The Jacobian holds the triangle and b fixed (exact gradient of the squared distance).
 
-    That term alone is one-sided (fitted -> target): a lung that shrinks onto part of the target
-    scores well while the rest of the target stays uncovered (karl23, patient_1 / 2: 93-98 %
-    collapse instead of 51-86 %). loss_symmetric_weight ws > 0 adds the other direction: for every
-    target point y its closest point z on the fitted surface, z = sum_k b_k x_k over the vertices of
-    the fitted triangle (barycentric b), residual z - y (the whole vector: at a closest point it is
-    normal to the fitted surface, |z - y| = the distance). Target points whose closest point falls
-    on a clamped triangle get a zero residual (it could not change). Both terms are averaged over
-    their own number of points: cost = sum fwd^2 + ws (n_free / n_target) sum bwd^2. The Jacobian
-    holds the triangle and b fixed: dz/dq = sum_k b_k dx_k/dq (exact gradient of the squared
-    distance, the closest point moving along the surface being a second-order effect)."""
+    Clamped points are left out: they do not move, so their error is a constant."""
 
-    def __init__(self, cfg, X_tgt, tris, free, surface=None, clamped_tri=None):
-        self.plane = cfg.loss == "plane"
-        self.w = cfg.loss_tangent_weight
-        self.free = np.asarray(free, bool)
-        self.n_free = int(self.free.sum())
-        self.surface = surface                               # WallDistance of the target surface, or None
-        self.target = X_tgt
-        self.tris = tris
-        self.n = vertex_normals(X_tgt, tris)                 # all points (export)
-        self.nf = self.n[self.free]
-        self.sym = float(cfg.loss_symmetric_weight) if surface is not None else 0.0
-        if self.sym:
-            self.Y = surface.P                               # target surface points
-            self.clamped_tri = np.asarray(clamped_tri, bool)
-            self.scale = np.sqrt(self.sym * self.n_free / len(self.Y))
-            self.back = None                                 # (fitted triangle, weights, kept) per target point
-        self.match(X_tgt)
-
-    def match(self, Xs):
-        """Target point of each fitted point Xs (N, 3): fixed, or its closest point on the surface."""
-        if self.surface is not None:
-            self.target, _, self.n = self.surface.closest(Xs)
-            self.nf = self.n[self.free]
-        return self.target
+    def __init__(self, problem, symmetric_weight):
+        free = np.ones(len(problem.reference), bool)
+        free[problem.clamped_points] = False
+        self.free, self.n_free = free, int(free.sum())
+        self.tris = problem.tris
+        self.surface = WallDistance(*problem.target_surface)
+        self.sym = float(symmetric_weight)
+        self.Y = self.surface.P
+        self.clamped_tri = np.asarray(problem.clamped_tri, bool)
+        self.scale = np.sqrt(self.sym * self.n_free / len(self.Y)) if self.sym else 0.0
+        self.back = None                                     # (fitted triangle, weights, kept) per target point
+        self.n = self.nf = None
 
     def residual(self, Xs):
         """Fitted surface points Xs (N, 3) -> flat residual: 3 n_free rows (fitted -> target), then,
         with the symmetric term, 3 n_target rows (target -> fitted, scaled)."""
-        r = self.project(Xs - self.match(Xs)).ravel()
+        target, _, self.n = self.surface.closest(Xs)
+        self.nf = self.n[self.free]
+        d = (Xs - target)[self.free]
+        r = (np.einsum("ij,ij->i", d, self.nf)[:, None] * self.nf).ravel()
         return np.r_[r, self.scale * self.backward(Xs).ravel()] if self.sym else r
 
     def backward(self, Xs):
@@ -118,8 +124,8 @@ class Loss:
         return (z - self.Y) * keep[:, None]
 
     def error(self, r):
-        """Flat residual -> (mean, rms) distance per point in the loss's metric; with the symmetric
-        term (fwd + ws bwd) / (1 + ws) of the two means, bwd over the kept target points."""
+        """Flat residual -> (mean, rms) distance per point; with the symmetric term (fwd + ws bwd) /
+        (1 + ws) of the two means, bwd over the kept target points."""
         r = r.reshape(-1, 3)
         df = np.linalg.norm(r[:self.n_free], axis=1)
         if not self.sym:
@@ -131,518 +137,196 @@ class Loss:
         return (float((df.mean() + ws * db.mean()) / (1 + ws)),
                 float(np.sqrt(((df ** 2).mean() + ws * (db ** 2).mean()) / (1 + ws))))
 
-    def project(self, d):
-        """d (N, 3) for all points -> residual (n_free, 3)."""
-        d = d[self.free]
-        if not self.plane:
-            return d
-        dn = np.einsum("ij,ij->i", d, self.nf)[:, None] * self.nf
-        return dn + self.w * (d - dn)
-
     def jacobian(self, J):
-        """J (3N, P) of the displacement of all points -> of the residual (3 n_free, P)."""
-        J3 = J.reshape(len(self.n), 3, -1)[self.free]
-        if self.plane:
-            Jn = self.nf[:, :, None] * np.einsum("ik,ikp->ip", self.nf, J3)[:, None, :]
-            J3 = Jn + self.w * (J3 - Jn)
-        J3 = J3.reshape(-1, J.shape[1])
+        """J (3N, P) of the displacement of all points -> of the residual (of the last residual())."""
+        Jall = J.reshape(len(self.n), 3, -1)
+        J3 = Jall[self.free]
+        J3 = (self.nf[:, :, None] * np.einsum("ik,ikp->ip", self.nf, J3)[:, None, :]).reshape(-1, J.shape[1])
         if not self.sym:
             return J3
-        tri, b, keep = self.back                            # of the last residual (same x)
-        Jall = J.reshape(len(self.n), 3, -1)
+        tri, b, keep = self.back
         Jb = np.einsum("mk,mkjp->mjp", b * keep[:, None], Jall[tri])
         return np.vstack([J3, self.scale * Jb.reshape(-1, J.shape[1])])
 
 
-def rigid_part(X_from, X_to):
-    """Rotation [deg] and centroid shift [mm] of the best rigid fit X_from -> X_to."""
-    R, t = kabsch(X_from, X_to)
-    c = X_from.mean(0)
-    return rotation_deg(R), float(np.linalg.norm(R @ c + t - c))
-
-
-AXES = ("ap", "si", "ml")
-
-
-class PressureModel:
-    """p/E per surface triangle as a linear function of the parameters x: q_tri = Phi x (Phi (T, P),
-    zero rows on clamped triangles). The core sees `labels` / `n_solver` regions with pressures
-    q_s = M x (M None = identity: one core region per parameter).
-
-      - regions (pressure_model "regions"): x = p/E per region of a fem_setup level, Phi = indicator;
-      - gradient (pressure_model "gradient"): x = [mean p/E, slope per axis], q_tri = x0 + sum_a x_a xi_a
-        with xi_a the triangle centroid's coordinate along axis a in the reference, centred (area-
-        weighted mean 0 over the free triangles) and divided by the lung's extent along a, so a slope
-        is the p/E difference between the two ends of the lung. Each free triangle is its own core
-        region (fine for the nodal cores; GetFEM would build one brick per triangle: slow).
-
-    `offset` (T,) is a fixed p/E added to q_tri and to the core's pressures, not fitted: the gravity term
-    of the gradient model with `gravity_E_Pa` (q_tri = Phi x + offset). Jacobians are unchanged."""
-
-    def __init__(self, name, Phi, labels, n_solver, M=None, pairs=None, names=None, offset=None):
-        self.name, self.Phi, self.labels, self.n_solver, self.M = name, Phi, labels, n_solver, M
-        self.P = Phi.shape[1]
-        self.pairs = np.zeros((0, 2), dtype=int) if pairs is None else pairs
-        self.names = names
-        self.offset = np.zeros(len(Phi)) if offset is None else offset
-        self.offset_solver = self.offset[labels >= 0][np.argsort(labels[labels >= 0])] \
-            if offset is not None else 0.0
-
-    def q_solver(self, x):
-        return (x if self.M is None else self.M @ x) + self.offset_solver
-
-    def q_tri(self, x, clamped):
-        return np.where(clamped, np.nan, self.Phi @ x + self.offset)
-
-    def x0_from(self, q_tri, area, clamped):
-        """Area-weighted least-squares projection of a per-triangle p/E (the warm start of a level):
-        for the regions model the area-weighted mean per region."""
-        m = ~clamped & np.isfinite(q_tri)
-        w = np.sqrt(area[m])
-        return np.linalg.lstsq(self.Phi[m] * w[:, None], (q_tri[m] - self.offset[m]) * w, rcond=None)[0]
-
-    @classmethod
-    def regions(cls, tri_labels, K, adj):
-        Phi = np.zeros((len(tri_labels), K))
-        m = tri_labels >= 0
-        Phi[np.nonzero(m)[0], tri_labels[m]] = 1.0
-        return cls("regions", Phi, tri_labels, K, pairs=region_pairs(tri_labels, adj))
-
-    @classmethod
-    def gradient(cls, coords, axes, clamped, offset=None):
-        free = np.nonzero(~clamped)[0]
-        Phi = np.c_[np.ones(len(clamped)), *[coords[a] for a in axes]]
-        Phi[clamped] = 0.0
-        labels = np.full(len(clamped), -1)
-        labels[free] = np.arange(len(free))
-        if offset is not None:
-            offset = np.where(clamped, 0.0, offset)
-        return cls("gradient", Phi, labels, len(free), M=Phi[free], names=["mean"] + list(axes), offset=offset)
-
-
-def gravity_offset(X_ref, tris, clamped, area, rho, E_Pa):
-    """Fixed p/E of the lung's weight (supine: anterior = up): gamma (h - h_mean), h = anterior
-    coordinate (-y in LPS) of the triangle centroid in mm, centred (area-weighted over the free
-    triangles), gamma = rho g / E per mm. Returns (offset per triangle, gamma, AP extent L in mm)."""
-    h = -X_ref[tris].mean(1)[:, 1]
-    free = ~clamped
-    h = h - np.average(h[free], weights=area[free])
-    gamma = rho * 9.81e-3 / E_Pa                      # rho g in Pa/mm, divided by E
-    return np.where(clamped, 0.0, gamma * h), gamma, float(np.ptp(h[free]))
-
-
-def axis_coords(X_ref, tris, clamped, area, hilum):
-    """Normalised coordinate of each triangle centroid along the anatomical axes (LPS reference):
-    ap + = anterior (-y), si + = superior (+z), ml + = lateral (away from the hilum in x)."""
-    C = X_ref[tris].mean(1)
-    side = np.sign(C[~clamped, 0].mean() - hilum[0]) if hilum is not None else np.nan
-    raw = dict(ap=-C[:, 1], si=C[:, 2], ml=side * C[:, 0])
-    free, out = ~clamped, {}
-    for a, v in raw.items():
-        if not np.all(np.isfinite(v)):
-            continue
-        out[a] = (v - np.average(v[free], weights=area[free])) / np.ptp(v[free])
-    return out
-
-
-def run_level(L, model, x0, lb, ub, ctx):
-    """One level of the pressure model; returns (stop reason, best mean error of the level)."""
+def run_level(L, level, x0, ctx):
+    """One level of the load model; returns (stop reason, best error of the level)."""
     solver, trk, cfg, sign = ctx["solver"], ctx["trk"], ctx["cfg"], ctx["sign"]
-    X_ref, loss, clamped = ctx["X_ref"], ctx["loss"], ctx["clamped"]
-    pairs, P = model.pairs, model.P
-    K = P                                                   # "K" in the logs / history: parameters of p/E
-    nu_fixed = cfg.nu
-    solver.set_regions(model.labels, model.n_solver)
+    X_ref, loss, model = ctx["X_ref"], ctx["loss"], ctx["model"]
+    P, lb, ub = level.P, level.lb, level.ub
+    solver.set_regions(level.labels, level.n_solver)
     trk.new_level()
     stats0 = solver.stats()
-    if model.name == "regions":
-        log.info("--- level %d: K=%d regions, %d parameters, %d adjacent pairs, %s ---",
-                 L, K, len(x0), len(pairs), cfg.optimizer)
-    else:
-        log.info("--- level %d: %s p/E (%s), %d parameters, %d core regions, %s ---", L, model.name,
-                 ", ".join(model.names), len(x0), model.n_solver, cfg.optimizer)
-
-    def unpack(x):
-        return (x[:P], x[P]) if cfg.free_nu else (x, nu_fixed)
+    log.info("--- level %d: %d parameters (%s%s), %d core regions, %d adjacent pairs ---", L, P,
+             ", ".join(level.names[:6]), ", ..." if P > 6 else "", level.n_solver, len(level.pairs))
+    with_nu, with_body = level.nu_index is not None, bool(np.any(level.body_coef != 0.0))
+    body_on = model.has_body
 
     last = dict(x=None, r=None, ok=False, J=None)          # last residual evaluation / Jacobian
-    jstats = dict(n=0, s=0.0, fd=0)
+    jstats = dict(n=0, s=0.0)
     # warm start of every solve: the state of the lowest lsq cost so far in this level (the
     # optimiser's current iterate), not the last converged solve, which is often a rejected trial
-    # far from the next one; with a wall a solve from there tends to fail (karl04: 10-26 failed
-    # solves in a row, 2 min each)
-    anchor = dict(cost=np.inf, state=None, load=None, current=True, q=None)
+    # far from the next one
+    anchor = dict(cost=np.inf, state=None, load=None, body=0.0, current=True)
 
     def evaluate(x):
         trk.check()
-        q, nu = unpack(x)
         if not anchor["current"]:
-            solver.set_state(anchor["state"], anchor["load"])
+            if body_on:
+                solver.set_state(anchor["state"], anchor["load"], anchor["body"])
+            else:
+                solver.set_state(anchor["state"], anchor["load"])
             anchor["current"] = True
-        qs = model.q_solver(q)
+        qs, nu, body = level.q_solver(x), level.nu(x), level.body(x)
         t0 = time.time()
-        Us = solver.solve(sign * qs, nu)
+        Us = solver.solve(sign * qs, nu, body) if body_on else solver.solve(sign * qs, nu)
         dt = time.time() - t0
         last.update(x=np.array(x, dtype=float), ok=Us is not None)
-        if cfg.optimizer == "nm" and (trk.level_evals + 1) % (len(x0) + 1) == 0:
-            trk.iteration()
-        rreg = cfg.reg * (q[pairs[:, 0]] - q[pairs[:, 1]])
+        rreg = level.reg_residual(x)
         if Us is None:
             trk.n_fail += 1
-            trk.log(L, K, np.nan, np.nan, nu, 0, dt)
-            if anchor["q"] is not None:                     # how far the failed trial was from its start
-                d = np.abs(qs - anchor["q"]) / np.maximum(np.abs(anchor["q"]), 1e-3)
-                log.info("[L%d K=%d] eval %4d failed after %.0f s: trial vs anchor p/E, relative change "
-                         "max %.2e (core region %d), rms %.2e", L, K, trk.level_evals, dt, d.max(),
-                         int(d.argmax()), np.sqrt(np.mean(d ** 2)))
+            trk.log(L, P, np.nan, np.nan, nu, 0, dt)
+            log.info("[L%d] eval %4d failed after %.0f s", L, trk.level_evals, dt)
             base = trk.level_best_r if trk.level_best_r is not None else ctx["r_zero"]
-            last["r"] = np.r_[2.0 * base, rreg]
-            return last["r"], np.inf
+            last["r"] = np.r_[2.0 * base, rreg]             # a rejected trial
+            return last["r"]
         r = loss.residual(X_ref + Us)
-        err, rms = loss.error(r)                                # per point, in the loss's metric
-        trk.log(L, K, err, rms, nu, 1, dt)
-        q_tri = model.q_tri(q, clamped)
-        # q / tri_labels as the core sees them (collapse_sequence re-solves with them), params = x
+        err, rms = loss.error(r)
+        trk.log(L, P, err, rms, nu, 1, dt)
+        q_tri = level.q_tri(x)
+        # q / tri_labels as the core sees them, so that the state can be re-solved (sequence)
         state = dict(Us=Us.copy(), solver_state=solver.get_state(), q=np.array(qs, float), nu=float(nu),
-                     tri_labels=model.labels.copy(), q_tri=q_tri, err=err, rms=rms, K=K, level=L,
-                     E_Pa=cfg.E_Pa, pressures_Pa=[float(v) for v in qs * cfg.E_Pa],
-                     model=model.name, params=q.copy(), param_names=model.names,
+                     body=float(body), body_direction=model.body_direction, sign=sign,
+                     tri_labels=level.labels.copy(), q_tri=q_tri, err=err, rms=rms, level=L,
+                     params=np.array(x, float), param_names=level.names, physics=model.describe(level, x),
                      elapsed_min=trk.elapsed() / 60)
-        if trk.level_evals % 5 == 1 or err < trk.level_best_err:
-            log.info("[L%d K=%d] eval %4d  t=%6.1f min  mean %.3f mm  rms %.3f  nu %.3f  %s=[%s%s] Pa  best %.3f",
-                     L, K, trk.level_evals, trk.elapsed() / 60, err, rms, nu,
-                     "p" if model.name == "regions" else "/".join(model.names),
-                     ", ".join("%.0f" % v for v in q[:6] * cfg.E_Pa), ", ..." if K > 6 else "",
-                     min(err, trk.best_err))
+        score = rms if cfg.fit.best_by == "rms" else err
+        if trk.level_evals % 5 == 1 or score < trk.level_best_err:
+            log.info("[L%d] eval %4d  t=%6.1f min  mean %.3f mm  rms %.3f  %s%s  best %.3f", L, trk.level_evals,
+                     trk.elapsed() / 60, err, rms,
+                     ", ".join("%s %.4g" % nv for nv in list(zip(level.names, x))[:6]), ", ..." if P > 6 else "",
+                     min(score, trk.best_err))
         last["r"] = np.r_[r, rreg]
         cost = float(np.dot(last["r"], last["r"]))
         if cost < anchor["cost"]:
-            anchor.update(cost=cost, state=state["solver_state"], load=sign * q_tri, current=True,
-                          q=np.array(qs, float))
+            anchor.update(cost=cost, state=state["solver_state"], load=sign * q_tri, body=body, current=True)
         else:
-            anchor["current"] = anchor["state"] is None         # the solver now holds this trial
-        trk.improve(rms if cfg.best_by == "rms" else err, r, state)
-        return last["r"], err + np.dot(rreg, rreg) / max(1, len(rreg))
+            anchor["current"] = anchor["state"] is None     # the solver now holds this trial
+        trk.improve(score, r, state)
+        return last["r"]
 
-    # regularisation rows of the Jacobian: d(reg (q_a - q_b))/dx, constant
-    R = np.zeros((len(pairs), len(x0)))
-    R[np.arange(len(pairs)), pairs[:, 0]] = cfg.reg
-    R[np.arange(len(pairs)), pairs[:, 1]] = -cfg.reg
+    R = level.reg_jacobian()
 
     def jacobian(x):
-        """Jacobian of the lsq residual [r, rreg] at x (one call per lsq iteration): from the core
-        if available (not counted as a forward evaluation), else finite differences exactly as
-        least_squares(jac="2-point") would compute them."""
+        """Jacobian of [r, rreg] at x (one call per lsq iteration), from the core."""
         if last["x"] is None or not np.array_equal(x, last["x"]):
             evaluate(x)                                     # scipy normally calls fun(x) first
         trk.iteration()
         if not last["ok"] and last["J"] is not None:
             return last["J"]                                # forward failed at x: last good one
-        if not last["ok"]:                                  # the level's first solve failed: finite
-            raise Stop("first solve failed")                # differences would only fail K more times
-        J = None
-        if last["ok"] and cfg.jacobian == "analytic":
-            q, nu = unpack(x)
-            t0 = time.time()
-            J = solver.jacobian(sign * model.q_solver(q), nu, cfg.free_nu)
-            if J is not None:
-                J = np.array(J, dtype=float)
-                Jq = sign * J[:, :model.n_solver]           # the core sees sign * q_s
-                if model.M is not None:
-                    Jq = Jq @ model.M                       # chain rule: q_s = M x
-                J = np.hstack([Jq, J[:, model.n_solver:]])
-                J = np.vstack([loss.jacobian(J), R])
-                jstats["n"] += 1
-                jstats["s"] += time.time() - t0
-        if J is None:                                       # 2-point, or core without Jacobian
-            jstats["fd"] += 1
-            # step relative to |x|, at least that of |x| = 0.1 (a gradient slope starts at ~1e-17)
-            J = approx_derivative(lambda z: evaluate(z)[0], x, method="2-point",
-                                  abs_step=cfg.lsq_diff_step * np.maximum(np.abs(x), 0.1),
-                                  f0=last["r"], bounds=(lb, ub))
+        if not last["ok"]:
+            raise Stop("first solve failed")
+        t0 = time.time()
+        if with_body:
+            J = solver.jacobian(sign * level.q_solver(x), level.nu(x), with_nu, True)
+        else:
+            J = solver.jacobian(sign * level.q_solver(x), level.nu(x), with_nu)
+        if J is None:
+            raise RuntimeError("solver '%s' has no analytic Jacobian for this model" % cfg.solver.core)
+        J = np.array(J, dtype=float)
+        n = level.n_solver
+        Jnu = J[:, n] if with_nu else None
+        Jbody = J[:, n + int(with_nu)] if with_body else None
+        J = np.vstack([loss.jacobian(level.chain(sign * J[:, :n], Jnu, Jbody)), R])
+        jstats["n"] += 1
+        jstats["s"] += time.time() - t0
         last["J"] = J
         return J
 
     reason = "converged"
     try:
-        if cfg.optimizer == "lsq":
-            least_squares(lambda x: evaluate(x)[0], x0, bounds=(lb, ub), method="trf",
-                          jac=jacobian,
-                          x_scale=np.maximum(np.abs(x0), 0.1), diff_step=cfg.lsq_diff_step,
-                          ftol=cfg.lsq_ftol, xtol=cfg.lsq_xtol, gtol=cfg.lsq_gtol, max_nfev=100000)
-        else:
-            minimize(lambda x: evaluate(np.clip(x, lb, ub))[1], x0, method="Nelder-Mead",
-                     bounds=list(zip(lb, ub)), options=dict(maxfev=100000, xatol=1e-4, fatol=1e-3,
-                                                            adaptive=True))
+        least_squares(evaluate, x0, bounds=(lb, ub), method="trf", jac=jacobian,
+                      x_scale=np.maximum(np.abs(x0), 0.1), ftol=cfg.fit.lsq_ftol, xtol=cfg.fit.lsq_xtol,
+                      gtol=cfg.fit.lsq_gtol, max_nfev=100000)
     except Stop as s:
         reason = s.reason
     stats = {k: v - stats0.get(k, 0) for k, v in solver.stats().items()}
-    log.info("level %d timing: %d solves, %.2f s per solve; %d analytic Jacobians (%.2f s each), "
-             "%d by finite differences%s", L, trk.level_evals, trk.level_solve_s / max(trk.level_evals, 1),
-             jstats["n"], jstats["s"] / max(jstats["n"], 1), jstats["fd"],
-             "; " + ", ".join("%s %d" % kv for kv in stats.items()) if stats else "")
+    log.info("level %d timing: %d solves, %.2f s per solve; %d Jacobians (%.2f s each)%s", L, trk.level_evals,
+             trk.level_solve_s / max(trk.level_evals, 1), jstats["n"], jstats["s"] / max(jstats["n"], 1),
+             "; " + ", ".join("%s %d" % kv for kv in stats.items() if kv[1]) if stats else "")
     return reason, trk.level_best_err
 
 
 def run(cfg):
-    problem = CollapseProblem.load(cfg.setup / "problem.npz")
-    out = cfg.workdir
+    problem = CollapseProblem.load(cfg.setup_dir / "problem.npz")
+    if not problem.has_target:
+        raise RuntimeError("the fit needs the collapsed lung: set inputs.collapsed and rerun geometry and fem_setup")
+    out = cfg.run_dir
     out.mkdir(parents=True, exist_ok=True)
-    X_ref, X_tgt, tris = problem.reference, problem.target, problem.tris
+    X_ref, tris = problem.reference, problem.tris
     _, _, area = tri_geometry(X_ref, tris)
-    adj, _ = face_adjacency(tris)
-    free = np.ones(len(X_ref), bool)
-    free[problem.clamped_points] = False
-    closest = problem.closest_point
-    loss = Loss(cfg, X_tgt, tris, free, WallDistance(*problem.target_surface) if closest else None,
-                problem.clamped_tri)
-    if cfg.loss_symmetric_weight and not closest:
-        log.warning("loss_symmetric_weight %g ignored: the reference is registered (node-to-node "
-                    "correspondence, already symmetric)", cfg.loss_symmetric_weight)
+    ph, fc = cfg.physics, cfg.fit
+    loss = Loss(problem, fc.symmetric_weight)
     r_zero = loss.residual(X_ref)
     e0, rms0 = loss.error(r_zero)
-    mism = np.linalg.norm(X_ref - X_tgt, axis=1)[~free]
-    log.info("problem: %d surface points (%d clamped, left out of the error: %.2f mm mean / %.2f max from "
-             "their target), %d volume nodes, %d tets, levels K = %s; loss %s%s%s%s, no-deformation error "
-             "%.2f mm (point-to-point %.2f)", len(X_ref), (~free).sum(), mism.mean(), mism.max(),
-             len(problem.nodes), len(problem.tets), ", ".join(map(str, problem.levels)), cfg.loss,
-             " (tangent weight %g)" % cfg.loss_tangent_weight if loss.plane else "",
-             " to the closest point of the target surface (unregistered reference)" if closest else "",
-             " + target -> fitted (symmetric, weight %g)" % loss.sym if loss.sym else "",
-             e0, np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean())
+    log.info("problem: %d surface points (%d clamped, left out of the error), %d volume nodes, %d tets; loss: "
+             "distance along the target normal%s, no-deformation error %.2f mm (rms %.2f)", len(X_ref),
+             len(X_ref) - loss.n_free, len(problem.nodes), len(problem.tets),
+             " + target -> fitted (weight %g)" % loss.sym if loss.sym else "", e0, rms0)
 
-    cls = get_solver(cfg.solver)
-    if problem.has_wall and not cls.supports_wall:
-        raise RuntimeError("fem_setup has a wall but solver '%s' does not support it" % cfg.solver)
-    solver = cls(problem, cfg.solver_options)
-    sign = sign_check(solver, problem, cfg)
+    model = LoadModel(ph, problem, hilum_position(cfg))
+    levels = model.fit_levels(fc)
+    solver = make_solver(cfg, problem, model)
+    sign = sign_check(solver, problem, fc.sign_check_q, ph.nu.value)
+    log.info("load model: %s; fitted per level: %s", describe_load(model, ph),
+             " | ".join("%d: %s%s" % (i + 1, ", ".join(lv.names[:4]), ", ..." if lv.P > 4 else "")
+                        for i, lv in enumerate(levels)))
 
-    clamped = problem.clamped_tri
-    if cfg.pressure_model == "regions":
-        levels = list(zip(problem.levels, problem.regions))
-        if cfg.levels is not None:
-            missing = sorted(set(cfg.levels) - set(problem.levels.tolist()))
-            if missing:
-                raise ValueError("fem_fit.levels %s not in the fem_setup levels %s" % (missing, problem.levels.tolist()))
-            levels = [(K, lab) for K, lab in levels if K in cfg.levels]
-        models = [PressureModel.regions(lab, int(K), adj) for K, lab in levels]
-    else:                                                   # gradient: uniform, then uniform + slopes
-        hilum = None
-        if "ml" in cfg.gradient_axes:
-            ss = cfg.setup / "setup_summary.json"
-            hilum = np.array(json.loads(ss.read_text())["anchor_center_lps"][0]) if ss.is_file() else None
-            if hilum is None:
-                raise RuntimeError("gradient axis 'ml' needs the hilum position from %s" % ss)
-        coords = axis_coords(X_ref, tris, clamped, area, hilum)
-        axes, offset = list(cfg.gradient_axes), None
-        if cfg.gravity_E_Pa is not None:                # ap slope fixed by the weight, not fitted
-            offset, gamma, L_ap = gravity_offset(X_ref, tris, clamped, area, cfg.tissue_density, cfg.gravity_E_Pa)
-            axes = [a for a in axes if a != "ap"]
-            gravity = dict(E_Pa=cfg.gravity_E_Pa, density_kg_m3=cfg.tissue_density, gamma_pE_per_mm=gamma,
-                           ap_extent_mm=L_ap, slope_ap_pE=gamma * L_ap)
-            log.info("gravity: E %.0f Pa, density %.0f kg/m3 -> fixed ap slope %.4f p/E per mm, %.3f across "
-                     "the lung (%.0f mm); free axes: %s", cfg.gravity_E_Pa, cfg.tissue_density, gamma,
-                     gamma * L_ap, L_ap, ", ".join(axes) or "none")
-        models = [PressureModel.gradient(coords, [], clamped, offset)]
-        if axes:
-            models.append(PressureModel.gradient(coords, axes, clamped, offset))
-        if offset is not None:
-            # continuation: a solve from rest with the whole gravity term pushes the lung onto the wall
-            # from the first increment and often fails (2026-11-16 scan: 27 / 42 first solves). Fit the
-            # uniform level with the gravity_prefit fractions of the gravity term first; these levels only
-            # provide the warm start and their states are not candidates for the result. A gravity level
-            # whose first solve fails gets a level at the mid fraction inserted before it (gravity_bisect)
-            def prefit_model(f):
-                m = PressureModel.gradient(coords, [], clamped, f * offset)
-                m.prefit, m.frac = True, f
-                return m
-            for m in models:
-                m.frac = 1.0
-            models = [prefit_model(f) for f in cfg.gravity_prefit] + models
-    slope_max = cfg.q_bounds[1] - cfg.q_bounds[0]
-
-    trk = Tracker(cfg, out)
-    ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, loss=loss, clamped=clamped,
+    trk = Tracker(fc, out)
+    ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, loss=loss, model=model,
                r_zero=r_zero.ravel())
-    q_tri, nu_best = np.where(clamped, np.nan, cfg.q0), cfg.nu
-    base0 = rms0 if cfg.best_by == "rms" else e0          # in the measure that picks the best
+    q_tri, nu_best = model.start_q_tri(), ph.nu.value
+    base0 = rms0 if fc.best_by == "rms" else e0             # in the measure that picks the best
     summary, stall, prev = [], 0, base0
     stop_reason = "levels exhausted"
-    with guarded(trk, int(60 * (cfg.time_budget_min + cfg.hard_grace_min))):
-        warm = None                                     # best of the last prefit level
-        frac_ok, bisect, i, L = None, 0, 0, 0           # gravity fraction of the warm start, insertions
-        while i < len(models):                          # models may grow (gravity continuation)
-            model = models[i]
-            i += 1
-            L += 1                                      # level number in logs / history
-            K = model.P
-            src = trk.best if trk.best is not None else warm
-            if src is not None:                             # warm start from the best so far
-                q_tri, nu_best = src["q_tri"], src["nu"]
-                solver.set_state(src["solver_state"], ctx["sign"] * src["q_tri"])
-            x0 = model.x0_from(q_tri, area, clamped)
-            lb, ub = np.full(K, cfg.q_bounds[0]), np.full(K, cfg.q_bounds[1])
-            if model.name == "gradient":                   # slopes: p/E difference across the lung
-                lb[1:], ub[1:] = -slope_max, slope_max
-            if cfg.free_nu:
-                x0, lb, ub = np.r_[x0, nu_best], np.r_[lb, cfg.nu_bounds[0]], np.r_[ub, cfg.nu_bounds[1]]
-            x0 = np.clip(x0, lb + 1e-6, ub - 1e-6)
-            reason, lvl_err = run_level(L, model, x0, lb, ub, ctx)
+    with guarded(trk, int(60 * (fc.time_budget_min + fc.hard_grace_min))):
+        for L, level in enumerate(levels, 1):
+            if trk.best is not None:                        # warm start from the best so far
+                b = trk.best
+                q_tri, nu_best = b["q_tri"], b["nu"]
+                if model.has_body:
+                    solver.set_state(b["solver_state"], sign * b["q_tri"], b["body"])
+                else:
+                    solver.set_state(b["solver_state"], sign * b["q_tri"])
+            x0 = level.x0_from(q_tri, nu_best, area)
+            reason, lvl_err = run_level(L, level, x0, ctx)
             imp = (prev - trk.best_err) / max(prev, 1e-9)
-            summary.append(dict(level=L, K=K, best_mean_err_mm=float(lvl_err), stop=reason,
+            summary.append(dict(level=L, parameters=level.P, best_err_mm=float(lvl_err), stop=reason,
                                 evals=trk.level_evals, elapsed_min=trk.elapsed() / 60))
             log.info("level %d done (%s): level best %.3f mm, overall best %.3f mm, improvement %.1f%%",
                      L, reason, lvl_err, trk.best_err, 100 * imp)
-            frac = getattr(model, "frac", None)
-            if frac is not None:
-                summary[-1]["gravity_fraction"] = frac
-            if getattr(model, "prefit", False):
-                summary[-1]["prefit"] = True
-            if (reason == "first solve failed" and frac is not None and bisect < cfg.gravity_bisect
-                    and frac > (frac_ok or 0.0)):
-                f_mid = 0.5 * ((frac_ok or 0.0) + frac)  # retry this level after a mid step
-                bisect += 1
-                log.info("gravity continuation: fraction %.3f failed from %s, inserting %.3f (%d / %d)", frac,
-                         "rest" if frac_ok is None else "%.3f" % frac_ok, f_mid, bisect, cfg.gravity_bisect)
-                models[i - 1:i - 1] = [prefit_model(f_mid)]
-                i -= 1
-                continue
-            if reason == "first solve failed" and frac is not None:     # no more insertions: give up
-                stop_reason = ("gravity continuation failed: fraction %.3f not reached from %s after %d insertions"
-                               % (frac, "rest" if frac_ok is None else "%.3f" % frac_ok, bisect))
-                log.error("%s (fixed ap slope at the last reached fraction: %.3f p/E)", stop_reason,
-                          (frac_ok or 0.0) * gravity["slope_ap_pE"])
-                break
-            if getattr(model, "prefit", False):
-                if reason == "time budget" or reason.startswith("signal"):
-                    stop_reason = reason + " during a prefit level (only part of the gravity term)"
-                    trk.best = None                         # a prefit state is not a result
-                    break
-                if trk.best is not None:                    # warm start only, not a result
-                    warm, frac_ok = trk.best, frac
-                trk.best, trk.best_err, prev = None, np.inf, base0
-                continue
             trk.checkpoint()
             if reason in ("target error reached", "time budget") or reason.startswith("signal"):
                 stop_reason = reason
                 break
-            stall = stall + 1 if imp < cfg.fit_min_improve else 0
+            stall = stall + 1 if imp < fc.fit_min_improve else 0
             prev = trk.best_err
-            if stall >= cfg.fit_patience:
-                stop_reason = "fit plateau (%d levels < %.0f%% gain)" % (stall, 100 * cfg.fit_min_improve)
+            if stall >= fc.fit_patience:
+                stop_reason = "fit plateau (%d levels < %.0f%% gain)" % (stall, 100 * fc.fit_min_improve)
                 break
     trk.close()
 
     b = trk.best
     if b is None:
-        raise RuntimeError("no successful forward solve of the final model, nothing to export (%s)" % stop_reason)
-    Xs = X_ref + b["Us"]
-    T_end = loss.match(Xs)                                      # closest point: of the fitted surface
-    err_all = np.linalg.norm(Xs - T_end, axis=1)                # point-to-point, whatever the loss
-    err_n_all = np.einsum("ij,ij->i", Xs - T_end, loss.n)      # signed, along the target normal
-    err, err_n = err_all[free], err_n_all[free]                  # the metrics: free points only
-    t2f = None
-    if closest:                                                 # target -> fitted, as the symmetric term
-        Y = problem.target_points
-        cell, _, z = closest_on_surface(Xs, tris, Y)
-        keep = ~problem.clamped_tri[cell]
-        t2f = float(np.linalg.norm(z - Y, axis=1)[keep].mean()) if keep.any() else 0.0
-    # without node correspondence the target has no rigid part relative to the reference
-    rot = dict(target=(None, None) if closest else rigid_part(X_ref, X_tgt), fitted=rigid_part(X_ref, Xs))
-    s = polydata(Xs, tris)
-    s.point_data["Displacement_mm"] = b["Us"]
-    s.point_data["Error_mm"] = err_all
-    s.point_data["NormalError_mm"] = err_n_all                  # > 0 = outside the target surface
-    s.point_data["Clamped"] = (~free).astype(np.uint8)
-    s.cell_data["PressureRegion"] = b["tri_labels"]          # gradient: one per free triangle
-    s.cell_data["Pressure_Pa"] = np.nan_to_num(b["q_tri"] * cfg.E_Pa, nan=0.0)
-    s.cell_data["Clamped"] = problem.clamped_tri.astype(np.uint8)
-    pen = None
-    if problem.has_wall:
-        pen = WallDistance(problem.wall_points, problem.wall_tris)(Xs)[0] - problem.wall_allow
-        s.point_data["WallPenetration_mm"] = pen               # > 0 = beyond the allowed position
-    pen_f = None
-    if problem.has_wall_field:                                 # the same with the smooth wall field
-        fld = problem.wall_field()
-        pen_f = np.where(fld.inside(Xs), 0.0, np.nan)
-        pen_f[fld.inside(Xs)] = fld(Xs[fld.inside(Xs)], derivatives=0) - problem.wall_field_allow[fld.inside(Xs)]
-        s.point_data["WallFieldPenetration_mm"] = pen_f
-    write_surface(s, cfg.output, "LPS")
-    if b["solver_state"] is not None:
-        try:
-            solver.export_volume(out / "volume_best.vtk", b["solver_state"])
-        except NotImplementedError:
-            pass
-
-    grad = None
-    if b["model"] == "gradient" and cfg.gravity_E_Pa is not None:
-        p = b["params"]
-        qf = b["q_tri"][~clamped]
-        grad = dict(axes=list(b["param_names"][1:]), mean_pE=float(p[0]),
-                    slope_pE={"ap": gravity["slope_ap_pE"], **{a: float(v) for a, v in zip(b["param_names"][1:], p[1:])}},
-                    slope_relative={"ap": gravity["slope_ap_pE"] / float(p[0]),
-                                    **{a: float(v / p[0]) for a, v in zip(b["param_names"][1:], p[1:])}},
-                    pE_min=float(qf.min()), pE_max=float(qf.max()), gravity=gravity,
-                    p0_Pa=float(p[0]) * cfg.gravity_E_Pa)
-    elif b["model"] == "gradient":
-        p = b["params"]
-        qf = b["q_tri"][~clamped]
-        grad = dict(axes=list(b["param_names"][1:]), mean_pE=float(p[0]),
-                    slope_pE={a: float(v) for a, v in zip(b["param_names"][1:], p[1:])},
-                    slope_relative={a: float(v / p[0]) for a, v in zip(b["param_names"][1:], p[1:])},
-                    pE_min=float(qf.min()), pE_max=float(qf.max()))
-    res = dict(solver=cfg.solver, stop_reason=stop_reason, pressure_model=cfg.pressure_model, gradient=grad,
-               loss=cfg.loss,
-               loss_tangent_weight=cfg.loss_tangent_weight, loss_symmetric_weight=loss.sym,
-               mean_err_mm=float(err.mean()), target_to_fitted_mm=t2f,
-               mean_normal_err_mm=float(np.abs(err_n).mean()), best_loss_err_mm=float(b["err"]),
-               metric_points=int(free.sum()), clamped_points=int((~free).sum()),
-               clamped_mismatch_mm=dict(mean=float(mism.mean()), max=float(mism.max())),
-               rigid_rotation_deg=dict(target=rot["target"][0], fitted=rot["fitted"][0]),
-               rigid_shift_mm=dict(target=rot["target"][1], fitted=rot["fitted"][1]),
-               median_err_mm=float(np.median(err)), p95_err_mm=float(np.percentile(err, 95)),
-               max_err_mm=float(err.max()), assd_mm=assd(Xs, *problem.target_surface, tris_a=tris),
-               correspondence="closest point" if closest else "nodes",
-               baseline_mean_mm=float(np.linalg.norm(X_ref - X_tgt, axis=1)[free].mean()),
-               baseline_loss_mm=float(e0), K=b["K"], nu=b["nu"], E_Pa=cfg.E_Pa,
-               pressures_Pa=b["pressures_Pa"], mean_pressure_Pa=float(np.nanmean(b["q_tri"]) * cfg.E_Pa),
-               pressure_sign=sign, evals=trk.n_eval, failed_solves=trk.n_fail,
-               solve_s_mean=trk.solve_s / max(trk.n_eval, 1), solver_stats=solver.stats(),
-               elapsed_min=trk.elapsed() / 60, levels=summary, wall=bool(problem.has_wall),
-               wall_max_penetration_mm=None if pen is None else float(max(pen.max(), 0.0)),
-               wall_points_beyond=None if pen is None else int((pen > 0).sum()),
-               wall_field_max_penetration_mm=None if pen_f is None else float(max(np.nanmax(pen_f), 0.0)),
-               wall_field_points_beyond=None if pen_f is None else int((pen_f > 0).sum()),
-               support_k=cfg.solver_options.get("support_k", 0.0),
-               support_share=solver.support_share(b["Us"], b["q_tri"]))
-    (out / "result_summary.json").write_text(json.dumps(res, indent=2))
-    log.info("result (%s): mean %.3f mm point-to-point, %.3f along the normal (no deformation %.3f point-to-point), "
-             "median %.3f, p95 %.3f, max %.3f, ASSD %.3f mm; K=%d, nu=%.3f, mean p=%.0f Pa (E=%.0f Pa); "
-             "%d solves (%d failed), %.1f min",
-             stop_reason, res["mean_err_mm"], res["mean_normal_err_mm"], res["baseline_mean_mm"], res["median_err_mm"],
-             res["p95_err_mm"], res["max_err_mm"], res["assd_mm"], b["K"], b["nu"],
-             res["mean_pressure_Pa"], cfg.E_Pa, trk.n_eval, trk.n_fail, res["elapsed_min"])
-    if closest:
-        log.info("target -> fitted surface: mean %.3f mm (target points not on the clamp)", t2f)
-        log.info("rigid part vs the inflated lung: fitted %.1f deg / %.1f mm (target: none, no node "
-                 "correspondence)", *rot["fitted"])
-    else:
-        log.info("rigid part vs the inflated lung: target %.1f deg / %.1f mm, fitted %.1f deg / %.1f mm",
-                 *rot["target"], *rot["fitted"])
-    if pen is not None:
-        log.info("wall: %d points beyond the allowed position, max %.2f mm",
-                 res["wall_points_beyond"], res["wall_max_penetration_mm"])
-    if pen_f is not None:
-        log.info("wall field (smoothed): %d points beyond the allowed position, max %.2f mm",
-                 res["wall_field_points_beyond"], res["wall_field_max_penetration_mm"])
-    if res["support_share"] is not None:
-        log.info("tangential support k = %g E/mm: %.1f%% of the pressure force (sum of magnitudes)",
-                 res["support_k"], 100 * res["support_share"])
-    if grad is not None:
-        log.info("gradient: mean p/E %.3f, slopes %s (p/E %.3f .. %.3f on the free triangles)", grad["mean_pE"],
-                 ", ".join("%s %+.3f (%+.0f%% of the mean)" % (a, v, 100 * grad["slope_relative"][a])
-                           for a, v in grad["slope_pE"].items()), grad["pE_min"], grad["pE_max"])
+        raise RuntimeError("no successful forward solve, nothing to export (%s)" % stop_reason)
+    res = write_run(cfg, problem, solver, b, "fit", dict(
+        stop_reason=stop_reason, best_by=fc.best_by, symmetric_weight=loss.sym, best_loss_err_mm=float(b["err"]),
+        best_loss_rms_mm=float(b["rms"]), baseline_loss_mm=float(e0),
+        parameters=dict(zip(b["param_names"], (float(v) for v in b["params"]))),
+        evals=trk.n_eval, failed_solves=trk.n_fail, solve_s_mean=trk.solve_s / max(trk.n_eval, 1),
+        elapsed_min=trk.elapsed() / 60, levels=summary))
+    log.info("fit (%s): %d solves (%d failed), %.1f min", stop_reason, trk.n_eval, trk.n_fail, res["elapsed_min"])
     for lv in summary:
-        log.info("  L%d K=%-3d best %.3f mm (%s, %d solves)", lv["level"], lv["K"],
-                 lv["best_mean_err_mm"], lv["stop"], lv["evals"])
-    return cfg.output
+        log.info("  L%d  %d parameters  best %.3f mm (%s, %d solves)", lv["level"], lv["parameters"],
+                 lv["best_err_mm"], lv["stop"], lv["evals"])
+    return out

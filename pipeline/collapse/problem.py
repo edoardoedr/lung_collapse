@@ -1,8 +1,8 @@
-"""Solver-independent description of the collapse problem: written by fem_setup, read by fem_fit.
+"""Solver-independent description of the collapse problem: written by fem_setup, read by the
+collapse (forward) and fit steps.
 
-Reference configuration = inflated lung (registration output), target = collapsed lung with the
-same surface points, or (unregistered reference) the collapsed surface matched by closest point.
-Plain numpy arrays, LPS, mm, so that any FEM core can read them.
+Reference configuration = inflated lung; optional target = the collapsed lung's surface, matched
+by closest point. Plain numpy arrays, LPS, mm, so that any FEM core can read them.
 """
 
 from dataclasses import dataclass, field, fields
@@ -18,7 +18,7 @@ class CollapseProblem:
     surface_nodes: np.ndarray  # (N,) volume node of each surface point
     tris: np.ndarray           # (T, 3) surface triangles (surface point indices), outward
     clamped_tri: np.ndarray    # (T,) bool, hilum triangles with u = 0 (Dirichlet)
-    target: np.ndarray         # (N, 3) target position of each surface point (aligned)
+    target: np.ndarray         # (N, 3) closest point of each surface point on the collapsed lung
     levels: np.ndarray         # (L,) number of pressure regions per level, coarse -> fine
     regions: np.ndarray        # (L, T) region of each triangle per level, -1 on clamped triangles
     clean_field: np.ndarray    # (N, 3) displacement the regions were clustered on
@@ -35,9 +35,8 @@ class CollapseProblem:
     wall_spacing: np.ndarray = field(default_factory=lambda: np.zeros(()))        # mm
     wall_smoothing_mm: np.ndarray = field(default_factory=lambda: np.zeros(()))   # Gaussian sigma
     wall_field_allow: np.ndarray = field(default_factory=lambda: np.zeros(0))
-    # unregistered reference (no node correspondence): the collapsed surface itself; `target` is
-    # then the closest point of each reference point on it, and fem_fit re-matches every fitted
-    # point to its closest point. Empty = registered, `target` is node-to-node
+    # the collapsed lung's surface (its own nodes, no correspondence with the reference); `target`
+    # is then the closest point of each reference point on it. Empty = no collapsed lung
     target_points: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
     target_tris: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.int64))
 
@@ -53,6 +52,11 @@ class CollapseProblem:
         """The smooth wall field (wall_field.WallField)."""
         from .wall_field import WallField
         return WallField(self.wall_grid, self.wall_origin, float(self.wall_spacing))
+
+    @property
+    def has_target(self):
+        """True when the problem has a collapsed lung to compare with."""
+        return len(self.target_tris) > 0
 
     @property
     def closest_point(self):

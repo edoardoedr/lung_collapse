@@ -1,0 +1,141 @@
+{
+  "patient": "karl23",
+  "data_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/vtk_surfaces_HD/karl23",
+  "output_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD/karl23_noreg_hilum_wall",
+  "steps": [
+    "check_inputs",
+    "geometry",
+    "hilum",
+    "fem_setup",
+    "fit"
+  ],
+  "run_name": "fit",
+  "inputs": {
+    "_comment": "surfaces from 3D Slicer (data_dir). collapsed: null = no target (collapse step only)",
+    "inflated": "lung_left.vtk",
+    "collapsed": "lung_left_collapsed.vtk",
+    "structures": {
+      "airways": "lung_airways.vtk",
+      "arteries": "lung_arteries.vtk",
+      "veins": "lung_veins.vtk"
+    }
+  },
+  "check_inputs": {
+    "outside_tol_mm": 1.0,
+    "max_outside_fraction": 0.01,
+    "notch_radius_mm": 5.0,
+    "notch_depth_mm": 3.0,
+    "max_notch_fraction": 0.005,
+    "max_volume_ratio": 5.0,
+    "raster_spacing_mm": 1.0,
+    "fail_on_warning": false
+  },
+  "geometry": {
+    "input_space": "auto",
+    "merge_tolerance": 1e-05,
+    "pre_smooth_iters": 15,
+    "post_smooth_iters": 5,
+    "smooth_pass_band": 0.1,
+    "target_nodes": 480,
+    "max_faces": 1000,
+    "shrink_factor": 0.9,
+    "max_remesh_attempts": 6,
+    "min_points_per_cluster": 12,
+    "max_subdivisions": 4,
+    "hole_size": 10000.0,
+    "inflated_output": "lung_inflated_mesh.vtp",
+    "collapsed_output": "lung_collapsed_mesh.vtp"
+  },
+  "hilum": {
+    "lung": "collapsed",
+    "output": "hilum_anchor.mrk.json",
+    "max_ring_distance_mm": 50.0
+  },
+  "fem_setup": {
+    "_comment": "clamp: triangles within sphere radius x radius_factor of the anchor points. wall.surface: 'reference' (the inflated surface), a file, or null; grid_mm / smoothing_mm: the wall as a smooth field (solver.wall_update potential). regions: {levels: [...]} only for physics.perturbation regions",
+    "clamp": {
+      "points": [
+        "hilum",
+        "airways",
+        "arteries",
+        "veins"
+      ],
+      "radius_factor": 2.0,
+      "min_points": 20,
+      "growth": 1.1,
+      "max_growth_steps": 10
+    },
+    "mesh_size_mm": 14.0,
+    "gmsh_timeout_s": 300,
+    "wall": {
+      "surface": "reference",
+      "tol_mm": 5.0,
+      "grid_mm": 1.5,
+      "grid_margin_mm": 30.0,
+      "smoothing_mm": 3.0
+    }
+  },
+  "physics": {
+    "_comment": "a parameter is a number (fixed) or {fit: true, init, bounds} (fitted by the fit step). gravity: position of the inflated CT and of the collapse (supine | prone | left_lateral | right_lateral | [x, y, z] LPS), null = no gravity. collapse: q0 (p/E) | p0_Pa | volume_ratio. perturbation (fit only): null | {gradient: [ap, si, ml]} | {regions: [K, ...]}",
+    "material": {
+      "name": "neo_hookean",
+      "nu": 0.4,
+      "params": {}
+    },
+    "E_Pa": 1700.0,
+    "tissue_density": 250.0,
+    "gravity": {
+      "reference": "supine",
+      "collapse": "supine"
+    },
+    "collapse": {
+      "q0": {
+        "fit": true,
+        "init": 0.5,
+        "bounds": [
+          -1.0,
+          3.0
+        ]
+      }
+    },
+    "wall": {
+      "stiffness": 20.0,
+      "eps": 0.5
+    },
+    "perturbation": null
+  },
+  "solver": {
+    "_comment": "core: torch | warp | getfem (validation); the rest are the core's options (pipeline/collapse/solvers/nodal.py)",
+    "core": "torch",
+    "wall_update": "potential",
+    "order": 1,
+    "load_steps": 8,
+    "newton_tol": 1e-07,
+    "newton_maxit": 30,
+    "warm_substeps": true,
+    "wall_max_updates": 15,
+    "wall_settle_mm": 0.5,
+    "adaptive_steps": true,
+    "max_solve_s": 120,
+    "device": null,
+    "linear_solver": null
+  },
+  "collapse": {
+    "sequence_frames": 0
+  },
+  "fit": {
+    "symmetric_weight": 1.0,
+    "best_by": "rms",
+    "target_error_mm": 2.5,
+    "time_budget_min": 600,
+    "hard_grace_min": 10.0,
+    "lsq_ftol": 1e-06,
+    "lsq_xtol": 1e-06,
+    "lsq_gtol": 1e-08,
+    "level_patience": 3,
+    "level_min_improve": 0.005,
+    "fit_patience": 2,
+    "fit_min_improve": 0.02,
+    "sign_check_q": 0.2
+  }
+}

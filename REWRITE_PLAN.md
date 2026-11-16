@@ -2,6 +2,54 @@
 
 Plan for a new branch (`refactoring_to_v2`; called `physical-model` below) that rewrites the collapse part of the pipeline around the physical load model (METHODOLOGY.md section 8). Written 2026-11-16 for the agent that implements it. Read CLAUDE.md first (environments, rules, commands), then METHODOLOGY.md sections 3–8 and analysis/results.md sections 4–5b.
 
+## Status (2026-11-16)
+
+Done on branch `refactoring_to_v2`, tested on the Mac (`tests/`, numpy core on karl04); on the server only Phase 1 has run.
+
+| Phase | State |
+|---|---|
+| 1 wall as a smooth potential | done; server: 4 patients, E 1.7 and 1 kPa, no failed solve (analysis/results.md 7b). Open: smoothing 2 / 3 / 5, `newton_maxit` 50 |
+| 2 config schema | done: `pipeline/config.py`, `configs/<p>.json` (16), `scripts/migrate_config.py` |
+| 3 code structure | done: `load.py`, `forward.py`, `fit.py`, `results.py`, `sequence.py`, `setup.py`; registration, old configs and the discarded options removed; body force in `nodal.py`. `params.py` was not needed (`config.Param` + `load.Level`) |
+| 4 forward mode | done (`collapse` step, `volume_ratio` search, sequence). Leave-one-out script: waits for the collapse-% rule |
+| 5 fits | done; cohort scan: `scripts/fit_cohort.py` |
+| 6 regression, docs | docs done. Regression on the server **to do** (commands below); local evidence: the new fit reproduces the old server result on karl04 (ASSD 9.00 mm, p0 1283 vs 1282 Pa, 11 solves) |
+
+Differences from the plan: the step names are `geometry`, `collapse`, `fit`; runs go to `output_dir/runs/<run_name>/`; the gravity parameter fitted is the slope s_g = γL (reported as E); the migrated configs keep the old `output_dir`, so the existing setups are reused; `summarize_fits.py` still reads only the old layout (`summarize_runs.py` for the new one); `fit.best_by` defaults to `rms` (to confirm).
+
+Server checks, in this order (from the repository root, branch `refactoring_to_v2`):
+
+```bash
+# 1. wall field into the existing setups (the 4 of Phase 1 have it already; harmless to redo)
+for p in karl02 karl06 karl08 karl10 karl17 karl18 karl24 patient_1 patient_3 patient_10; do
+  python scripts/add_wall_field.py --config configs/$p.json 2>&1 | tee field_$p.txt; done
+
+# 2. the new fit against the previous code: karl04, expected ASSD 9.00 mm, p0 1282 Pa, 11 solves
+python main.py --config configs/karl04.json --steps fit --set run_name=v2_check 2>&1 | tee v2_fit_karl04.txt
+
+# 3. Jacobian of the core and of the load model, with the smooth-field wall
+python scripts/check_jacobian.py --config configs/karl04.json --newton-tol 1e-10 2>&1 | tee v2_jac_karl04.txt
+
+# 4. forward: collapse to the patient's own volume ratio, with a sequence; then lateral decubitus
+python main.py --config configs/karl04.json --steps collapse \
+  --set 'physics.collapse={"volume_ratio": 0.55}' collapse.sequence_frames=20 run_name=v2_forward 2>&1 | tee v2_forward_karl04.txt
+python main.py --config configs/karl04.json --steps collapse \
+  --set 'physics.collapse={"volume_ratio": 0.55}' 'physics.gravity={"reference":"supine","collapse":"left_lateral"}' \
+        run_name=v2_lateral 2>&1 | tee v2_lateral_karl04.txt
+
+# 5. old regions fit with the new code (no wall setup of main: fit_torch there had ASSD ~2.9 mm median)
+python main.py --config configs/karl04.json --steps fit --set output_dir=/home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD/karl04_noreg_hilum \
+  physics.gravity=null 'physics.perturbation={"regions":[1,4,8,14,25,40]}' fit.best_by=mean run_name=v2_regions 2>&1 | tee v2_regions_karl04.txt
+
+# 6. geometry + setup from scratch in a new folder: the meshes and problem.npz must equal the existing ones
+python main.py --config configs/karl04.json --steps geometry hilum fem_setup \
+  --set output_dir=/home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD/karl04_v2_setup 2>&1 | tee v2_setup_karl04.txt
+
+# 7. all patients, then the table
+JOBS=4 bash scripts/run_all.sh -- --steps fit
+python scripts/summarize_runs.py /home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD /home/jovyan/Dataset_Lungs/CZ_dataset/FEM_fit_CZ --runs fit
+```
+
 ## 0. Why, and what stays
 
 The code grew around the **regions fit**: Ward regions of the patient's own displacement, fitted p/E per region. Gravity was then added on top as an offset to a gradient model (`fit.gravity_offset`, `fem_fit.gravity_E_Pa`, the ap axis written in the code). The physical parameters are spread over `fem_setup`, `fem_fit` and `solver_options`, mixed with numerical settings. The patient configs still say `pressure_model: "regions"`, so every gravity run so far was made with `--set` overrides.

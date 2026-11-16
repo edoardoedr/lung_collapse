@@ -1,226 +1,193 @@
 # Configuration reference
 
-One JSON file per patient and variant (`configs/<patient>_torch.json`, `<patient>_wall_torch.json`) drives the whole pipeline; the current ones run without registration and clamp only the hilum region, earlier sets are in `configs/archive/`. This page lists every key: what it is, what it is for, and the values it can take. The defaults are those in [`pipeline/config.py`](../pipeline/config.py); a key left out of the JSON takes its default.
-
-**Range** gives the allowed values (enumerations), or the sensible interval with the reason. Values outside a sensible interval are accepted by the code but usually make a step slow, fail or meaningless.
+One JSON file per patient (`configs/<patient>.json`) describes the whole model and what to run. This page lists every key. The defaults are those in [`pipeline/config.py`](../pipeline/config.py); a key left out of the JSON takes its default. The configs of the earlier schema (regions fit, registration) are in git on `main`; `scripts/migrate_config.py` converts them.
 
 ## General rules
 
-- **Unknown keys are an error**, so a typo cannot be silently ignored. Keys starting with `_` (e.g. `_comment`) are comments and are skipped.
-- **Paths:**
-  - `data_dir` and `output_dir` are relative to the JSON file;
-  - step inputs are relative to `data_dir`, step outputs to `output_dir`;
-  - elastix `parameter_files` are relative to the JSON file;
-  - absolute paths are used as given.
-- **`null` for an input** = take it from the step that produces it (e.g. `fem_setup.reference: null` = the registration output). This is the normal setting.
-- **Coordinate spaces:** all surfaces inside the pipeline are LPS (3D Slicer's file convention).
+- **Paths:** `data_dir` and `output_dir` are relative to the JSON file; inputs are relative to `data_dir`, outputs to `output_dir`; absolute paths are used as given.
+- **Comments:** keys starting with `_` are ignored.
+- **Typos:** an unknown key is an error.
+- **Overrides:** `python main.py --config ... --set key=value ...`, with the value parsed as JSON, e.g. `physics.E_Pa=1000`, `'physics.collapse={"volume_ratio": 0.5}'`, `solver.newton_maxit=50`, `run_name=test`.
+- **Physical parameters** (`physics.E_Pa`, `physics.material.nu`, `physics.collapse.q0`) are written in one of two ways:
+
+  ```json
+  "E_Pa": 1700
+  "E_Pa": {"fit": true, "init": 1700, "bounds": [300, 10000]}
+  ```
+
+  A number is fixed. The second form is fitted by the `fit` step, starting from `init`, inside `bounds` (optional; defaults in the tables). The `collapse` (forward) step refuses a config with anything marked `fit`.
 
 ## Top level
 
-| Key | Default | What it is | Range |
+| Key | Default | Meaning | Values |
 |---|---|---|---|
-| `patient` | – (required) | Name used in the logs. | any string |
+| `patient` | – (required) | Name used in the logs and summaries. | any string |
 | `data_dir` | – (required) | Folder with the input surfaces of this patient. | path |
-| `output_dir` | – (required) | Folder for all the results. Two configs of the same patient with different settings (e.g. with / without wall) need different `output_dir`s, or they overwrite each other. | path |
-| `steps` | – | Steps run by `python main.py --config ...`; always executed in pipeline order. `--steps` on the command line overrides it. | subset of `check_inputs`, `surface_mesh`, `hilum`, `registration`, `fem_setup`, `fem_fit` |
+| `output_dir` | – (required) | Folder for all the results of this patient. | path |
+| `steps` | `[]` | Steps run by `python main.py --config ...`, always in pipeline order; `--steps` on the command line replaces it. | `check_inputs`, `geometry`, `hilum`, `fem_setup`, `collapse`, `fit` |
+| `run_name` | `run` | Folder of the forward or fit run: `output_dir/runs/<run_name>/`. Give each variant its own name. | plain folder name |
 
-## `check_inputs` – sanity check of the input surfaces
+## `inputs` – the segmented surfaces
 
-Only warns (unless `fail_on_warning`); nothing it computes is used by later steps.
+Surface models exported from 3D Slicer (`.vtk`), all from the same scan.
 
-| Key | Default | What it is | Range |
+| Key | Default | Meaning |
+|---|---|---|
+| `inflated` | – (required) | The inflated lung: the model's undeformed shape, and by default the chest wall. |
+| `collapsed` | `null` | The collapsed lung: the target of the `fit` step and of the reported errors. `null` = none (prediction only: `collapse` step, no `check_inputs`, `hilum.lung: "inflated"`). |
+| `structures` | `{}` | `{name: file}` of the airway, artery and vein trees (`airways`, `arteries`, `veins`): they locate the hilum. |
+
+## `check_inputs` – sanity check of the surfaces
+
+Needs the collapsed lung. Findings are warnings with the position in LPS and RAS; the flagged surfaces go to `checks/`.
+
+| Key | Default | Meaning | Values |
 |---|---|---|---|
-| `collapsed` | `null` | Collapsed lung to check. `null` = `surface_mesh.input`. | path or `null` |
-| `inflated` | `null` | Inflated lung to check. `null` = `registration.inflated`. | path or `null` |
-| `structures` | `null` | `{name: file}` of the airway / vessel trees. `null` = `hilum.structures`. | dict or `null` |
-| `outside_tol_mm` | 1.0 | A collapsed point farther than this outside the inflated lung is flagged. | 0.5–3 mm (about the voxel size: smaller flags segmentation noise) |
+| `outside_tol_mm` | 1.0 | A collapsed point farther than this outside the inflated lung is flagged. | 0.5–3 mm |
 | `max_outside_fraction` | 0.01 | Warn when more than this fraction of the collapsed points is flagged. | 0–0.05 |
-| `notch_radius_mm` | 5.0 | Radius of the closing ball: notches narrower than about twice this are detected. | 2–10 mm |
+| `notch_radius_mm` | 5.0 | Radius of the closing ball: notches narrower than about twice this are detected. | 3–8 mm |
 | `notch_depth_mm` | 3.0 | A point deeper than this inside a notch is flagged. | 1–5 mm |
 | `max_notch_fraction` | 0.005 | Warn when more than this fraction of the points is in notches. | 0–0.02 |
-| `max_volume_ratio` | 5.0 | Warn when inflated / collapsed volume is larger (large ratios make the registration hard). | 3–10 |
-| `raster_spacing_mm` | 1.0 | Voxel size of the notch check. | 0.5–2 mm (smaller = more precise, slower) |
+| `max_volume_ratio` | 5.0 | Warn when inflated / collapsed volume is larger. | 3–8 |
+| `raster_spacing_mm` | 1.0 | Voxel size of the notch check. | 0.5–2 mm |
 | `fail_on_warning` | `false` | Stop the pipeline when any check fails. | `true` / `false` |
 
-## `surface_mesh` – remeshing of the collapsed lung (step 2)
+## `geometry` – surface meshes
 
-Turns the dense Slicer surface into the uniform mesh whose nodes are followed through all later steps.
+The inflated lung and, if given, the collapsed lung are cleaned and remeshed uniformly with the same settings.
 
-| Key | Default | What it is | Range |
+| Key | Default | Meaning | Values |
 |---|---|---|---|
-| `input` | – (required) | Collapsed lung surface from Slicer. | file in `data_dir` |
-| `output` | – (required) | Remeshed surface. | file name, `.vtp` |
-| `input_space` | `auto` | Space of the input file. `auto` reads the tag Slicer writes (LPS if none). | `auto`, `LPS`, `RAS` |
-| `output_space` | `LPS` | Space of the output. Keep LPS: later steps expect it. | `LPS`, `RAS` |
+| `target_nodes` | 480 | Nodes of each output mesh (faces ≈ 2 × nodes). Sets the resolution of the model. | 300–2000 |
+| `max_faces` | 1000 | Hard ceiling on the faces: if exceeded, `target_nodes` is reduced. | ≥ 2 × `target_nodes` |
+| `input_space` | `auto` | Space of the input files. `auto` reads the tag Slicer writes (LPS if none). | `auto`, `LPS`, `RAS` |
 | `merge_tolerance` | 1e-5 | Distance [mm] under which duplicate points are welded. | 1e-6–1e-3 |
-| `pre_smooth_iters` | 15 | Taubin smoothing before remeshing (removes the segmentation staircase). | 0–50 (more = smoother, slightly smaller details) |
+| `pre_smooth_iters` | 15 | Taubin smoothing before remeshing (removes the segmentation staircase). | 0–50 |
 | `post_smooth_iters` | 5 | Taubin smoothing after remeshing. | 0–20 |
 | `smooth_pass_band` | 0.1 | Taubin pass band: lower = stronger smoothing. | 0.01–0.5 |
-| `target_nodes` | 480 | Number of nodes of the output mesh (faces ≈ 2 × nodes). Sets the resolution of the whole FEM surface and of the registration correspondence. | 300–2000 (more = finer but slower FEM) |
-| `max_faces` | 1000 | Hard ceiling on the faces: if exceeded, `target_nodes` is reduced. | ≥ 2 × `target_nodes` |
 | `shrink_factor` | 0.9 | Factor applied to `target_nodes` at each retry when `max_faces` is exceeded. | 0.8–0.95 |
-| `max_remesh_attempts` | 6 | Retries before the step fails, both for `max_faces` and for a remeshed surface that is not watertight (ACVD can leave a few non-manifold edges; it then retries with ~2 % fewer clusters). | 3–10 |
-| `min_points_per_cluster` | 12 | The input is subdivided until it has at least this many points per output node (ACVD needs a dense input). | 5–20 |
+| `max_remesh_attempts` | 6 | Retries before the step fails (too many faces, or not watertight). | 3–10 |
+| `min_points_per_cluster` | 12 | The input is subdivided until it has at least this many points per output node. | 8–20 |
 | `max_subdivisions` | 4 | Maximum subdivisions for the rule above. | 2–5 |
-| `hole_size` | 1e4 | Largest hole [mm] that is filled. The default fills any hole. | keep large |
+| `hole_size` | 1e4 | Largest hole [mm] that is filled. | keep large |
+| `inflated_output` | `lung_inflated_mesh.vtp` | File of the inflated mesh in `output_dir`. | file name |
+| `collapsed_output` | `lung_collapsed_mesh.vtp` | File of the collapsed mesh in `output_dir`. | file name |
 
-## `hilum` – hilum anchor (step 3)
+## `hilum` – hilum anchor
 
-| Key | Default | What it is | Range |
+Where each tree enters the lung (exact surface intersection, largest ring); the hilum is the centroid of the ring centres. Written as spheres for Slicer.
+
+| Key | Default | Meaning | Values |
 |---|---|---|---|
-| `lung` | – (required) | Lung surface the trees enter; same scan as the trees (the collapsed lung). | file in `data_dir` |
-| `structures` | – (required) | `{name: file}` of the trees, usually `airways`, `arteries`, `veins`. The names become the point labels in the `.mrk.json`. | dict |
-| `output` | – (required) | Slicer markups file with one sphere per ring plus the hilum. | file name, `.mrk.json` |
+| `lung` | `collapsed` if there is one, else `inflated` | The lung surface the trees are intersected with. | `collapsed`, `inflated` |
+| `output` | `hilum_anchor.mrk.json` | Slicer markups file with one sphere per ring plus the hilum. | file name |
 | `max_ring_distance_mm` | 50.0 | Warn if a ring centre is farther than this from the hilum (wrong ring picked). | 30–80 mm |
 
-## `registration` – inflated lung onto the collapsed mesh nodes (step 4)
+## `fem_setup` – the model's geometry
 
-Computed on masks with elastix, then applied to the nodes of the step-2 mesh. Output: the same nodes in the inflated shape. With `method: "none"` there is no registration: the output is the inflated lung remeshed like step 2, with its own nodes.
+Writes `fem/setup/problem.npz`, read by the `collapse` and `fit` steps. Rerun it after changing anything here.
 
-| Key | Default | What it is | Range |
+| Key | Default | Meaning | Values |
 |---|---|---|---|
-| `method` | `elastix` | `elastix`: register as described here. `none`: no registration; `output` is the `inflated` surface remeshed with the `surface_mesh` settings (needs that section; `inflated` must be a surface, not a labelmap). Its nodes do not correspond to the collapsed mesh's, so `fem_setup` matches the target by closest point (see there) and `fem_fit` fits point-to-surface. All other keys of this section are then ignored. | `elastix`, `none` |
-| `inflated` | – (required) | Inflated lung: surface (rasterised) or labelmap. | file in `data_dir` |
-| `inflated_label` | `null` | Label value if `inflated` is a labelmap. `null` = any voxel > 0. | integer or `null` |
-| `collapsed` | `null` | Collapsed lung mask. `null` = rasterise the step-2 mesh (recommended: the mask matches the mesh exactly). | file or `null` |
-| `collapsed_label` | `null` | As `inflated_label`. | integer or `null` |
-| `surface` | `null` | Mesh to warp. `null` = `surface_mesh.output`. | file or `null` |
-| `surface_space` | `auto` | Space of `surface`. | `auto`, `LPS`, `RAS` |
-| `direction` | `inverse` | `inverse`: fixed = inflated, as in Slicer, the nodes are mapped through the inverse transform. `forward`: fixed = collapsed, no inversion. `inverse` gave better results. | `inverse`, `forward` |
-| `landmarks` | `null` | `.mrk.json` with landmarks. `null` = `hilum.output`. | file or `null` |
-| `landmark_points` | `["hilum"]` | Labels of the landmarks used (the hilum must not move). | any of `airways`, `arteries`, `veins`, `hilum` |
-| `landmark_weight` | 0.0 | Weight of the landmark term in elastix. 0 = landmarks only for the QA log. | 0–0.005: 0.001 keeps the shape match and pins the hilum; ≥ 0.01 spoils the shape match |
-| `hilum_region_mm` | 30.0 | QA only: the log reports the displacement of the nodes within this distance of the hilum. | 20–50 mm |
-| `raster_spacing_mm` | 1.0 | Voxel size for rasterised surfaces. | 0.5–2 mm (smaller = more precise, much slower) |
-| `crop_margin_mm` | 20.0 | Empty margin around the lungs in the masks. | 10–40 mm |
-| `parameter_maps` | `["rigid", "bspline"]` | elastix built-in presets, used only if `parameter_files` is empty. | `rigid`, `affine`, `bspline` |
-| `parameter_files` | `[]` | elastix parameter files, in order (they replace `parameter_maps`). The configs use the SlicerElastix preset `Rigid` + `BSpline`; add `Affine` in between when the inflated / collapsed volume ratio is large (e.g. ×7). | files in `configs/elastix/` |
-| `parameter_overrides` | `{}` | elastix parameters forced in every stage, e.g. `{"MaximumNumberOfIterations": "1000"}`. | elastix keys |
-| `random_seed` | 42 | Seed of elastix's random sampling: same seed = same result. | any integer |
-| `inversion_tol_mm` | 1e-3 | Accuracy of the per-node inverse transform. | 1e-4–1e-2 mm |
-| `inversion_max_iter` | 100 | Iterations of the per-node inversion. | 50–200 |
-| `inversion_samples` | 200000 | Lookup points used for the starting guess of the inversion. | 1e5–1e6 |
-| `max_interpolated_nodes` | 10 | Nodes where the inversion does not converge are interpolated from their neighbours; above this number the step fails. | 0–20 |
-| `max_unflip_nodes` | 40 | Nodes re-interpolated to remove flipped triangles; above this number the step fails (the registration folds a large region). | 0–60 |
-| `output` | – (required) | Warped mesh (the inflated lung with the collapsed mesh's nodes). | file name, `.vtp` |
-| `output_space` | `LPS` | Keep LPS. | `LPS`, `RAS` |
-
-## `fem_setup` – preparation of the inverse FEM (step 5a)
-
-| Key | Default | What it is | Range |
-|---|---|---|---|
-| `reference` | `null` | Inflated surface = undeformed FEM configuration. `null` = registration output. | file or `null` |
-| `target` | `null` | Collapsed surface to reach. `null` = step-2 mesh. With the same nodes and triangles as `reference` (registered) node *i* must reach node *i*. With different nodes (`registration.method: "none"`) the target is matched by closest point: `align` must be `none`; `clamp_still_mm` and the pressure regions use the distance / displacement of each reference point to its closest point on the target (`cluster_field` is ignored, there is no rigid part to remove); `fem_fit` re-matches every fitted point to its closest target point at each evaluation, and the reported rigid rotation of the target is empty. | file or `null` |
-| `anchor` | `null` | Markups with the hilum. `null` = hilum output. | file or `null` |
-| `anchor_point` | `hilum` | Point(s) of the anchor file whose spheres make the clamped (fixed) region: one name, or a list for the union of their balls, e.g. `["hilum", "airways", "arteries", "veins"]` (the hilar ring centres of each structure, step 3). Only the first ball grows to reach `anchor_min_points`; the others are added as they are. A larger clamp resists the lung's rotation about the hilum (karl04 25 → 62 clamped triangles, patient_10 23 → 53; on patient_2 the vessel balls lie inside the grown hilum ball). The configs use the four points. | names in the anchor file |
-| `anchor_radius_factor` | 2.0 | Clamp radius = sphere radius of `anchor_point` × this (about 30 mm for a 15 mm hilum). Larger = more of the lung held fixed. | 1.5–3 |
-| `anchor_min_points` | 20 | The clamp radius grows until it holds at least this many surface points (and is not flat), otherwise the FEM has free rigid motions. | 10–40 |
-| `anchor_growth` | 1.1 | Factor of each radius growth step. | 1.05–1.3 |
-| `anchor_max_growth_steps` | 10 | Maximum growth steps (with 1.1: up to ×2.6). | 5–20 |
-| `clamp_still_mm` | `null` | Also clamp (u = 0) the triangles whose three points move less than this between the inflated and the aligned collapsed lung: where the lung barely moves (it rests on mediastinum / diaphragm) it is held there, which also resists its rotation about the hilum. Chosen after the target alignment, which still uses only the anchor balls. `reference.vtp` cell data `Clamped`: 1 = anchor balls, 2 = still. On the current setups 5 mm gives karl04 ~50 more triangles, patient_10 ~117, patient_2 none (no point within 8 mm). The configs use 5. | `null`, 2–8 mm |
-| `wall` | `null` | Cavity the lung may not leave while collapsing. `"reference"` = the registered inflated surface (recommended); a file name = that surface; `null` = no wall. | `"reference"`, file, `null` |
-| `wall_tol_mm` | 2.0 | How far a point may move beyond the wall (registration noise margin; a global enlargement of the wall). Some target points lie outside the 2 mm margin (old runs: 4–49 points, up to 15 mm), which the fit cannot reach and pushes against the wall for; the wall configs use 5. | 0.5–10 mm |
-| `wall_grid_mm` | `null` | Also store the wall as a smooth field, needed by `fem_fit.solver_options.wall_update: "potential"`: signed distance to the wall on a regular grid of this spacing, Gaussian-smoothed and saved in `problem.npz` (tens of MB, ~1 min). `null` = not built. | `null`, 1–2 mm (1.5) |
-| `wall_grid_margin_mm` | 30.0 | The grid covers the wall's bounding box plus this margin. A trial position outside the grid is a rejected Newton step, so it must exceed any outward motion. | 20–50 mm |
-| `wall_smoothing_mm` | 3.0 | Gaussian σ of the smoothing: rounds the wall's corners (paravertebral gutter, costophrenic sulcus) by a few mm, which is what lets Newton converge there. The margin of each point is measured with the smoothed field (`wall_tol_mm` + how far the point already lies outside it). 0 = no smoothing. | 0–5 mm |
-| `align` | `hilum_rigid` | Rigid alignment of the target before the fit. `hilum_rigid`: so that the clamped points match (consistent with u = 0 there); `rigid`: all points; `none`: as is (try it when the segmentations of the same scan are consistent). With a wall the alignment can move the target out of the cavity: on karl04 `hilum_rigid` rotates it ~16° for no gain on the clamp (clamped points 7.84 → 7.83 mm from their target) and leaves 22 target points beyond the 5 mm margin (up to 20.6 mm; as in the scan: none, max 2.2 mm). With `none` + `fem_fit.loss: "plane"` the fitted surface is 3.4 mm (karl04) / 2.3 mm (patient_10) from the collapsed lung as in the scan, against 14.8 / 5.2 mm aligned. Without wall the same: 3.3 / 2.3 mm against 14.6 / 5.2 mm. All configs use `none`. | `hilum_rigid`, `rigid`, `none` |
-| `cluster_field` | `rigid_residual` | Displacement used to group the triangles into pressure regions: with the full rigid part removed, with the clamp rigid part removed, or raw. | `rigid_residual`, `hilum_rigid`, `raw` |
-| `feature` | `normal` | Ward feature: normal displacement (inward / outward) or full 3D vector. | `normal`, `vector` |
-| `pos_weight` | 0.3 | Weight of the position in the clustering: higher = rounder, more compact regions. | 0–1 |
-| `levels` | `[1, 4, 8, 14, 25, 40]` | Number of pressure regions per level, coarse → fine. Each level starts from the previous one's best. More / finer levels = better match, longer fit, less identifiable pressures. | increasing integers, 1–100 |
-| `mesh_size_mm` | 8.0 | Maximum tetrahedron size inside the lung (the surface keeps the step-2 triangles). Larger = fewer tetrahedra = faster FEM. | 8–15 mm (14 ≈ 6500 tets, 8 ≈ 30000 tets) |
+| `clamp.points` | `["hilum", "airways", "arteries", "veins"]` | Points of the hilum file whose spheres make the clamped (fixed) region: the union of the balls. | names in the hilum file |
+| `clamp.radius_factor` | 2.0 | Radius of each ball = sphere radius × this (about 30 mm for the hilum). | 1–3 |
+| `clamp.min_points` | 20 | The first ball grows until the clamp holds at least this many surface points, not all in a plane (otherwise rigid motions stay free). | 10–50 |
+| `clamp.growth` | 1.1 | Factor of each growth step. | 1.05–1.3 |
+| `clamp.max_growth_steps` | 10 | Maximum growth steps. | 5–20 |
+| `mesh_size_mm` | 14.0 | Maximum tetrahedron size inside the lung (the surface keeps the `geometry` triangles). | 8–20 mm |
 | `gmsh_timeout_s` | 300 | Gmsh is killed after this time. | 60–600 s |
+| `wall.surface` | `reference` | The cavity the lung may not leave. `reference` = the inflated surface itself; a file name (in `data_dir`) = that closed surface; `null` = no wall. With gravity the wall carries the lung's weight, so the physical model needs it. | `reference`, file, `null` |
+| `wall.tol_mm` | 5.0 | How far a point may go beyond the wall (segmentation margin), on top of how far it already lies outside. | 2–10 mm |
+| `wall.grid_mm` | 1.5 | Grid spacing of the wall stored as a smooth field (signed distance, smoothed), needed by `solver.wall_update: "potential"`. `null` = not built. Tens of MB in `problem.npz`, ~30 s. | `null`, 1–2 mm |
+| `wall.grid_margin_mm` | 30.0 | The grid covers the wall's bounding box plus this margin; it must exceed any outward motion. | 20–50 mm |
+| `wall.smoothing_mm` | 3.0 | Gaussian σ of the smoothing: rounds the wall's corners by a few mm, which lets Newton converge there. Cost: the lung can leave the true wall by ~2.5 mm more than the margin. | 0–5 mm |
+| `regions.levels` | none | Only for `physics.perturbation` regions (needs the collapsed lung): numbers of Ward pressure regions, coarse → fine. Filled in automatically from `physics.perturbation.regions`. | e.g. `[1, 4, 8, 14, 25, 40]` |
+| `regions.pos_weight` | 0.3 | Weight of the position in the clustering: higher = more compact regions. | 0–1 |
 
-## `fem_fit` – regional pressure fit (step 5b)
+For a `fem_setup` output made before the wall field existed: `python scripts/add_wall_field.py --config ...` adds it without touching the mesh.
 
-### Model and solver
+## `physics` – the collapse model
 
-| Key | Default | What it is | Range |
+Pressure on the free surface, relative to E (METHODOLOGY.md):
+
+```
+q = q0 + γ (h − h_mean) [+ perturbation],     γ = tissue_density · g / E_Pa
+```
+
+with h the height against gravity in the reference position.
+
+| Key | Default | Meaning | Values |
 |---|---|---|---|
-| `output` | – (required) | Fitted surface (main result). | file name, `.vtp` |
-| `run_name` | `fit` | Folder of this fit in `output_dir/fem/` (history, checkpoint, summary). Several fits, e.g. with other cores, can share one `fem_setup`: the `_warp` / `_torch` configs use `fit_warp` / `fit_torch` and a different `output`. | folder name, not `setup` |
-| `solver` | `getfem` | FEM core. `warp` and `torch` share the same Newton, load path and wall code (`solvers/nodal.py`) and differ only in the assembly; `torch` also accepts other materials. | `getfem`, `warp`, `torch`, or `module:Class` |
-| `solver_options` | `{}` | Options passed to the core, see [below](#solver_options). | dict |
-| `E_Pa` | 3000 | Young's modulus. Only scales the reported pressures: from shapes alone only p / E can be found. | any > 0 (literature for lung: ~1–5 kPa) |
-| `nu` | 0.30 | Poisson's ratio: fixed value, or start value if `free_nu`. | 0.05–0.45 (0.5 = incompressible, not allowed) |
-| `free_nu` | `true` | Optimise ν together with the pressures. | `true` / `false` |
-| `nu_bounds` | `[0.05, 0.40]` | Bounds of ν when free. With `order: 2` the upper bound can go to 0.45 (P1 elements lock near 0.5). | within 0.01–0.45 |
-| `pressure_model` | `regions` | How p/E varies over the surface. `regions`: one p/E per region of each `fem_setup` level (coarse → fine). `gradient`: mean p/E plus a linear slope along each of `gradient_axes`, fitted as a uniform level and then mean + slopes; the regions are not used. The regions are clusters of the patient's own target displacement, so their pressures do not transfer to another lung; the gradient's few numbers do. Each free triangle is its own core region (cheap for `warp` / `torch`; slow with `getfem`). Summary: `gradient` with `mean_pE`, `slope_pE` per axis = p/E difference between the two ends of the lung along it, `slope_relative` = slope / mean, `pE_min` / `pE_max`. | `regions`, `gradient` |
-| `gradient_axes` | `["ap", "si"]` | `gradient` only: axes of the slopes, on the reference (inflated) lung in LPS. `ap` + = anterior, `si` + = superior, `ml` + = lateral (away from the hilum; reads `fem/setup/setup_summary.json`). Each coordinate is centred (area-weighted mean 0 over the free triangles) and divided by the lung's extent along the axis. On the 8 regions fits (2026-10-14) anterior > posterior in all patients, apex < base in 7 of 8, medial / lateral inconsistent. | distinct values among `ap`, `si`, `ml` |
-| `gravity_E_Pa` | `null` | `gradient` only: fix the `ap` slope to the lung's weight instead of fitting it (METHODOLOGY.md section 8): p/E = mean + γ (h − h̄), h = anterior coordinate of the triangle centroid in mm (up in a supine scan), centred, γ = ρ̄ g / `gravity_E_Pa`. `ap` is then left out of the fitted axes (the others in `gradient_axes` are still fitted; with `["ap"]` only the mean is fitted). Also sets `E_Pa`, so the reported pressures are in physical Pa. Summary: `gradient.gravity` (E, density, γ, AP extent, fixed slope) and `p0_Pa`. For a scan over a common E. | `null` or > 0 Pa (fits with the wall: 0.5–2.9 kPa) |
-| `tissue_density` | 250 | `gravity_E_Pa` only: mean density ρ̄ of the inflated lung in kg/m³ (assumed: no CT HU). The fixed slope scales with ρ̄ / E. | > 0 |
-| `gravity_prefit` | `[0, 0.5]` | `gravity_E_Pa` only: continuation. Before the real fit, the uniform level is fitted with these fractions of the gravity term; their states only warm-start the next level and are never the result (`prefit: true` in the summary's `levels`). A solve from rest with the whole gravity term pushes the lung onto the wall from the first increment: in the first scan (2026-11-16, no prefit) 27 of 42 first solves failed. `[]` = no continuation. | fractions in [0, 1) |
-| `gravity_bisect` | 4 | `gravity_E_Pa` only: when a gravity level (prefit or final) fails at its first solve, a level at the mid fraction between the last successful one and it is inserted and the level retried, up to this many times per fit. karl01 at E 1 kPa failed the step 0.5 → 1 (2026-11-16). Each failed attempt costs up to `max_solve_s`. When the insertions are used up, the fit stops with "gravity continuation failed: fraction … not reached from …" (no result; the log gives the slope reached). 0 = off. The summary's `levels` carry `gravity_fraction`. | ≥ 0 |
-| `levels` | `null` | `regions` only: subset of the `fem_setup` levels to fit (e.g. `[1, 4, 8, 14]` for a quick run). `null` = all. | values of `fem_setup.levels` |
+| `E_Pa` | 1700 | Effective Young's modulus of the lung tissue [Pa] (tissue, surfactant and recoil together). It sets the gravity slope and scales the reported pressures; without gravity the shape does not depend on it. **Parameter** (bounds 300–10000); fitting it needs gravity. | 500–5000 Pa |
+| `material.nu` | 0.40 | Poisson's ratio: how compressible the tissue is (the lung loses air). **Parameter** (bounds 0.05–0.45). | 0.2–0.45 |
+| `material.name` | `neo_hookean` | Strain-energy function, a name in [`solvers/materials.py`](../pipeline/collapse/solvers/materials.py). Other than `neo_hookean`: `torch` core only. | `neo_hookean`, `mooney_rivlin` |
+| `material.params` | `{}` | The material's fixed extra parameters. | dict |
+| `tissue_density` | 250 | Mean density of the inflated lung [kg/m³] (assumed: there are no CT values). Only density / E matters for the shape. | 150–400 |
+| `gravity` | `supine` | Patient position: `{"reference": ..., "collapse": ...}` = position in the inflated CT and during the collapse; one name = the same for both; `null` = no gravity term. When they differ, the change of the weight's direction is added as a body force (not available with GetFEM). | `supine`, `prone`, `left_lateral`, `right_lateral`, or a vector `[x, y, z]` in LPS (direction of gravity) |
+| `collapse` | `{"q0": {"fit": true, "init": 0.5}}` | The uniform part of the pressure, exactly one of: `q0` = p/E (**parameter**, bounds −1–3); `p0_Pa` = the same in Pa (forward only); `volume_ratio` = V_collapsed / V_inflated to reach (forward only: q0 is searched, 3–6 solves). | `q0` 0.1–1.5 |
+| `wall.stiffness` | 20.0 | Wall penalty [E per mm of penetration]. Higher = less penetration, harder Newton. | 5–100 |
+| `wall.eps` | 0.5 | Width [mm] of the smooth start of the penalty. | 0.1–2 |
+| `perturbation` | `null` | Diagnostic term added to the load, **fit step only**: `{"gradient": ["si", "ml"]}` = free linear slopes along anatomical axes (`ap` + = anterior, `si` + = superior, `ml` + = lateral; `ap` only with `gravity: null`, since it is the gravity axis of a supine patient); `{"regions": [1, 4, 8], "reg": 1.0}` = one p/E per Ward region, levels coarse → fine (it replaces q0; `reg` = smoothness between adjacent regions). | `null`, gradient, regions |
 
-### Optimiser
+Examples:
 
-| Key | Default | What it is | Range |
+| Goal | `physics` |
+|---|---|
+| fit the collapse pressure, E given (default) | `"E_Pa": 1700, "collapse": {"q0": {"fit": true, "init": 0.5}}` |
+| fit E too | `"E_Pa": {"fit": true, "init": 1700}` |
+| predict a collapse to 45 % of the volume | `"collapse": {"volume_ratio": 0.45}` (step `collapse`) |
+| predict in lateral decubitus from a supine CT | `"gravity": {"reference": "supine", "collapse": "left_lateral"}` |
+| the old regions fit (best shape the FEM can give) | `"gravity": null, "perturbation": {"regions": [1, 4, 8, 14, 25, 40]}` |
+| where the physics is missing | `"perturbation": {"regions": [4, 8]}` on top of gravity |
+
+## `solver` – FEM core and numerical options
+
+`core` picks the core; every other key is an option of that core (an unknown one is an error). `torch` and `warp` share Newton, load path and wall (`solvers/nodal.py`) and differ in the assembly; `getfem` is kept for validation only (no smooth-field wall, no body force, no other material).
+
+| Key | Default | Meaning | Values |
 |---|---|---|---|
-| `optimizer` | `lsq` | `lsq`: bounded least squares (trust region), uses the Jacobian. `nm`: Nelder-Mead, derivative-free, much slower for many regions. | `lsq`, `nm` |
-| `jacobian` | `analytic` | `analytic`: Jacobian from the core, one linear solve per region (≈14× faster fit on karl04, same error). `2-point`: finite differences, one nonlinear solve per region. | `analytic`, `2-point` |
-| `loss` | `point` | What the fit matches, per surface point (d = fitted − target). `point`: the whole d (point-to-point, needs the registration's point correspondence to be right). `plane`: only the component of d along the target normal, plus `loss_tangent_weight` × the tangential rest. The registration matches boundaries only, so points can slide along the surface; a coherent slide looks like a rotation of the lung (5–16° on our cases) which `point` forces the fit to reproduce with unbalanced pressures, `plane` does not. The analytic Jacobian is projected the same way, for every core. `mean_err_mm` in the summary stays point-to-point; `mean_normal_err_mm` and `best_loss_err_mm` give the other metrics. All configs use `plane` (with `align: "none"`); `point` is better only on point-to-point correspondence, which the registration does not get right tangentially. | `point`, `plane` |
-
-Clamped points (anchor balls and `clamp_still_mm`) are left out of the residual and of every reported error: they cannot move, so their distance from the target is a constant that does not change the fit but would distort the mean error, the `target_error_mm` stop and the plateau tests. The summary reports it separately (`clamped_mismatch_mm`), with `metric_points` / `clamped_points`; the fitted surface has point data `Clamped`.
-| `loss_tangent_weight` | 0.0 | `plane` only: weight of the tangential part of d. 0 = pure point-to-plane; a small value (0.05–0.2) keeps points from drifting far along the surface. | 0–1 |
-| `loss_symmetric_weight` | 0.0 | Unregistered reference only (`registration.method: "none"`, closest-point target; ignored with a warning otherwise). Weight of the target → fitted term: for every target point, the vector to its closest point on the fitted surface. Target points whose closest point falls on the clamp are left out. 0 = one-sided (fitted → target only): the lung can then shrink onto part of the target and leave the rest uncovered (karl23, patient_1, patient_2 hilum-only: 93–98 % collapse instead of 51–86 %, 24–27 mm ASSD). 1 = both directions weigh the same, each averaged over its own points, ≈ a least-squares ASSD. The fit error (`mean_err_mm` in the history, the `target_error_mm` stop, the plateau tests) is then (fwd + w·bwd) / (1 + w); the summary also has `target_to_fitted_mm`. Current configs: 1. | ≥ 0 |
-| `lsq_diff_step` | 5e-3 | Relative finite-difference step (only `2-point`, or a core without Jacobian). | 1e-3–1e-2 |
-| `lsq_ftol` | 1e-6 | lsq stops when the cost changes less than this (relative). | 1e-8–1e-4 |
-| `lsq_xtol` | 1e-6 | lsq stops when the parameters change less than this (relative). | 1e-8–1e-4 |
-| `lsq_gtol` | 1e-8 | lsq stops when the gradient is smaller than this. | 1e-10–1e-6 |
-| `q0` | 0.5 | Initial pressure p / E of all regions (0.5 × 3000 Pa = 1500 Pa). | 0.1–1 |
-| `q_bounds` | `[-1.0, 3.0]` | Bounds of p / E per region. Negative = pushing outward. | lower −1–0, upper 2–5 |
-| `reg` | 1.0 | Smoothness between adjacent regions: penalises pressure jumps [mm of error per unit p / E]. Higher = smoother, more identifiable pressures, slightly worse match. | 0–10 |
-| `sign_check_q` | 0.2 | p / E of the start-up check that positive pressure collapses the lung. | 0.05–0.5 |
-
-### Stops
-
-A **level** ends on the first of: lsq convergence (`lsq_*`) or level plateau. The **whole fit** ends on the first of: target error, time budget, fit plateau, end of the levels, Ctrl+C.
-
-| Key | Default | What it is | Range |
-|---|---|---|---|
-| `level_patience` | 3 | Level plateau: number of optimiser iterations (lsq: one Jacobian each) looked back. | 2–10 |
-| `level_min_improve` | 0.005 | Level plateau: move to the next K when the level's best error improved by less than this fraction over the last `level_patience` iterations. With the analytic Jacobian iterations are cheap: a lower value (0.001–0.002) gains accuracy for a few minutes. | 0.001–0.02 |
-| `fit_patience` | 2 | Fit plateau: number of consecutive levels looked at. | 1–3 |
-| `fit_min_improve` | 0.02 | Fit plateau: stop when `fit_patience` levels in a row improve the best error by less than this fraction. | 0.01–0.05 |
-| `best_by` | `mean` | Which state is the result, and what the level plateau and the `target_error_mm` stop look at: `mean` = lowest mean distance (`mean_err_mm` in the history), `rms` = lowest rms (`rms_mm`), i.e. the least-squares cost the optimiser minimises (without the `reg` term). The two can disagree: with 1–2 parameters `mean` may keep the starting point (karl18 gradient fits, karl20 `gravity_E_Pa` 3000). Use `rms` for the gradient / gravity fits. | `mean`, `rms` |
-| `target_error_mm` | 2.5 | Stop when the mean error reaches this. | 1–5 mm (registration and discretisation alone give ~2–3 mm) |
-| `time_budget_min` | 240 | Stop after this many minutes. The best result so far is kept. | any |
-| `hard_grace_min` | 10 | A watchdog kills the process at budget + grace (if a solve hangs). | 5–30 min |
-
-### `solver_options`
-
-Common to `getfem`, `warp` and `torch` unless noted. The defaults are in [`pipeline/collapse/solvers/common.py`](../pipeline/collapse/solvers/common.py) (`support_k`: [`nodal.py`](../pipeline/collapse/solvers/nodal.py)).
-
-| Key | Default | What it is | Range |
-|---|---|---|---|
-| `order` | 1 | Finite element order. 2 = more accurate, no volumetric locking, much slower; `warp` and `torch` support only 1. | 1, 2 |
-| `load_steps` | 4 | Load ramp from zero when a solve cannot start from the previous one (retried with 3 × steps). More = more robust, slower restarts. | 4–16 |
+| `core` | `torch` | FEM core. | `torch`, `warp`, `getfem`, or `module:Class` |
+| `wall_update` | `outer` | How the contact is solved. `potential` (the configs; `torch` / `warp`): the wall is the smooth field of `fem_setup.wall.grid_mm`, evaluated at the current position inside Newton with its exact tangent: no rounds, exact Jacobian. `outer`: Newton with the wall linearised and fixed, alternated with re-linearisations until the gap settles. | `potential`, `outer` |
+| `load_steps` | 4 | First load step = 1 / this of the path from rest (the configs use 8). | 4–16 |
+| `adaptive_steps` | `false` | `true` (the configs): a failed load step is retried at half size, a successful one doubles the next. | `true` / `false` |
+| `min_load_step` | 1/64 | Smallest adaptive step, as a fraction of the path: below it the solve fails. | 1/256–1/16 |
+| `warm_substeps` | `false` | Without `adaptive_steps`: retry a failed warm start in sub-steps before ramping from rest. | `true` / `false` |
 | `newton_tol` | 1e-7 | Newton tolerance. | 1e-9–1e-6 |
-| `newton_maxit` | 30 | Newton iterations per load step. | 20–50 |
-| `pressure_sign` | 1.0 | Sign of the pressure term. The start-up check corrects it if wrong. | +1, −1 |
-| `warm_substeps` | `false` | If the direct step from the previous solution fails, first retry in `load_steps` and 3 × `load_steps` sub-steps from it, before restarting from zero. Useful with a wall; without wall it can cost failed attempts. | `true` with a wall, `false` without |
-| `wall_stiffness` | 20.0 | Wall penalty stiffness [E per mm of penetration]. Higher = less penetration, harder Newton. | 5–100 |
-| `wall_eps` | 0.5 | Width [mm] of the smooth start of the penalty. Larger = smoother contact, easier Newton, more penetration. | 0.1–2 |
-| `wall_update` | `outer` | How the contact is solved. `outer`: Newton with the wall linearisation fixed, alternated with re-linearisations (both cores). `newton`: the wall is re-linearised at every Newton iteration, a single Newton solve (`warp` and `torch`; it oscillates, not used). `potential` (`warp` and `torch`; needs `fem_setup.wall_grid_mm`): the wall is a smooth field evaluated at the current position of every surface node, with its exact tangent (gradient and curvature of the field), so contact is part of one Newton solve: no rounds, no `unsettled` failures, exact Jacobian. Same force law (`wall_stiffness`, `wall_eps`); `wall_quadrature`, `wall_max_updates` and `wall_settle_mm` are not used. | `outer`; `newton`, `potential` (warp, torch) |
-| `wall_max_updates` | 6 | `outer` only: maximum Newton / re-linearisation rounds per solve. A solve that has not settled by then fails (before, it was accepted, and on karl04 the lung had slid up to 98 mm through the wall). The wall configs use 15. | 4–15 |
-| `wall_settle_mm` | 0.05 | `outer` only: rounds stop when, at every surface point within 1 mm of the wall, the previous linearisation's gap differs from the true gap by less than this. (Before, the change of the raw gap data was used: far from the wall, near the cavity's medial axis, it jumped by mm at every round although nothing changed, so no solve ever settled.) The wall configs use 0.5: with 0.2 karl04 still had 20 of 73 solves failing because the rounds oscillated without settling (contact up to ~0.5 mm less accurate, inside the 5 mm margin). | 0.01–1 mm |
-| `wall_quadrature` | `face` | How the wall force is integrated on each triangle. `face`: the 4-point face rule of GetFEM's IM_TETRAHEDRON(3), which has a negative centre weight, so a node can be pulled outward and the contact chatters (Newton oscillates, penetration up to ~2 mm beyond the margin on karl04). `nodal`: at the vertices with positive weights (GetFEM IM_NC(3,1)); each node's force depends only on its own gap, which is also where the wall distance is computed. On karl04 (p/E 0.2) it lowers the penetration beyond the margin from 0.4–2.3 mm to 0.04–0.25 mm. The wall configs use `nodal`. | `face`, `nodal` |
-| `adaptive_steps` | `false` | Load stepping. `false`: fixed sub-steps (`load_steps`, ladders above). `true`: a failed load step is undone and retried at half size, a successful one doubles the next; the solve fails below `min_load_step`. With a wall the step size decides convergence (karl04: steps of p/E 0.02 converge in 1–2 wall rounds, 0.05–0.1 diverge as the points slide along the linearised wall). The wall configs use `true`. | `true` / `false` |
-| `min_load_step` | 1/64 | Smallest adaptive step, as a fraction of the path from the start state to the requested pressures. | 1/256–1/16 |
-| `slow_ramp` | `true` | When a solve fails, also retry with 3 × `load_steps` (sub-)steps. `false` = fail fast: the trial counts as failed and the optimiser moves on; with a wall a hopeless solve otherwise costs dozens of Newton runs. The wall configs use `false`. | `true` / `false` |
-| `max_solve_s` | `null` | Seconds after which one forward solve gives up (counted as failed). GetFEM checks it before each Newton run, so it can overrun by one run. The wall configs use 120. | `null`, 60–600 |
-| `linear_solver` | `null` | Sparse linear solver. `getfem`: `null` = MUMPS if available, or a GetFEM name (`mumps`, `superlu`). `warp` and `torch`: `null`/`auto`, `cudss` (GPU), `pardiso` (CPU, `pypardiso`), `scipy`. Do not copy a GetFEM value into a `warp` / `torch` config. | see left |
-| `device` | `null` | `warp` and `torch`: device, e.g. `cuda:0` or `cpu`. `null` = GPU if available. `torch` refuses `mps` (Apple GPU): float32 only and no sparse solver, Newton would not converge. | Warp / torch device name |
-| `support_k` | 0.0 | `warp` and `torch` only: tangential elastic support of the surface, stiffness per unit area relative to E [1/mm]. Every surface node gets the force −k a (I − n nᵀ) u (a = its reference area, n = its reference normal): it resists the lung sliding or rotating along the cavity, not the collapse along the normal. Against the near-mechanism of the hilum-only clamp, where the lung swings about the hilum almost for free and the wall rounds diverge (the cause of most failed wall solves). It takes part of the load: the summary reports `support_share` (support force / pressure force); keep it small (a few %). Scale: tangential slip of ~10 mm at p/E ~1 gives a share ≈ k × 10, so 0.001–0.01. 0 = off. | 0, 0.001–0.01 |
-| `material` | `neo_hookean` | `torch` only: material, a name in [`solvers/materials.py`](../pipeline/collapse/solvers/materials.py). `neo_hookean` = the GetFEM / Warp material. | `neo_hookean`, `mooney_rivlin`, or one you add |
-| `material_params` | `{}` | `torch` only: the material's fixed parameters, e.g. `{"c01_fraction": 0.3}` for `mooney_rivlin` (share of the shear stiffness in the I2 term; 0 = Neo-Hookean). | depends on the material |
+| `newton_maxit` | 30 | Newton iterations per load step. With the `potential` wall some steps reach 30 and are redone smaller: 50 may be faster. | 20–60 |
+| `max_solve_s` | `null` | Seconds after which one forward solve gives up (a failed solve is a rejected trial of the fit). The configs use 120. | `null`, 60–600 |
+| `wall_max_updates` | 6 | `outer` only: maximum rounds per solve; not settled by then = failed. The configs use 15. | 4–15 |
+| `wall_settle_mm` | 0.05 | `outer` only: the rounds stop when the linearised gap is within this of the true one near the wall. The configs use 0.5. | 0.01–1 mm |
+| `linear_solver` | `null` | Sparse solver. `torch` / `warp`: `null` = cuDSS on GPU, else pardiso, else scipy. | `cudss`, `pardiso`, `scipy`, `null` |
+| `device` | `null` | `torch` / `warp`: e.g. `cuda:0` or `cpu`. `null` = GPU if available. | device name |
+| `order` | 1 | Element order (1 only for `torch` / `warp`). | 1 |
+| `pressure_sign` | 1.0 | Sign of the pressure term; the start-up check corrects it if wrong. | +1, −1 |
 
-## Quick recipes
+Wall stiffness and material are set in `physics`, not here.
 
-- **Quick test fit:** `fem_fit.levels: [1, 4, 8]`, `time_budget_min: 30`.
-- **Faster FEM:** `fem_setup.mesh_size_mm: 14`, `fem_fit.jacobian: "analytic"`, `solver: "warp"` on a GPU machine.
-- **With the wall, faster:** `fem_setup.wall: "reference"`, `solver: "warp"` or `"torch"`, `warm_substeps: true`; `solver_options.wall_update: "newton"` is not usable yet (it oscillates; see CLAUDE.md).
-- **Smoother, more identifiable pressures:** raise `reg` (e.g. 3) or stop at a coarser level (`levels` up to 14 or 25).
-- **Pressure field transferable to another lung:** `fem_fit.pressure_model: "gradient"` (3 parameters with the default axes), in its own `run_name`, e.g. `--set fem_fit.pressure_model=gradient fem_fit.run_name=fit_gradient fem_fit.output=lung_fem_fit_gradient.vtp`.
-- **Registration of a strongly collapsed lung (volume ratio > ~4):** add `elastix/Parameters_Affine.txt` between the rigid and B-spline files.
+## `collapse` – forward run
+
+| Key | Default | Meaning | Values |
+|---|---|---|---|
+| `sequence_frames` | 0 | > 0: also write the collapse sequence for Slicer / ParaView (`runs/<run_name>/sequence/`), the load ramped 0 → 100 % in this many frames. | 0, 20–40 |
+| `volume_tol` | 0.005 | `physics.collapse.volume_ratio`: accepted error of the reached ratio. | 0.001–0.02 |
+| `max_search_solves` | 15 | ... and the most solves spent searching q0. | 8–30 |
+
+## `fit` – inverse run
+
+Bounded least squares (trust region) with the analytic Jacobian, on the distance between the fitted and the collapsed surface in both directions.
+
+| Key | Default | Meaning | Values |
+|---|---|---|---|
+| `symmetric_weight` | 1.0 | Weight of the target → fitted distance next to the fitted → target one. 0 = one-sided: a lung that shrinks onto part of the target scores well although the rest stays uncovered. | 0–2 |
+| `best_by` | `rms` | The result is the state with the lowest `rms` distance (what the optimiser minimises) or the lowest `mean`. With 1–2 parameters `mean` can keep the starting point. | `rms`, `mean` |
+| `slope_bound` | 4.0 | Bound on the slopes of `physics.perturbation.gradient` [p/E across the lung]. | 1–6 |
+| `target_error_mm` | 2.5 | Stop when the error reaches this. | 1–5 mm |
+| `time_budget_min` | 240 | Stop after this many minutes; the best state so far is the result. | any |
+| `hard_grace_min` | 10 | A watchdog kills the process at budget + grace (if a solve hangs). | 5–30 min |
+| `level_patience` | 3 | A level stops when its best error improved by less than `level_min_improve` over this many optimiser iterations. | 2–5 |
+| `level_min_improve` | 0.005 | ... relative improvement. | 0.001–0.02 |
+| `fit_patience` | 2 | Regions levels: stop when this many levels in a row improve by less than `fit_min_improve`. | 1–3 |
+| `fit_min_improve` | 0.02 | ... relative improvement. | 0.01–0.05 |
+| `lsq_ftol`, `lsq_xtol` | 1e-6 | The optimiser stops when the cost / the parameters change less than this (relative). | 1e-8–1e-4 |
+| `lsq_gtol` | 1e-8 | ... or when the gradient is smaller than this. | 1e-10–1e-6 |
+| `sign_check_q` | 0.2 | p/E of the start-up check that positive pressure collapses the lung. | 0.05–0.5 |

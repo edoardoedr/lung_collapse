@@ -1,54 +1,72 @@
 # Methodology
 
-How the collapsed-lung fits are made: pipeline, physical model, equations, pressure models, inverse problem and contact treatment. The results, the evidence behind the design choices and the problems found are in [analysis/results.md](analysis/results.md); the plan and the to-do list in [NEXT.md](NEXT.md); every config key in [configs/README.md](configs/README.md).
+The collapse model: what is modelled, the equations, how it is solved and how its parameters are fitted. Results, the evidence behind the design choices and the problems found are in [analysis/results.md](analysis/results.md); the plan and the to-do list in [NEXT.md](NEXT.md); every config key in [configs/README.md](configs/README.md). The earlier regions-fit methodology is in git (`git show main:METHODOLOGY.md`).
 
 ## 1. Goal
 
-Training data for a GNN surrogate of lung collapse in VATS. The starting problem is inverse: given the inflated lung (reference) and the collapsed lung (target) from CT, find the regional pleural pressures that collapse the reference onto the target in a FEM model. Plan:
+Training data for a GNN surrogate of lung collapse in VATS. The model must collapse **any inflated lung** from a few physical parameters, so that the surrogate can be trained on many simulated collapses and tested on the real ones.
 
-1. **Regions fit** on the real patients: shows that the model reproduces real collapses and gives their pressures.
-2. **Common rules** (gradient fit, pressure–collapse rule): a few numbers that transfer to a new lung.
-3. **Collapse of an inflated-only lung:** choose the collapse %, find the mean p/E that gives it, one forward solve.
-4. **Synthetic dataset + GNN:** geometry + pressure field → displacement. The GNN replaces the FEM solve; it does not find the patient's pressure by itself.
+1. **Physical model** (this document): elastic lung, loss of the pleural pressure, gravity, chest wall. Parameters: E, ν, density, patient position, the uniform pressure that sets the collapse %.
+2. **Calibration on the real patients** (inflated + collapsed CT): fit the parameters, find which can be common to all patients (E) and how the rest follows from the collapse %.
+3. **Prediction:** an inflated lung + the collapse % (+ position) → one forward run.
+4. **Synthetic dataset + GNN:** geometry + load → displacement.
 
-## 2. Pipeline
+## 2. What is modelled
 
-`check_inputs` → `surface_mesh` → `hilum` → `registration` → `fem_setup` → `fem_fit`. All surfaces are in LPS.
+**In vivo (reference).** The inflated lung is held open by the negative pleural pressure against its elastic recoil. The pleural pressure is not uniform: it is lower at the top, and its vertical gradient is what carries the lung's weight. A pressure linear in height on a closed surface gives, by the divergence theorem, exactly Archimedes' force,
 
-| Step | What it does |
-|---|---|
-| `check_inputs` | integrity, containment, notches and volume ratio of the segmentations |
-| `surface_mesh` | clean-up and ACVD remesh of the collapsed surface, ~480 nodes |
-| `hilum` | largest intersection ring of airways, arteries and veins with the lung surface; hilum = centroid of the three ring centres |
-| `registration` | `method: "none"`: the inflated surface is only remeshed with the same settings; reference and target are matched by closest point |
-| `fem_setup` | clamp, pressure regions, optional wall, Gmsh tetrahedra (14 mm) → `problem.npz` |
-| `fem_fit` | inverse problem (section 5) |
+$$
+\oint_{\Gamma} \bar\rho g\, h \; n \, dA = \bar\rho g V \, e_h ,
+$$
 
-**Current configuration** (`configs/<p>_torch.json`, `<p>_wall_torch.json`):
+so the lung "floats" in the pleural pressure field, with $\bar\rho$ its mean density (~250 kg/m³: tissue, blood and air). The measured pleural gradient, ~0.25 cmH₂O/cm ≈ 2.5 Pa/mm, is $\bar\rho g$.
 
-| Item | Choice |
-|---|---|
-| Registration / target alignment | none / none |
-| Clamp | hilum region only (union of the four anchor balls), `clamp_still_mm` 0 |
-| Material | compressible Neo-Hookean, ν = 0.40 fixed |
-| Unknowns | q = p/E, bounds [−1, 3]; `E_Pa` = 3000 only converts to Pa |
-| Loss | closest-point `plane`, symmetric term weight 1 |
-| Levels | K = 1, 4, 8, 14, 25, 40 regions |
-| Core | torch, analytic Jacobian |
-| Wall (`_wall` configs) | the inflated reference surface, allowance 5 mm, `outer` rounds, `nodal` quadrature |
+**Pneumothorax.** The pleural space fills with air at uniform (atmospheric) pressure. The lung loses the mean under-pressure, so it shrinks by its recoil, and the gradient, so its weight is no longer carried: it settles on the chest wall. (The buoyancy of the air itself is ~1/200 of the weight: neglected.)
 
-Why these choices (evidence in results, section 7):
+**Model.** The inflated lung is the stress-free reference, clamped at the hilum. The load is the pleural pressure that is removed, and the chest wall is a contact surface:
 
-- **No registration:** same shape error, less rotation; mask registration gave a wrong reference volume on some patients.
-- **No alignment, `plane` loss:** mask-based correspondence slides tangentially along the surface; the normal residual ignores that slip, and the rigid alignment made the fit chase it.
-- **Hilum-only clamp:** without registration, "still" points counted every point that slid onto the target as fixed.
-- **Symmetric loss:** with the one-sided term the lung shrank onto part of the target.
+$$
+\Delta p(X) = p_0 + \bar\rho g \left(h(X) - \bar h\right),
+\qquad h(X) = -\,e_A \cdot X
+$$
 
-## 3. FEM model
+- $p_0$: the uniform recoil pressure released; it sets the collapse %. $\bar h$ (area-weighted mean over the free surface) only shifts $p_0$.
+- $e_A$: direction of gravity in the reference position (supine: posterior = $+y$ in LPS), so $h$ is the height against gravity. It is taken at the **reference** position $X$: the load is the release of the in-vivo state of each material point.
+- **No body force** is added when the collapse happens in the same position: in the reference the weight is already balanced by the pleural gradient. The weight, no longer balanced, is carried by the wall, which is therefore part of the model.
+- **Different positions.** If the inflated CT is taken in position A and the collapse happens in position B, the reference loads are the weight along $e_A$ and the pleural gradient along $e_A$; the final ones are the weight along $e_B$. The difference is the surface term above plus a body force
 
-Notation: $q = p/E$, $X_i$ reference points, $x_i = X_i + u_i$ fitted points, $\theta$ fit parameters. Non-dimensional with E = 1, P1 tetrahedra, u = 0 on the clamped faces.
+$$
+b = \bar\rho g \,(e_B - e_A) \quad \text{per unit reference volume.}
+$$
 
-**Material:**
+  The resultant of the two is $\bar\rho g V e_B$, the weight along the collapse position, whatever A is. The small motion of the lung while the patient is turned with the chest closed is ignored (the model goes straight from the reference to the collapse).
+
+**Approximations.**
+
+- The reference is taken stress-free, but in vivo the lung is prestressed (recoil, weight). The rigorous version needs the unloaded geometry (one more inverse problem); to first order it is the same.
+- Uniform material: there are no CT values of the inflated lung, so no per-element density or air fraction. The Neo-Hookean volumetric term has **no barrier** against crushing: a uniform p/E above K/E = 1.67 has no equilibrium (a barrier at the tissue fraction is a possible extension, NEXT.md).
+- Frictionless wall (lubricated pleura); rigid wall.
+
+## 3. Equations
+
+Notation: $q = \Delta p/E$, $X_i$ reference points, $x_i = X_i + u_i$. Non-dimensional with E = 1, P1 tetrahedra, $u = 0$ on the clamped faces. Find $u$ such that for every $\delta u$
+
+$$
+\underbrace{\int_{\Omega_0} P : \nabla \delta u \, dV}_{\text{elasticity}}
++ \underbrace{s \int_{\Gamma_f} q(X)\, J F^{-T} N \cdot \delta u \, dA}_{\text{follower pressure}}
+- \underbrace{\int_{\Omega_0} \gamma\,(e_B - e_A) \cdot \delta u \, dV}_{\text{body force}}
++ \underbrace{\sum_i a_i\, w(g_i)\, \nabla\tilde\varphi(x_i) \cdot \delta u_i}_{\text{wall}} = 0
+$$
+
+$$
+q(X) = q_0 + \gamma \left(h(X) - \bar h\right) + \delta q(X),
+\qquad q_0 = \frac{p_0}{E},
+\qquad \gamma = \frac{\bar\rho g}{E}\ [\text{mm}^{-1}]
+$$
+
+Only ratios to E enter: the shape fixes $q_0$ and $\gamma$, i.e. $p_0/E$ and $\bar\rho/E$. With $\bar\rho$ assumed, $\gamma$ gives E. In the code the gravity term is written with the slope across the lung, $s_g = \gamma L$ ($L$ = extent of $h$ over the free surface): $q = q_0 + s_g\,(h - \bar h)/L$, $E = \bar\rho g L / s_g$.
+
+**Material** (compressible Neo-Hookean, as GetFEM's `Compressible_Neo_Hookean`; $I_1 = \operatorname{tr}(F^T F)$, $J = \det F$, $P = \partial W/\partial F$):
 
 $$
 W(F) = c_1\left(J^{-2/3} I_1 - 3\right) + d_1 (J - 1)^2,
@@ -56,183 +74,100 @@ W(F) = c_1\left(J^{-2/3} I_1 - 3\right) + d_1 (J - 1)^2,
 \qquad d_1 = \frac{K}{2} = \frac{1}{6(1-2\nu)}
 $$
 
-Compressible Neo-Hookean as in GetFEM (`Compressible_Neo_Hookean`), $I_1 = \operatorname{tr}(F^T F)$, $J = \det F$, $P = \partial W / \partial F$. At ν = 0.40: $c_1 = 0.179$, $d_1 = 0.833$, $K = 1.67$. The first term is isochoric (shape change only); the volumetric term $(J-1)^2$ is one of several possible choices (e.g. $\ln^2 J$).
+At ν = 0.40: $c_1 = 0.179$, $d_1 = 0.833$, $K = 1.67$. In hydrostatic compression $p/E = (K/E)(1 - J)$ at any strain. The torch core takes any strain energy $W(F, \nu)$ (`solvers/materials.py`: stress and tangent by automatic differentiation).
 
-In hydrostatic compression ($F = \lambda I$) the isochoric term vanishes and, at any strain,
+**Pressure:** Nanson's formula (current area vector, / 3 per node on P1 faces). The sign $s = \pm 1$ is set by a start-up check so that $q > 0$ pushes inward.
 
-$$
-\frac{p}{E} = \frac{K}{E}(1 - J)
-$$
+**Body force:** constant, so each tetrahedron gives $b V_t / 4$ to its nodes; no tangent. Zero when $e_A = e_B$.
 
-so the material has **no barrier** against crushing ($W$ stays finite as $J \to 0$) and a uniform pressure above $K/E$ has no equilibrium.
-
-**Equilibrium:** for given $q$, find $u$ ($u = 0$ on the clamp) such that for every $\delta u$
+**Wall** (smooth field, `wall_update: "potential"`). `fem_setup` samples the signed distance to the wall (> 0 outside) on a grid (1.5 mm), smooths it (Gaussian σ = 3 mm) and stores it; $\tilde\varphi$ is its tricubic B-spline interpolation (C²). Per free surface node, with reference nodal area $a_i$ and margin $A_i$ = `tol_mm` + $\langle\tilde\varphi(X_i)\rangle_+$:
 
 $$
-\underbrace{\int_{\Omega_0} P : \nabla \delta u \, dV}_{\text{elasticity}}
-+ \underbrace{s \sum_k q_k \int_{\Gamma_k} J F^{-T} N \cdot \delta u \, dA}_{\text{follower pressure}}
-+ \underbrace{\int_{\Gamma_f} w(g) \, n_w \cdot \delta u \, dA}_{\text{wall}}
-+ \underbrace{\sum_i k_s a_i \left[(I - n_i n_i^T) u_i\right] \cdot \delta u_i}_{\text{tangential support}} = 0
+g_i = \tilde\varphi(x_i) - A_i,
+\qquad w(g) = \frac{k}{2e}\left(\langle g \rangle_+^2 - \langle g - e \rangle_+^2\right),
+\qquad \frac{\partial f_i}{\partial x_i} = a_i \left[ w'(g_i)\, \nabla\tilde\varphi\, \nabla\tilde\varphi^T + w(g_i)\, \nabla^2\tilde\varphi \right]
 $$
 
-- **Pressure:** Nanson's formula (current area vector, / 3 per node on P1 faces). The sign $s = \pm 1$ is set by a sign check so that $q > 0$ pushes inward.
-- **Wall** (only with a wall), penalty with $\langle\cdot\rangle_+$ the positive part:
+($k = 20$, $e = 0.5$ mm: zero inside, quadratic over $e$, then linear.) The field is evaluated at the current position inside Newton, with the exact tangent (gradient and curvature of the field): no contact rounds, and the Jacobian of section 5 is exact. The default wall is the inflated surface itself, so every point starts on it; the smoothing rounds its corners by a few mm (the points can leave the true wall by ~2.5 mm more than the margin).
 
-$$
-w(g) = \frac{k}{2e}\left(\langle g \rangle_+^2 - \langle g - e \rangle_+^2\right),
-\qquad g = u \cdot n_w - G,
-\qquad G = n_w \cdot U_s - \phi + a
-$$
+The earlier treatment, `wall_update: "outer"`, is kept for comparison and for GetFEM: the wall linearised at a state (normal $n_w$ = interpolated vertex normals at the closest point, gap along it), Newton with it fixed, then re-linearisation, up to `wall_max_updates` rounds until the gap settles (`wall_settle_mm`). Its rounds alternate at the corners of the wall (results, sections 7 and 7b).
 
-  $\phi$ = signed distance to the wall at the linearisation state $U_s$, $a$ = allowance (`wall_tol_mm` plus how far the point already lies outside in the reference), $n_w$ = wall normal (area-weighted vertex normals interpolated at the closest point). $k = 20$, $e = 0.5$ mm.
-- **Tangential support** (`support_k` = $k_s$, default 0, nodal cores only): springs on the surface nodes, $a_i$ and $n_i$ the reference nodal area and normal. A smooth, path-independent substitute for friction against the near-mechanism of a small clamp.
+**Perturbation $\delta q$** (diagnostic, fit only): free slopes along anatomical axes, $\sum_a s_a \xi_a$ with $\xi_a$ the normalised centroid coordinate (ap + = anterior, si + = superior, ml + = lateral), or one p/E per Ward region of the target displacement (connectivity-constrained clusters; it then replaces $q_0$). The regions come from the patient's own collapse, so they cannot predict: they give the best shape this FEM can reach, and show where the physical load is missing something.
 
-## 4. Pressure models
+## 4. Forward run (`collapse` step)
 
-On a free surface triangle $t$, $q = \Phi\,\theta$:
+All parameters given. One solve along the proportional load ramp (section 6) gives the collapsed lung. The uniform part is given as $q_0$, as $p_0$ in Pa, or as the volume ratio $V_{collapsed}/V_{inflated}$ to reach: the volume decreases monotonically with $q_0$, so $q_0$ is found by secant steps inside a bracket (first guess from the hydrostatic response $1 - V/V_0 = q_0 / (K/E)$), each solve warm-started from the last one; 3–6 solves for 0.5 % in volume.
 
-$$
-\text{regions: } q_t = \theta_{k(t)}
-\qquad\qquad
-\text{gradient: } q_t = \theta_0 + \sum_{a} \theta_a \, \xi_a(t),
-\qquad \xi_a(t) = \frac{c_a(t) - \bar c_a}{\max c_a - \min c_a}
-$$
+## 5. Inverse run (`fit` step)
 
-- **Regions** (`pressure_model: "regions"`): connectivity-constrained Ward clusters of the target displacement with the rigid part removed, for each level K. They come from the patient's own target, so they do not exist for a new lung.
-- **Gradient** (`"gradient"`): $c_a(t)$ = centroid coordinate along axis $a$ (ap + = anterior, si + = superior, ml + = lateral; patient supine), $\bar c_a$ its area-weighted mean over the free triangles. A slope $\theta_a$ is the p/E difference between the two ends of the lung. Levels: uniform, then mean + slopes. Each free triangle is one core region, so no core changed.
-
-## 5. Inverse problem
-
-Bounded least squares (scipy `least_squares`, TRF; bounds $-1 \le \theta \le 3$ on regions and on the gradient mean, $|\theta_a| \le 4$ on slopes):
+The parameters marked `fit` ($q_0$, E through $s_g$, ν) and the perturbation are fitted to the collapsed surface by bounded least squares (scipy `least_squares`, TRF):
 
 $$
 \min_{\theta} \;
 \sum_{i \in \text{free}} \|r_i\|^2
 + w_s \frac{n_f}{n_t} \sum_{j=1}^{n_t} \|b_j\|^2
-+ \lambda^2 \sum_{(a,b)\ \text{adjacent}} (\theta_a - \theta_b)^2
++ \lambda^2 \sum_{(a,b)\ \text{adjacent regions}} (\theta_a - \theta_b)^2
 $$
 
 with $n_f$ free points, $n_t$ target points, $w_s = 1$, $\lambda = 1$ (regions only).
 
-- **Fitted → target:** $c_i$ = closest point of $x_i$ on the target, $n_i$ the normal there, both recomputed at every evaluation; $w = 0$ in the configs:
-
-$$
-r_i = \left[n_i n_i^T + w\,(I - n_i n_i^T)\right](x_i - c_i)
-$$
-
-- **Target → fitted:** $z_j = \sum_m \beta_{jm} x_{v_m}$ = closest point of target point $y_j$ on the fitted surface (barycentric $\beta$); $b_j = z_j - y_j$, set to 0 when $z_j$ lies on a clamped triangle.
+- **Fitted → target:** $c_i$ = closest point of $x_i$ on the target surface, $n_i$ the normal there (interpolated vertex normals), both recomputed at every evaluation: $r_i = n_i n_i^T (x_i - c_i)$, the distance along the normal, so sliding along the surface costs nothing. There is no node correspondence between the two surfaces.
+- **Target → fitted:** $z_j = \sum_m \beta_{jm} x_{v_m}$ = closest point of target point $y_j$ on the fitted surface (barycentric $\beta$); $b_j = z_j - y_j$, set to 0 when $z_j$ lies on a clamped triangle. Without this term a lung that shrinks onto part of the target scores well.
 - Clamped points are left out of the loss and of all reported errors (their error is a constant).
 
-**Reported error** (not the square root of the cost; second mean over the non-zero $b_j$):
+**Reported loss error** (second mean over the non-zero $b_j$):
 
 $$
 e = \frac{\operatorname{mean}_i \|r_i\| + w_s \operatorname{mean}_j \|b_j\|}{1 + w_s}
 $$
 
-**Jacobian** (Gauss-Newton: $c_i$, $n_i$, triangle and $\beta$ held fixed), one factorisation of the tangent $K_t$ at equilibrium, on the free dofs:
+The result is the state of lowest rms (`best_by`: what the optimiser minimises), and the shape error is reported as ASSD (symmetric mean point-to-surface distance).
+
+**Jacobian** (Gauss-Newton: $c_i$, $n_i$, triangle and $\beta$ held fixed). The load is linear in the parameters, $q = \Phi\,\theta + q_c$, body magnitude $= \beta_c + \beta^T\theta$, so with one factorisation of the tangent $K_t$ at equilibrium, on the free dofs:
 
 $$
 K_t \frac{\partial U}{\partial q} = -\frac{\partial R}{\partial q},
-\qquad \frac{\partial U}{\partial \theta} = \frac{\partial U}{\partial q}\,\Phi,
-\qquad \frac{\partial r_i}{\partial \theta} = \left[n_i n_i^T + w\,(I - n_i n_i^T)\right]\frac{\partial u_i}{\partial \theta},
+\qquad \frac{\partial U}{\partial \theta} = \frac{\partial U}{\partial q}\,\Phi + \frac{\partial U}{\partial \text{body}}\,\beta^T,
+\qquad \frac{\partial r_i}{\partial \theta} = n_i n_i^T \frac{\partial u_i}{\partial \theta},
 \qquad \frac{\partial b_j}{\partial \theta} = \sum_m \beta_{jm} \frac{\partial u_{v_m}}{\partial \theta}
 $$
 
-**Fit loop:**
+The column of $q_0$ is $\Phi = 1$, of the gravity slope $(h - \bar h)/L$ (plus the body column); ν has its own column ($\partial f_{int}/\partial\nu$).
 
-- Levels coarse → fine, each warm-started from the best state so far (area-weighted projection of its p/E onto the new model).
+**Fit loop.**
+
+- Levels: one for the physical parameters; with a gradient perturbation a second one adding the slopes; with regions one per region count, coarse → fine. Each level starts from the best state so far (area-weighted projection of its p/E onto the new parameters).
 - Before each solve the core is re-anchored to the state of the lowest cost in the level, so a shrinking trust region means a shrinking load step.
-- A failed solve gets twice the level's best residual (a rejected trial). If the first solve of a level fails, the level stops and the fit moves on.
-- Stops: per level on the lsq tolerances or a plateau (`level_patience`, `level_min_improve`); per fit on `target_error_mm` (2.5), `time_budget_min`, `fit_patience` or the end of the levels. The best state is checkpointed at every improvement.
-- $p = q\,E$ only for output: the fit identifies p/E, so E does not change the shape.
+- A failed solve gets twice the level's best residual (a rejected trial). If the first solve of a level fails, the level stops.
+- Stops: per level on the optimiser's tolerances or a plateau (`level_patience`, `level_min_improve`); per fit on `target_error_mm`, `time_budget_min`, `fit_patience` or the end of the levels. The best state is checkpointed at every improvement; a watchdog kills a hung run.
 
-## 6. Nonlinear solve and contact
+## 6. Nonlinear solve
 
-- **Newton:** replica of GetFEM's (criterion $\min(\|R\|_1, \|\Delta U\|_1 / \|U\|_1)$, "simplest" line search). Load path on the face pressures from the last converged state; `adaptive_steps` halves the increment on failure and doubles it on success; `warm_substeps` retries in sub-steps before ramping from zero.
-- **Wall, `outer` rounds:** Newton with $n_w$ and $G$ fixed, then re-linearisation, up to `wall_max_updates` (15) rounds until the gap error (previous linearised gap vs true gap, over points with gap > −1 mm) is below `wall_settle_mm` (0.5). A solve that does not settle fails (`unsettled`). A settled state keeps the linearisation it is in equilibrium with (also used by the Jacobian), remembered for the last 256 states, so a warm start from it begins in equilibrium.
-- **Wall quadrature `nodal`:** vertex rule (weights 1/3) instead of the IM_TRIANGLE(3) face rule, whose negative centre weight makes the contact tangent indefinite.
-- **Time limit:** `max_solve_s` (120 s) with `slow_ramp: false`, so a hopeless solve fails fast.
-- `wall_update: "newton"` (re-linearise at every residual) exists for torch / Warp but is not used: it oscillates.
-- **Wall as a smooth field, `wall_update: "potential"`** (torch / Warp, 2026-11-16; being validated on the server). `fem_setup` samples the signed distance to the wall on a grid (`wall_grid_mm` 1.5), smooths it (Gaussian σ = `wall_smoothing_mm` 3) and stores it; $\tilde\varphi$ is its tricubic B-spline interpolation (C²). Per free surface node, with reference nodal area $a_i$ and margin $A_i$ = `wall_tol_mm` + $\langle\tilde\varphi(X_i)\rangle_+$:
-
-$$
-g_i = \tilde\varphi(x_i) - A_i,
-\qquad f_i = a_i\, w(g_i)\, \nabla\tilde\varphi(x_i),
-\qquad \frac{\partial f_i}{\partial x_i} = a_i \left[ w'(g_i)\, \nabla\tilde\varphi\, \nabla\tilde\varphi^T + w(g_i)\, \nabla^2\tilde\varphi \right]
-$$
-
-  with the same force law $w$ as above (same $k$, $e$), evaluated at the current position inside Newton. No rounds and no linearisation to keep; the tangent is exact, so the Jacobian of section 5 is exact with a wall. The corners of the wall are rounded by a few mm.
+- **Newton:** replica of GetFEM's (criterion $\min(\|R\|_1, \|\Delta U\|_1 / \|U\|_1)$, "simplest" line search).
+- **Load path:** every solve ramps the whole load (face pressures and body force) proportionally from the last converged state, or from rest; `adaptive_steps` halves the increment on failure and doubles it on success. This is the physical path: the lung collapses as the pressure is released. There is no continuation in the gravity term (it was needed only with the outer wall rounds).
+- **Time limit:** `max_solve_s` (120 s): a hopeless solve fails fast and the fit treats it as a rejected trial.
+- A Newton trial that leaves the wall grid is rejected like an inverted element.
 
 ## 7. Code and verification
 
-| File (`pipeline/collapse/solvers/`) | Role |
+| File (`pipeline/collapse/`) | Role |
 |---|---|
-| `base.py` | `ForwardSolver` interface (`set_regions`, `solve`, `jacobian`, state); `fit.py` talks only to it |
-| `getfem_solver.py` | reference core (MUMPS, P1/P2); wall only `outer`, no `support_k` |
-| `nodal.py` | everything except assembly for P1 cores: Newton, load path, wall rounds, support, Jacobian, linear solvers (cuDSS, pardiso, scipy) |
-| `warp_solver.py` | Warp kernels, hand-derived stress and tangent |
-| `torch_solver.py` | PyTorch assembly with autodiff; `TorchFEM` is differentiable on any device (physics loss for the GNN) |
-| `materials.py` | materials as W(F, ν): a new material is a new function |
+| `setup.py` | clamp, wall (surface + smooth field), optional Ward regions, Gmsh mesh → `problem.npz` |
+| `load.py` | the load as a function of the parameters: levels, q per triangle, body force, chain rule, physical units |
+| `forward.py`, `fit.py` | the forward and the inverse run; `results.py` writes them; `sequence.py` the collapse sequence |
+| `wall_field.py` | smoothed signed-distance grid and its tricubic B-spline (value, gradient, Hessian) |
+| `solvers/base.py` | `ForwardSolver` interface (`set_regions`, `set_body`, `solve`, `jacobian`, state); the runs talk only to it |
+| `solvers/nodal.py` | everything except assembly for the P1 cores: Newton, load path, wall, body force, Jacobian, linear solvers (cuDSS, pardiso, scipy) |
+| `solvers/torch_solver.py` | PyTorch assembly with autodiff; `TorchFEM` is differentiable on any device (physics loss for the GNN) |
+| `solvers/warp_solver.py` | Warp kernels, hand-derived stress and tangent |
+| `solvers/getfem_solver.py` | reference core for validation (MUMPS): no smooth-field wall, no body force |
+| `solvers/materials.py` | materials as W(F, ν): a new material is a new function |
 
-Verification (karl04):
+Verification (numbers in analysis/results.md):
 
-- Torch / Warp vs GetFEM: relative difference ≤ 2e-14 without wall, ≤ 1e-11 with wall (`outer`), same penetrations.
-- Jacobian vs finite differences ~1e-8; symmetric loss gradient vs FD 2e-10.
-- Forward solve: GetFEM 70–107 s, Warp + cuDSS 3.2 s, torch + cuDSS 5.7 s. Full no-wall fit: GetFEM 111 min (finite differences) / 7.9 min (analytic), torch < 1 min.
-
-## 8. Physical load model (proposed 2026-11-12, partly implemented)
-
-Replaces the regional pressures with the physics of the pneumothorax. Status and tests in NEXT.md. Implemented so far (2026-11-16): the fixed-gravity gradient, `fem_fit.gravity_E_Pa` / `tissue_density` (supine, e_g = +y): q = q0 + γ (h − h̄) with γ = ρ̄ g / E given, only q0 (and any non-`ap` slope) fitted, for scans over a common E. Not yet: E or γ as a fitted / shared parameter, other e_g, the barrier material.
-
-**Load.** In vivo the pleural pressure is not uniform: it is lower at the top, and its vertical gradient carries the lung's weight. A pressure linear in height on a closed surface gives, by the divergence theorem, exactly Archimedes' force:
-
-$$
-\oint_{\Gamma} \bar\rho g\, h \; n \, dA = \bar\rho g V \, e_h
-$$
-
-so the inflated lung "floats" in the pleural pressure field, with $\bar\rho$ its mean density (~250 kg/m³). In the pneumothorax the pleural space fills with air at uniform pressure (the air's own buoyancy is ~1/200 of the lung's weight, negligible). From the stress-free inflated reference the load is therefore the removed pleural pressure:
-
-$$
-\Delta p(X) = p_{atm} - p_{pl}(X) = p_0 + \bar\rho g \left(h(X) - \bar h\right),
-\qquad h(X) = -\,e_g \cdot X
-$$
-
-- $p_0$: uniform elastic recoil (transpulmonary pressure released); $\bar h$ only shifts $p_0$.
-- $e_g$: direction of gravity; supine = posterior = $+y$ in LPS, so $h$ grows anteriorly. Lateral decubitus (the VATS position) only changes $e_g$.
-- $h$ is taken at the **reference** position $X$: the load is the release of the in-vivo state at each material point.
-- **No body force** is added: in the reference the weight is already balanced by the pleural gradient, and adding $\rho g$ in the volume would count it twice. The weight, no longer balanced, is carried by the wall: the **wall is part of the model**, not an option.
-- With a heterogeneous density only the mean $\bar\rho = M / V$ enters the gradient (it is what balances the weight); the local density enters through the material (below).
-
-**Equilibrium.** The pressure term of section 3 becomes, in non-dimensional form ($E = 1$):
-
-$$
-s \int_{\Gamma_f} q(X)\, J F^{-T} N \cdot \delta u \, dA,
-\qquad q(X) = q_0 + \gamma \left(h(X) - \bar h\right),
-\qquad q_0 = \frac{p_0}{E}, \quad \gamma = \frac{\bar\rho g}{E}\ [\text{mm}^{-1}]
-$$
-
-with the elasticity, wall and support terms unchanged. It is the ap gradient model of section 4 with a physical slope: $\theta_{ap} = \gamma L = \bar\rho g L / E$ ($L$ = extent along $e_g$), so the fitted slope gives $E = \bar\rho g L / \theta_{ap}$. Check: $\bar\rho g$ = 2.45 Pa/mm, with E = 3 kPa and L = 150 mm → $\theta_{ap}$ = 0.12, the order of the fitted slopes. Unknowns per patient: $(q_0, \gamma)$, i.e. $(p_0/E, E)$; $\gamma \ge 0$. If the theory holds, E is similar across patients, and a common E leaves one parameter per patient ($q_0$, set by the collapse %).
-
-**Heterogeneous tissue** (needs the HU of the inflated CT, which we do not have: without them φ_t is uniform or an assumed function of height, bounded by φ_t ≤ V_collapsed / V_inflated, 0.14 for patient_2). Tissue fraction per element $\phi_t(X) \approx 1 + \mathrm{HU}/1000$ (air −1000, tissue ~0); the supine dorsal lung is denser. An element cannot lose more than its air: $J \ge \phi_t$. Candidate volumetric term with a barrier at $J = \phi_t$, stress-free at $J = 1$:
-
-$$
-W_{vol}(J) = d_1 (J - 1)^2 + \kappa \left[\frac{1 - \phi_t}{J - \phi_t} + \ln\frac{J - \phi_t}{1 - \phi_t} - 1\right]
-$$
-
-($W_{vol}(1) = W_{vol}'(1) = 0$, $W_{vol} \to \infty$ as $J \to \phi_t$, convex for $J < 2 - \phi_t$; it adds $\kappa / (1 - \phi_t)^2$ to the bulk modulus). It removes the crushed elements and makes the air-rich anterior lung able to lose more volume. Torch core only (`materials.py`, per-element parameter). A local stiffness $E(\phi_t)$ is possible but less founded. Mass check: $V_{collapsed} \ge \int \phi_t \, dV$.
-
-**Wall in the physical model.** The wall carries the weight, so it is part of the model. Expected effect on the convergence: the near-mechanism mostly goes (smooth load, resultant = the weight, vertical, pressing the lung into the concave dorsal wall: a stable minimum), the pressures at the bound and the crushed elements too; the corner points of the wall (analysis/results.md section 7) become central instead, since in a supine patient the paravertebral gutter is the lowest point. Two changes, in this order:
-
-*(a) Wall as a smooth potential (numerical; implemented 2026-11-16 as `wall_update: "potential"`, section 6, with the force law of section 3 instead of the plain quadratic below).* The signed distance to the cavity is computed once on a grid and smoothed, so corners become rounded with a radius of a few mm; $\tilde\varphi$ is its interpolation, at least C² (cubic B-spline; trilinear has a discontinuous gradient). The contact energy is evaluated at the current position inside Newton:
-
-$$
-E_{wall} = \sum_i a_i\, \frac{k}{2}\,\langle \tilde\varphi(x_i) - a_i^{allow} \rangle_+^2,
-\qquad
-\frac{\partial^2 E_{wall}}{\partial x_i^2} = a_i k \left(\nabla\tilde\varphi\,\nabla\tilde\varphi^T + (\tilde\varphi - a_i^{allow})\,\nabla^2\tilde\varphi\right) \text{ where } \tilde\varphi > a_i^{allow}
-$$
-
-with the exact Hessian (torch autodiff). No outer rounds: contact is part of one minimisation. The current `wall_update: "newton"` oscillated because it missed the curvature term $\nabla^2\tilde\varphi$ and its normal jumped; a smooth field has neither problem.
-
-*(b) Deformable wall (physical, later).* The cavity is not rigid everywhere: the ribs nearly are, the diaphragm and the mediastinum move in a pneumothorax. A physical stiffness per part of the wall (high on the ribs, low on the diaphragm and the mediastinum, told apart by position and normal on the inflated surface: medial = mediastinum, inferior = diaphragm) makes the penetration the deformation of those organs instead of a numerical error, and a softer wall also converges more easily. Cost: 1–2 more parameters.
-
-Rejected: a bilateral sliding constraint on the dorsal points (it needs the contact set, i.e. the target, so it cannot predict); friction (lubricated pleura). With gravity the tangential support `support_k` is probably no longer needed: it was an artificial substitute.
+- Torch / Warp vs GetFEM (karl04): relative difference ≤ 2e-14 without wall, ≤ 1e-11 with the `outer` wall; Jacobian vs finite differences ~1e-8.
+- Smooth-field wall: tangent vs finite differences 1e-7; Jacobian with contact vs finite differences 9e-7 on the server (torch), 3e-8 with the numpy test core.
+- Body force: resultant = weight along the collapse position; Jacobian column vs finite differences 1e-7 (numpy test core).
+- The rewritten fit reproduces the previous code: karl04, E 1.7 kPa, q0 fitted: ASSD 9.00 mm, p0 1283 Pa, 11 solves with the numpy test core on the Mac, as the torch fit on the server (9.00 mm, 1282 Pa, 11 solves).
+- A fit of (q0, E) on a synthetic target made by a forward run finds the parameters back (q0 to 1e-4, E within 0.1 %).
+- `tests/` runs these checks on the Mac (numpy only).

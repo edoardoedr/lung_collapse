@@ -1,24 +1,24 @@
 """Validate the Warp (or torch) core against the GetFEM core on a real case (run where both are installed).
 
-    python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json            # a, b, c
-    python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json --timing   # + e
-    python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json --fit      # + d (long)
-    python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json --wall-only  # only b and c with wall
-    python scripts/compare_warp_getfem.py --config configs/karl04_torch.json --core torch    # torch instead of Warp
-  python scripts/compare_warp_getfem.py --config configs/karl04_wall_torch.json --core torch --wall-only --jac-q 0.1 \
-      --core-options '{"wall_update": "newton"}'     # contact inside Newton for the compared core only
+    python scripts/compare_warp_getfem.py --config configs/karl04.json            # a, b, c
+    python scripts/compare_warp_getfem.py --config configs/karl04.json --timing   # + e
+    python scripts/compare_warp_getfem.py --config configs/karl04.json --fit      # + d (long)
+    python scripts/compare_warp_getfem.py --config configs/karl04.json --wall-only  # only b and c with wall
+    python scripts/compare_warp_getfem.py --config configs/karl04.json --core torch    # torch instead of Warp
 
 Needs the fem_setup output of the config. With a wall in the setup, (a) runs on a copy of the
-problem without it and (b) on the problem as is.
+problem without it and (b) on the problem as is. GetFEM has only the linearised wall, so with a
+wall both cores run wall_update "outer" here, whatever the config says (the smooth-field wall,
+"potential", is checked by check_jacobian.py and tests/). The pressure regions are the fem_setup
+ones when it has them, else --bands bands along the body axis.
 
-  0. face quadrature: GetFEM's IM_TETRAHEDRON(3) face rule vs the one hard-coded in nodal.py
   a. no wall: same mesh, several (q, nu) up to large collapse, solved from the reference by both
      -> max / mean nodal |U_warp - U_getfem| (relative to max |U|), Newton iterations of both
   b. wall: same, plus the residual penetration of both
   c. WarpSolver.jacobian vs central finite differences of its own solve() (newton_tol 1e-11;
      with a wall 1e-8 and h >= 1e-4, the contact penalty being only C1),
      and vs GetFEMSolver.jacobian
-  d. full fit with each core (analytic Jacobian): errors, stop reasons, solves, time, pressures
+  d. full fit of the config with each core: errors, stop reasons, solves, time
   e. Warp / torch timing per forward solve and per Jacobian, for linear_solver cudss / pardiso / scipy,
      split into assembly and linear solve
 """
@@ -40,8 +40,7 @@ from pipeline.collapse import fit                                    # noqa: E40
 from pipeline.collapse.geometry import WallDistance                  # noqa: E402
 from pipeline.collapse.problem import CollapseProblem                # noqa: E402
 from pipeline.collapse.solvers import get_solver, options_for        # noqa: E402
-from pipeline.collapse.solvers.nodal import FACE_QUAD_B, FACE_QUAD_W       # noqa: E402
-from pipeline.config import load_config                              # noqa: E402
+from pipeline.config import SolverConfig, load_config                # noqa: E402
 
 CORE = "warp"                                    # core compared with GetFEM (--core)
 C = {"it": "it Warp", "pen": "pen Warp"}
@@ -56,6 +55,8 @@ def without_wall(problem):
 
 def make(name, problem, fc, **opts):
     o = options_for(name, fc.solver_options, fc.solver)   # e.g. a torch config: no device / material for GetFEM
+    if problem.has_wall:
+        o["wall_update"] = "outer"                      # the only wall GetFEM has
     if name == CORE:
         o.update(CORE_OPTS)                             # --core-options, the compared core only
     o.update(opts)
@@ -70,28 +71,6 @@ def getfem_nodal(g, problem, U):
 
 def pressures(K, scale):
     return scale * (1.0 + 0.3 * np.linspace(-1.0, 1.0, K))
-
-
-def quadrature():
-    import getfem as gf
-    im = gf.Integ("IM_TETRAHEDRON(3)")
-    print("\n[0] face quadrature")
-    try:
-        pts, w = np.asarray(im.face_pts(0)), np.asarray(im.face_coeffs(0))
-        print("  GetFEM IM_TETRAHEDRON(3) face 0: %d points, weights / sum = %s"
-              % (len(w), np.round(np.sort(w / w.sum()), 6).tolist()))
-        print("  GetFEM points (reference tet coords):\n%s" % np.round(pts.T if pts.shape[0] == 3 else pts, 6))
-    except Exception as e:
-        print("  could not read GetFEM face points: %s" % e)
-    print("  nodal.py IM_TRIANGLE(3): %d points, weights = %s"
-          % (len(FACE_QUAD_W), np.round(np.sort(FACE_QUAD_W), 6).tolist()))
-    try:                                                 # wall_quadrature "nodal"
-        nc = gf.Integ("IM_NC(3,1)")
-        pts, w = np.asarray(nc.face_pts(0)), np.asarray(nc.face_coeffs(0))
-        print("  GetFEM IM_NC(3,1) face 0 (wall_quadrature nodal): %d points, weights / sum = %s, points:\n%s"
-              % (len(w), np.round(w / w.sum(), 6).tolist(), np.round(pts.T if pts.shape[0] == 3 else pts, 6)))
-    except Exception as e:
-        print("  could not read GetFEM IM_NC(3,1) face points: %s" % e)
 
 
 def solve_path(s, q, nu, steps):
@@ -214,51 +193,45 @@ def timing(problem, fc, K, labels, sign):
 
 
 def compare_fit(cfg):
-    fc, rows = cfg.fem_fit, {}
+    rows = {}
     for name in ("getfem", CORE):
-        wd = fc.workdir.parent / ("fit_" + name)
-        opts = options_for(name, fc.solver_options, fc.solver)
-        c = dataclasses.replace(fc, solver=name, solver_options=opts, jacobian="analytic", workdir=wd,
-                                output=wd / "lung_fem_fit.vtp")
+        opts = dict(cfg.solver.options)
+        if cfg.fem_setup.wall is not None:
+            opts["wall_update"] = "outer"
+        opts = options_for(name, opts, cfg.solver.core)
+        c = dataclasses.replace(cfg, solver=SolverConfig(core=name, options=opts), run_name="compare_" + name,
+                                run_dir=cfg.run_dir.parent / ("compare_" + name))
         t0 = time.time()
         fit.run(c)
-        res = json.loads((wd / "result_summary.json").read_text())
+        res = json.loads((c.run_dir / "summary.json").read_text())
         res["wall_time_min"] = (time.time() - t0) / 60
-        import pyvista as pv
-        e = pv.read(wd / "lung_fem_fit.vtp")["Error_mm"]
-        res["rms_err_mm"] = float(np.sqrt((e ** 2).mean()))
         rows[name] = res
     a, b = rows["getfem"], rows[CORE]
     print("\n[d] full fit\n%-22s %18s %18s" % ("", "getfem", CORE))
-    for k in ("mean_err_mm", "rms_err_mm", "assd_mm", "max_err_mm", "nu", "evals", "wall_time_min", "stop_reason"):
+    for k in ("assd_mm", "mean_err_mm", "max_err_mm", "best_loss_rms_mm", "evals", "failed_solves", "wall_time_min",
+              "stop_reason"):
         fmt = "%18s" if isinstance(a[k], str) else "%18.3f"
         print("%-22s " % k + fmt % a[k] + " " + fmt % b[k])
-    for r in (a, b):
-        t = [lv["elapsed_min"] for lv in r["levels"]]
-        for lv, dt in zip(r["levels"], np.diff([0.0] + t)):
-            lv["elapsed_min"] = dt
-    print("per level: K, stop, solves, minutes, best mean error")
+    for k in ("q0", "E_Pa", "p0_Pa", "nu"):
+        print("%-22s %18.4f %18.4f" % (k, a["physics"][k], b["physics"][k]))
+    print("per level: parameters, stop, solves, best error")
     for la, lb in zip(a["levels"], b["levels"]):
-        print("  K=%-3d  %-22s %5d %7.1f %8.3f   |   %-22s %5d %7.1f %8.3f"
-              % (la["K"], la["stop"], la["evals"], la["elapsed_min"], la["best_mean_err_mm"],
-                 lb["stop"], lb["evals"], lb["elapsed_min"], lb["best_mean_err_mm"]))
-    print("final pressures [Pa] (K=%d vs K=%d):" % (a["K"], b["K"]))
-    for i in range(max(len(a["pressures_Pa"]), len(b["pressures_Pa"]))):
-        pa = a["pressures_Pa"][i] if i < len(a["pressures_Pa"]) else float("nan")
-        pb = b["pressures_Pa"][i] if i < len(b["pressures_Pa"]) else float("nan")
-        print("  region %2d  %10.1f  %10.1f" % (i, pa, pb))
+        print("  P=%-3d  %-22s %5d %8.3f   |   %-22s %5d %8.3f"
+              % (la["parameters"], la["stop"], la["evals"], la["best_err_mm"], lb["stop"], lb["evals"], lb["best_err_mm"]))
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", required=True)
-    ap.add_argument("--level", type=int, default=1, help="index of the fem_setup level (default 1 = second)")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main.py")
+    ap.add_argument("--level", type=int, default=1, help="index of the fem_setup regions level (default 1 = second)")
+    ap.add_argument("--bands", type=int, default=4, help="pressure regions when the fem_setup has none")
     ap.add_argument("--h", type=float, default=1e-5, help="finite-difference step for (c)")
     ap.add_argument("--timing", action="store_true", help="also run (e)")
     ap.add_argument("--fit", action="store_true", help="also run (d), two full fits")
     ap.add_argument("--core", default="warp", choices=("warp", "torch"), help="core compared with GetFEM")
     ap.add_argument("--jac-q", type=float, default=0.5, help="mean p/E of (c); with a wall use a load both cores reach, e.g. 0.1")
-    ap.add_argument("--core-options", default="{}", help="JSON merged into the compared core's options only, e.g. '{\"wall_update\": \"newton\"}'")
+    ap.add_argument("--core-options", default="{}", help="JSON merged into the compared core's options only")
     ap.add_argument("--wall-only", action="store_true", help="only the parts with the wall (b, c with wall)")
     args = ap.parse_args()
     global CORE
@@ -268,19 +241,24 @@ def main():
     sys.stdout.reconfigure(line_buffering=True)          # print progress also through | tee
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                         datefmt="%H:%M:%S")
-    cfg = load_config(args.config)
-    fc = cfg.fem_fit
-    problem = CollapseProblem.load(fc.setup / "problem.npz")
-    L = min(args.level, len(problem.levels) - 1)
-    K, labels = int(problem.levels[L]), problem.regions[L]
+    cfg = load_config(args.config, args.set)
+    fc = argparse.Namespace(solver=cfg.solver.core, solver_options=cfg.solver_options(), nu=cfg.physics.nu.value)
+    problem = CollapseProblem.load(cfg.setup_dir / "problem.npz")
+    if len(problem.levels):
+        L = min(args.level, len(problem.levels) - 1)
+        K, labels = int(problem.levels[L]), problem.regions[L]
+    else:                                                # no Ward regions in this setup: bands along z
+        free = ~problem.clamped_tri
+        z = problem.reference[problem.tris].mean(1)[:, 2]
+        K = args.bands
+        labels = np.where(free, np.searchsorted(np.quantile(z[free], np.linspace(0, 1, K + 1)[1:-1]), z), -1)
     print("case %s: %d nodes, %d tets, level K=%d, wall in setup: %s"
           % (cfg.patient, len(problem.nodes), len(problem.tets), K, problem.has_wall))
 
-    quadrature()
     signs = {}
     for name in ("getfem", CORE):
         s = make(name, without_wall(problem), fc)
-        signs[name] = fit.sign_check(s, without_wall(problem), fc)
+        signs[name] = fit.sign_check(s, without_wall(problem), cfg.fit.sign_check_q, fc.nu)
     if CORE_OPTS:
         print("%s options overridden: %s" % (CORE, CORE_OPTS))
     print("\nsign check: getfem %+g, %s %+g (must be equal)" % (signs["getfem"], CORE, signs[CORE]))
