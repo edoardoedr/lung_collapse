@@ -449,12 +449,16 @@ def run(cfg):
         if offset is not None:
             # continuation: a solve from rest with the whole gravity term pushes the lung onto the wall
             # from the first increment and often fails (2026-11-16 scan: 27 / 42 first solves). Fit the
-            # uniform level without, then with half the gravity term first; these levels only provide
-            # the warm start and their states are not candidates for the result
-            pre = [PressureModel.gradient(coords, [], clamped, f * offset) for f in cfg.gravity_prefit]
-            for m in pre:
-                m.prefit = True
-            models = pre + models
+            # uniform level with the gravity_prefit fractions of the gravity term first; these levels only
+            # provide the warm start and their states are not candidates for the result. A gravity level
+            # whose first solve fails gets a level at the mid fraction inserted before it (gravity_bisect)
+            def prefit_model(f):
+                m = PressureModel.gradient(coords, [], clamped, f * offset)
+                m.prefit, m.frac = True, f
+                return m
+            for m in models:
+                m.frac = 1.0
+            models = [prefit_model(f) for f in cfg.gravity_prefit] + models
     slope_max = cfg.q_bounds[1] - cfg.q_bounds[0]
 
     trk = Tracker(cfg, out)
@@ -466,7 +470,11 @@ def run(cfg):
     stop_reason = "levels exhausted"
     with guarded(trk, int(60 * (cfg.time_budget_min + cfg.hard_grace_min))):
         warm = None                                     # best of the last prefit level
-        for L, model in enumerate(models, start=1):
+        frac_ok, bisect, i, L = None, 0, 0, 0           # gravity fraction of the warm start, insertions
+        while i < len(models):                          # models may grow (gravity continuation)
+            model = models[i]
+            i += 1
+            L += 1                                      # level number in logs / history
             K = model.P
             src = trk.best if trk.best is not None else warm
             if src is not None:                             # warm start from the best so far
@@ -485,13 +493,26 @@ def run(cfg):
                                 evals=trk.level_evals, elapsed_min=trk.elapsed() / 60))
             log.info("level %d done (%s): level best %.3f mm, overall best %.3f mm, improvement %.1f%%",
                      L, reason, lvl_err, trk.best_err, 100 * imp)
+            frac = getattr(model, "frac", None)
+            if frac is not None:
+                summary[-1]["gravity_fraction"] = frac
             if getattr(model, "prefit", False):
                 summary[-1]["prefit"] = True
+            if (reason == "first solve failed" and frac is not None and bisect < cfg.gravity_bisect
+                    and frac > (frac_ok or 0.0)):
+                f_mid = 0.5 * ((frac_ok or 0.0) + frac)  # retry this level after a mid step
+                bisect += 1
+                log.info("gravity continuation: fraction %.3f failed from %s, inserting %.3f (%d / %d)", frac,
+                         "rest" if frac_ok is None else "%.3f" % frac_ok, f_mid, bisect, cfg.gravity_bisect)
+                models[i - 1:i - 1] = [prefit_model(f_mid)]
+                i -= 1
+                continue
+            if getattr(model, "prefit", False):
                 if reason == "time budget" or reason.startswith("signal"):
                     stop_reason = reason
                     break
                 if trk.best is not None:                    # warm start only, not a result
-                    warm = trk.best
+                    warm, frac_ok = trk.best, frac
                 trk.best, trk.best_err, prev = None, np.inf, base0
                 continue
             trk.checkpoint()

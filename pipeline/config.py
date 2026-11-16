@@ -174,6 +174,8 @@ class FemFitConfig:
     tissue_density: float = 250.0      # kg/m3, mean density of the inflated lung (assumed: no CT HU)
     gravity_prefit: list = field(default_factory=lambda: [0.0, 0.5])  # continuation: fractions of the
                                        # gravity term fitted first (uniform level), only as warm start
+    gravity_bisect: int = 4            # gravity level failing at its first solve: up to this many mid-
+                                       # fraction levels inserted before it (0 = none)
     # which state is the result (and drives level plateau / target stop): "mean" = lowest mean distance;
     # "rms" = lowest rms, i.e. the least-squares cost the optimiser minimises (without the reg term).
     # With 1-2 parameters the two can disagree and "mean" may keep the starting point
