@@ -112,6 +112,34 @@ Symmetric loss (`fit_grad_ap_sym`, `fit_grad_apsi_sym`, 2026-11-16) next to the 
 - **With the wall** (section 4b, 12 patients with θ_ap > 0.03): **median 1.7 kPa, range 0.46 (karl23) – 2.9 (karl08), ×6**, plus karl24 at 12.7 (slope 0.03, i.e. no gradient needed). Much tighter than without wall (×17): 8 of 12 between 1.1 and 2.9 kPa. Lowest still in karl23 (0.46), karl20 (0.64), patient_1 (1.07), karl04 (1.13). p0 = (mean p/E) E: 0.5–1.6 kPa (karl24 5.6). Order of magnitude plausible for lung tissue and for the transpulmonary pressure of an inflated lung; not proven.
 - **E from no-wall fits is not reliable; the wall fits are the ones to use.** A common E (~1.7 kPa) is the next test: one parameter fewer per patient, with the slope then fixed by ρ̄ g L / E.
 - **Common-E scan, first attempt (2026-11-16, `gravity_E_Pa` 1000 / 1700 / 3000, wall): not usable.** 27 of 42 fits stopped at the first solve (time limit 120 s): the fit started from rest with the whole gravity term, i.e. the lung's unbalanced weight on the wall from the first increment (more failures for lower E, larger slope: 13 / 14 at 1000, 10 / 14 at 1700, 4 / 14 at 3000). In several of the other 15 the result is just the starting q0 = 0.5 (karl20 E 3000: collapse 30 vs 58 %), because the best state is chosen by the mean distance while the optimiser lowers the rms (same as karl18 in section 4). Fixed in the code (continuation `gravity_prefit`, `best_by: "rms"`); scan to rerun.
+
+### 5b. Common-E scan with the wall (`fit_gE1000`, `fit_gE1700`, `fit_gE3000`, 2026-11-16)
+
+Fixed ap slope = ρ̄ g L / E (ρ̄ 250 kg/m³), only the mean p/E fitted, wall k = 0, `best_by: "rms"`, continuation `gravity_prefit` [0, 0.5] + bisection. ASSD in mm; "free" = `fit_grad_ap_sym` with the wall (slope fitted, section 4b; picked by mean, not rms).
+
+| Patient | free: ASSD (slope, E kPa) | E 1.0 | E 1.7 | E 3.0 | best |
+|---|---|---|---|---|---|
+| karl01 | 5.76 (0.26, 1.6) | not reached | **5.76** | 5.85 | 1.7 |
+| karl02 | 5.30 (0.32, 1.6) | not reached | **5.36** | 6.67 | 1.7 |
+| karl04 | 8.62 (0.45, 1.1) | not reached (0.75 of the gravity term) | **9.16** | 10.45 | 1.7 |
+| karl06 | 4.95 (0.21, 2.6) | interrupted | 4.98 | **4.96** | flat |
+| karl08 | 6.76 (0.18, 2.9) | not reached | **6.71** | 6.78 | flat |
+| karl10 | 10.31 (0.02, –) | not reached | not reached | **10.59** | 3.0 (no gradient wanted) |
+| karl17 | 6.10 (0.27, 2.1) | interrupted | not reached | **6.45** | – |
+| karl18 | 5.75 (0, –) | 9.23 | 8.24 | **6.72** | 3.0 (no gradient wanted) |
+| karl20 | 9.80 (0.79, 0.64) | **11.40** | 13.87 | 15.65 | ≤ 1.0 |
+| karl23 | 14.24 (1.09, 0.46) | **15.52** | 17.21 | 20.83 | ≤ 1.0 |
+| karl24 | 5.60 (0.03, 12.7) | interrupted | 6.03 | **5.64** | 3.0 |
+| patient_1 | 12.58 (0.41, 1.1) | not reached | **12.98** | 14.05 | 1.7 |
+| patient_3 | 7.92 (0.19, 2.3) | not reached | **7.85** | 7.89 | flat |
+| patient_10 | 7.51 (0.28, 1.8) | not reached | **7.40** | 8.55 | 1.7 |
+| **12 with E 1.7 and 3.0: median / mean** | 7.14 / 7.90 | | 7.62 / 8.80 | 7.33 / 9.50 | |
+
+- **E = 1.7 kPa common to all:** within 0.5 mm of the patient's own free slope on 8 of 12 (karl01/02/06/08, patient_3/10 equal or better; karl24 +0.4, patient_1 +0.4), karl04 +0.5. Large loss only on karl18 (+2.5: wants no gradient), karl20 (+4.1) and karl23 (+3.0: want a much stronger one, E ~0.5 kPa).
+- **Outliers at both ends:** karl10 / karl18 want no gradient at all; karl20 / karl23 (largest rotation, ~1/3 failed solves with the free slope) want 2–3× the gradient of 1.7 kPa. The E 1 kPa fits help them (11.4, 15.5) but stay worse than the free slope.
+- **Failed solves almost gone:** at E 1.7 / 3.0, 0 failed solves in 22 of 26 finished fits (karl06 6, karl24 2), 0.3–2.4 min per fit, vs 40 / 294 and 7 min median with the free slope. Moving only q0 keeps the optimiser away from the trial loads that stall the wall rounds.
+- **E 1 kPa is mostly not reachable:** 8 of 14 stopped in the continuation (karl04 at 0.75 of the gravity term: every further step hits the 120 s limit with unsettled wall rounds), 3 interrupted by hand; the interrupted ones (karl06, karl17, karl24, run with older code) exported a prefit state and are **not valid** (they are still in `runs.csv`; fixed in the code since). Valid at E 1 kPa: karl18, karl20, karl23.
+- **Reading:** one E of ~1.7 kPa (ρ̄ / E = 0.15 s²/m², the quantity really fixed) describes the gravity gradient of most patients at almost no cost in shape; the transferable model is then p0 (from the collapse %) + this fixed slope. The remaining spread (karl10 / karl18 none, karl20 / karl23 much more) is patient-specific: stiffness, density, inflation level, or something the gradient stands in for (mediastinum / heart). E < 1.5 kPa is blocked by the wall solver, not shown to be unphysical.
 - The relative slope θ_ap / mean p/E (= ρ g L / p0) is not constant either (0.07–0.59).
 
 ## 6. Wall and tangential support

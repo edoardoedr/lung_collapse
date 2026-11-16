@@ -3,3 +3,8 @@ results/*
 __pycache__/
 .DS_Store
 logs_run_all/
+logs_old/
+logs_*.txt
+diag*.txt
+karl*_*.txt
+seq_*.txt

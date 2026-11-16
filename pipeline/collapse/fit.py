@@ -507,9 +507,16 @@ def run(cfg):
                 models[i - 1:i - 1] = [prefit_model(f_mid)]
                 i -= 1
                 continue
+            if reason == "first solve failed" and frac is not None:     # no more insertions: give up
+                stop_reason = ("gravity continuation failed: fraction %.3f not reached from %s after %d insertions"
+                               % (frac, "rest" if frac_ok is None else "%.3f" % frac_ok, bisect))
+                log.error("%s (fixed ap slope at the last reached fraction: %.3f p/E)", stop_reason,
+                          (frac_ok or 0.0) * gravity["slope_ap_pE"])
+                break
             if getattr(model, "prefit", False):
                 if reason == "time budget" or reason.startswith("signal"):
-                    stop_reason = reason
+                    stop_reason = reason + " during a prefit level (only part of the gravity term)"
+                    trk.best = None                         # a prefit state is not a result
                     break
                 if trk.best is not None:                    # warm start only, not a result
                     warm, frac_ok = trk.best, frac
@@ -528,7 +535,7 @@ def run(cfg):
 
     b = trk.best
     if b is None:
-        raise RuntimeError("no successful forward solve, nothing to export")
+        raise RuntimeError("no successful forward solve of the final model, nothing to export (%s)" % stop_reason)
     Xs = X_ref + b["Us"]
     T_end = loss.match(Xs)                                      # closest point: of the fitted surface
     err_all = np.linalg.norm(Xs - T_end, axis=1)                # point-to-point, whatever the loss

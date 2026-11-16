@@ -6,11 +6,14 @@ Plan agreed on 2026-10-15: from the patient fits to collapsing any inflated lung
 
 - **Regions fit without wall: done and reliable** on 15 of 16 patients (median ASSD 2.9 mm, no failed solve, < 1 min).
 - **Gradient fit (symmetric loss, no wall): done** on 15 patients, median ASSD 8.3 (ap) / 7.8 mm (ap + si), the 3 broken cases repaired, collapse within ~2.5 points. ap slope > 0 in 13 / 15, but E = ρ̄gL/θ_ap spreads ×17 (0.7–12.8 kPa).
+- **Common E (2026-11-16):** E 1.7 kPa for all patients costs < 0.5 mm on 8 / 12 vs the free slope, almost no failed solves; outliers karl10 / karl18 / karl20 / karl23.
 - **Gradient `ap` + wall (2026-11-16): done** on 14 patients: median ASSD 7.1 mm (8.2 without wall), failed solves 14 % (regions + wall 25–29 %), 0 failures on 6; E = ρ̄gL/θ_ap 0.5–2.9 kPa (×6, median 1.7).
 - **Wall:** still failing where collapse and slope are large (karl20, karl23 ~1/3 of the solves); every regions wall fit predates the 2026-10-30 fix. `support_k` helps on some patients, hurts on others.
 - **Nothing yet towards the GNN** (steps 3–4 below).
 
 Numbers in analysis/results.md, sections 2, 4, 5 and 6.
+
+**Next (user, 2026-11-16):** wall as a smooth potential, then a rewrite on the branch `physical-model` around the physical load model, one config per patient with every physical parameter given or fitted: [REWRITE_PLAN.md](REWRITE_PLAN.md).
 
 ## The pipeline
 
@@ -90,7 +93,8 @@ Uniform pleural pressure + loss of the pleural gradient that carried the lung's 
 
 - [x] Gradient fits `ap` and `ap + si` with the symmetric loss, no wall (`fit_grad_ap_sym`, `fit_grad_apsi_sym`, 2026-11-16; analysis/results.md sections 4–5): broken cases repaired, collapse matched, ap > 0 in 13 / 15, si < 0 in 12 / 15 (not gravity), E not consistent across patients (lowest where the collapse is largest: the slope probably replaces the missing wall).
 - [x] Gradient `ap` with the wall (k = 0) (2026-11-16, analysis/results.md 4b): shape 8.2 → 7.1 mm, failures halved (14 %) but not gone (karl20 / karl23 ~1/3), slope ×2–3 larger than without wall, E 0.5–2.9 kPa (×6 instead of ×17).
-- [ ] Next: common E across patients with the wall (slope fixed = ρ̄ g L / E, fit q0 per patient): scan E 1, 1.7, 3 kPa with `fem_fit.gravity_E_Pa`. First attempt failed at the cold start (analysis/results.md section 5); rerun with the continuation and `best_by: "rms"`. How much shape is lost vs the free slope? Which E fits best overall?
+- [x] Common E with the wall (scan 1 / 1.7 / 3 kPa, 2026-11-16, analysis/results.md 5b): E 1.7 kPa within 0.5 mm of the free slope on 8 / 12, outliers karl10 / karl18 (no gradient) and karl20 / karl23 (E ~0.5); almost no failed solves; E 1 kPa mostly not reachable (wall). To redo: E 1 kPa for karl06, karl17, karl24 (interrupted, invalid).
+- [ ] Leave-one-out check of the transferable model: q0 from the collapse % (rule from the other patients) + slope from E 1.7 kPa, one forward solve per patient, vs the fitted ones.
 - [ ] If the wall corners still fail the solves: wall as a smooth potential (METHODOLOGY.md section 8 (a)): smoothed signed-distance grid, C² cubic B-spline interpolation, contact energy inside Newton with the exact Hessian (torch autodiff), no outer rounds. Choose the smoothing radius (a few mm) and check that the allowance still contains the target.
 - [ ] Later: deformable wall (section 8 (b)): stiffness per part of the cavity (ribs high, diaphragm / mediastinum low, from position and normal on the inflated surface).
 - [ ] With gravity, check whether `support_k` is still needed (probably not).

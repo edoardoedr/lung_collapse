@@ -9,6 +9,7 @@ Guidance for Claude Code in this repository. What lives where:
 | [METHODOLOGY.md](METHODOLOGY.md) | methods: pipeline, model, equations, pressure models, inverse problem, contact |
 | [analysis/results.md](analysis/results.md) | results, evidence behind the design choices, problems found (by hand until a script writes it) |
 | [NEXT.md](NEXT.md) | plan (agreed 2026-10-15) and to-do list |
+| [REWRITE_PLAN.md](REWRITE_PLAN.md) | plan for the `physical-model` branch (2026-11-16): wall potential, physics config, forward / fit modes |
 | this file | how to work here, environments, commands, configs, code architecture, implementation notes, step details |
 
 Read them instead of re-deriving, and keep them current: a new result goes in `analysis/results.md`, a method change in METHODOLOGY.md, a decision or task in NEXT.md. Older history (experiments up to 2026-11-07, the earlier versions of this file) is in git, e.g. `git show 3260c03:NEXT.md`, `git show 3260c03:CLAUDE.md`.
