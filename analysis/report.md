@@ -1,6 +1,6 @@
 # Fit analysis
 
-193 fits, 15 patients. Shape errors measured by this script against the collapsed lung surface, free points only (see the docstring).
+208 fits, 15 patients. Shape errors measured by this script against the collapsed lung surface, free points only (see the docstring).
 
 
 ## Per fit
@@ -16,6 +16,8 @@
 | karl01_noreg_hilum | fit_sym_k0.001 | left | 40 | 25% | 26% | 2.30 | 2.68 | 1.92 | 8.45 | 3.3 | 0.38 | 0.21 | -0.17 | -0.01 | 0.08 | 0 | 7.7 | target error reached |
 | karl01_noreg_hilum | fit_sym_k0.003 | left | 25 | 25% | 27% | 3.30 | 4.07 | 2.54 | 13.17 | 2.8 | 0.44 | 0.31 | -0.18 | -0.14 | 0.23 | 16 | 32.7 | fit plateau (2 levels < 2% gain) |
 | karl01_noreg_hilum_wall | fit_grad_ap_sym | left | 2 | 25% | 28% | 5.76 | 6.96 | 4.56 | 18.88 | 13.3 | 0.48 | 0.26 | -0.00 | -0.00 | 1.00 | 0 | 0.5 | levels exhausted |
+| karl01_noreg_hilum_wall | fit_gE1700 | left | 1 | 25% | 28% | 5.76 | 6.98 | 4.55 | 19.40 | 13.0 | 0.48 | 0.25 | 0.00 | -0.00 | 1.00 | 0 | 0.4 | levels exhausted |
+| karl01_noreg_hilum_wall | fit_gE3000 | left | 1 | 25% | 28% | 5.85 | 7.19 | 4.51 | 23.52 | 9.6 | 0.49 | 0.14 | 0.00 | -0.00 | 1.00 | 0 | 0.2 | levels exhausted |
 | karl01_noreg_hilum_wall | fit_torch | left | 8 | 25% | 32% | 4.72 | 5.50 | 3.94 | 14.21 | 10.5 | 0.54 | 0.13 | -0.14 | -0.05 | 0.39 | 15 | 30.8 | fit plateau (2 levels < 2% gain) |
 | karl01_noreg_hilum_wall | fit_sym | left | 8 | 25% | 24% | 3.55 | 4.37 | 2.73 | 12.81 | 6.9 | 0.40 | 0.18 | -0.20 | -0.16 | 0.23 | 14 | 41.1 | fit plateau (2 levels < 2% gain) |
 | karl01_noreg_hilum_wall | fit_sym_k0.001 | left | 8 | 25% | 27% | 3.70 | 4.58 | 2.82 | 13.72 | 5.0 | 0.45 | 0.34 | -0.22 | -0.16 | 0.29 | 12 | 27.8 | fit plateau (2 levels < 2% gain) |
@@ -29,6 +31,7 @@
 | karl02_noreg_hilum | fit_sym_k0.001 | right | 40 | 53% | 52% | 2.90 | 2.59 | 3.21 | 7.85 | 8.2 | 0.95 | 0.49 | -0.13 | -0.23 | 0.24 | 0 | 9.9 | levels exhausted |
 | karl02_noreg_hilum | fit_sym_k0.003 | right | 40 | 53% | 52% | 2.72 | 2.48 | 2.96 | 6.93 | 5.7 | 1.01 | 0.75 | -0.21 | -0.34 | 0.22 | 0 | 7.9 | levels exhausted |
 | karl02_noreg_hilum_wall | fit_grad_ap_sym | right | 2 | 53% | 49% | 5.30 | 5.15 | 5.45 | 13.92 | 15.0 | 0.83 | 0.32 | -0.00 | -0.00 | 1.00 | 4 | 8.4 | levels exhausted |
+| karl02_noreg_hilum_wall | fit_gE3000 | right | 1 | 53% | 46% | 6.66 | 6.90 | 6.41 | 19.53 | 12.8 | 0.78 | 0.18 | -0.00 | -0.00 | 1.00 | 0 | 0.6 | levels exhausted |
 | karl02_noreg_hilum_wall | fit_torch | right | 4 | 53% | 51% | 6.65 | 6.42 | 6.88 | 15.79 | 12.8 | 0.84 | 0.35 | 0.02 | 0.14 | 0.70 | 12 | 24.0 | fit plateau (2 levels < 2% gain) |
 | karl02_noreg_hilum_wall | fit_sym | right | 4 | 53% | 49% | 6.57 | 6.55 | 6.59 | 15.98 | 11.7 | 0.79 | 0.31 | 0.02 | 0.12 | 0.75 | 12 | 26.1 | fit plateau (2 levels < 2% gain) |
 | karl02_noreg_hilum_wall | fit_sym_k0.001 | right | 4 | 53% | 49% | 6.49 | 6.70 | 6.28 | 17.70 | 5.6 | 0.81 | 0.54 | -0.11 | 0.22 | 0.73 | 11 | 22.2 | fit plateau (2 levels < 2% gain) |
@@ -59,6 +62,7 @@
 | karl06_noreg_hilum | fit_sym_k0.001 | right | 14 | 23% | 24% | 2.37 | 2.58 | 2.16 | 8.62 | 6.8 | 0.40 | 0.29 | -0.07 | -0.15 | 0.40 | 0 | 4.2 | target error reached |
 | karl06_noreg_hilum | fit_sym_k0.003 | right | 14 | 23% | 24% | 2.30 | 2.52 | 2.08 | 8.90 | 4.3 | 0.43 | 0.47 | -0.14 | -0.23 | 0.45 | 0 | 3.5 | target error reached |
 | karl06_noreg_hilum_wall | fit_grad_ap_sym | right | 2 | 23% | 21% | 4.95 | 5.61 | 4.28 | 16.28 | 10.1 | 0.35 | 0.21 | -0.00 | -0.00 | 1.00 | 0 | 0.5 | levels exhausted |
+| karl06_noreg_hilum_wall | fit_gE3000 | right | 1 | 23% | 22% | 4.96 | 5.62 | 4.30 | 16.33 | 9.8 | 0.36 | 0.19 | 0.00 | -0.00 | 1.00 | 0 | 0.4 | levels exhausted |
 | karl06_noreg_hilum_wall | fit_torch | right | 25 | 23% | 26% | 2.34 | 2.34 | 2.33 | 6.88 | 11.0 | 0.42 | 0.16 | -0.10 | -0.14 | 0.13 | 0 | 0.5 | target error reached |
 | karl06_noreg_hilum_wall | fit_sym | right | 25 | 23% | 23% | 2.33 | 2.51 | 2.15 | 6.85 | 10.9 | 0.38 | 0.16 | -0.10 | -0.14 | 0.16 | 0 | 3.5 | target error reached |
 | karl06_noreg_hilum_wall | fit_sym_k0.001 | right | 14 | 23% | 23% | 2.36 | 2.57 | 2.15 | 8.04 | 6.9 | 0.40 | 0.29 | -0.07 | -0.15 | 0.37 | 0 | 0.4 | target error reached |
@@ -72,6 +76,8 @@
 | karl08_noreg_hilum | fit_sym_k0.001 | right | 40 | 28% | 28% | 2.17 | 2.25 | 2.09 | 6.88 | 5.2 | 0.52 | 0.37 | -0.23 | -0.07 | 0.18 | 0 | 6.4 | target error reached |
 | karl08_noreg_hilum | fit_sym_k0.003 | right | 25 | 28% | 28% | 2.45 | 2.58 | 2.33 | 7.93 | 3.3 | 0.55 | 0.55 | -0.37 | -0.03 | 0.28 | 0 | 5.3 | target error reached |
 | karl08_noreg_hilum_wall | fit_grad_ap_sym | right | 2 | 28% | 25% | 6.76 | 7.54 | 5.98 | 20.02 | 10.6 | 0.44 | 0.18 | 0.00 | -0.00 | 1.00 | 0 | 0.4 | levels exhausted |
+| karl08_noreg_hilum_wall | fit_gE1700 | right | 1 | 28% | 26% | 6.79 | 7.38 | 6.19 | 19.06 | 13.3 | 0.44 | 0.32 | 0.00 | -0.00 | 1.00 | 0 | 0.7 | levels exhausted |
+| karl08_noreg_hilum_wall | fit_gE3000 | right | 1 | 28% | 26% | 6.79 | 7.56 | 6.03 | 20.00 | 10.6 | 0.44 | 0.18 | 0.00 | 0.00 | 1.00 | 0 | 0.2 | levels exhausted |
 | karl08_noreg_hilum_wall | fit_torch | right | 40 | 28% | 29% | 2.47 | 2.38 | 2.57 | 6.31 | 8.3 | 0.52 | 0.21 | -0.13 | -0.12 | 0.07 | 0 | 0.6 | target error reached |
 | karl08_noreg_hilum_wall | fit_sym | right | 40 | 28% | 27% | 2.23 | 2.32 | 2.13 | 6.94 | 7.6 | 0.48 | 0.20 | -0.15 | -0.07 | 0.06 | 0 | 4.8 | target error reached |
 | karl08_noreg_hilum_wall | fit_sym_k0.001 | right | 25 | 28% | 27% | 2.46 | 2.56 | 2.35 | 7.71 | 5.0 | 0.50 | 0.35 | -0.22 | -0.04 | 0.17 | 0 | 0.5 | target error reached |
@@ -85,6 +91,7 @@
 | karl10_noreg_hilum | fit_sym_k0.001 | left | 40 | 56% | 56% | 2.55 | 2.44 | 2.65 | 6.74 | 5.1 | 1.06 | 0.54 | 0.27 | 0.23 | 0.09 | 0 | 9.2 | levels exhausted |
 | karl10_noreg_hilum | fit_sym_k0.003 | left | 40 | 56% | 56% | 2.49 | 2.39 | 2.59 | 6.67 | 4.7 | 1.07 | 0.72 | 0.41 | 0.22 | 0.14 | 0 | 7.0 | target error reached |
 | karl10_noreg_hilum_wall | fit_grad_ap_sym | left | 2 | 56% | 54% | 10.31 | 10.59 | 10.03 | 22.29 | 4.9 | 0.93 | 0.02 | -0.00 | 0.00 | 1.00 | 0 | 0.2 | levels exhausted |
+| karl10_noreg_hilum_wall | fit_gE3000 | left | 1 | 56% | 54% | 10.59 | 10.44 | 10.74 | 24.76 | 13.2 | 0.92 | 0.16 | -0.00 | -0.00 | 1.00 | 0 | 0.6 | levels exhausted |
 | karl10_noreg_hilum_wall | fit_torch | left | 14 | 56% | 58% | 4.31 | 3.80 | 4.81 | 9.24 | 9.4 | 0.98 | 0.53 | 0.48 | 0.24 | 0.41 | 12 | 25.0 | fit plateau (2 levels < 2% gain) |
 | karl10_noreg_hilum_wall | fit_sym | left | 8 | 56% | 52% | 4.54 | 4.65 | 4.42 | 13.44 | 7.9 | 0.86 | 0.41 | 0.40 | 0.32 | 0.59 | 11 | 29.2 | fit plateau (2 levels < 2% gain) |
 | karl10_noreg_hilum_wall | fit_sym_k0.001 | left | 14 | 56% | 54% | 3.75 | 3.80 | 3.70 | 10.16 | 6.5 | 0.93 | 0.61 | 0.54 | 0.27 | 0.43 | 12 | 24.9 | fit plateau (2 levels < 2% gain) |
@@ -98,6 +105,7 @@
 | karl17_noreg_hilum | fit_sym_k0.001 | left | 40 | 24% | 24% | 2.52 | 2.80 | 2.24 | 8.46 | 9.0 | 0.40 | 0.39 | -0.29 | 0.07 | 0.10 | 0 | 8.9 | target error reached |
 | karl17_noreg_hilum | fit_sym_k0.003 | left | 40 | 24% | 23% | 2.35 | 2.77 | 1.94 | 8.16 | 6.4 | 0.44 | 0.72 | -0.44 | 0.17 | 0.21 | 0 | 6.1 | target error reached |
 | karl17_noreg_hilum_wall | fit_grad_ap_sym | left | 2 | 24% | 24% | 6.10 | 7.20 | 4.99 | 23.97 | 14.0 | 0.40 | 0.27 | -0.00 | 0.00 | 1.00 | 3 | 7.0 | levels exhausted |
+| karl17_noreg_hilum_wall | fit_gE3000 | left | 1 | 24% | 27% | 6.43 | 7.54 | 5.31 | 25.89 | 12.8 | 0.44 | 0.19 | -0.00 | 0.00 | 1.00 | 0 | 0.5 | levels exhausted |
 | karl17_noreg_hilum_wall | fit_torch | left | 8 | 24% | 23% | 4.45 | 5.03 | 3.88 | 12.91 | 15.4 | 0.33 | 0.17 | 0.00 | 0.08 | 0.11 | 14 | 29.3 | fit plateau (2 levels < 2% gain) |
 | karl17_noreg_hilum_wall | fit_sym | left | 4 | 24% | 21% | 4.81 | 5.57 | 4.05 | 15.63 | 14.5 | 0.31 | 0.12 | -0.03 | 0.05 | 0.09 | 15 | 39.3 | fit plateau (2 levels < 2% gain) |
 | karl17_noreg_hilum_wall | fit_sym_k0.001 | left | 14 | 24% | 23% | 3.52 | 4.02 | 3.01 | 10.89 | 10.5 | 0.37 | 0.51 | 0.01 | 0.20 | 0.30 | 12 | 25.4 | fit plateau (2 levels < 2% gain) |
@@ -111,6 +119,9 @@
 | karl18_noreg_hilum | fit_sym_k0.001 | left | 14 | 31% | 29% | 2.35 | 2.44 | 2.26 | 5.78 | 0.6 | 0.49 | 0.23 | 0.10 | 0.28 | 0.25 | 0 | 2.9 | target error reached |
 | karl18_noreg_hilum | fit_sym_k0.003 | left | 14 | 31% | 29% | 2.30 | 2.38 | 2.22 | 5.87 | 0.6 | 0.50 | 0.29 | 0.08 | 0.31 | 0.31 | 0 | 2.5 | target error reached |
 | karl18_noreg_hilum_wall | fit_grad_ap_sym | left | 1 | 31% | 29% | 5.75 | 6.10 | 5.40 | 15.29 | 1.1 | 0.50 | -0.00 | -0.00 | -0.00 | – | 0 | 0.1 | levels exhausted |
+| karl18_noreg_hilum_wall | fit_gE1000 | left | 1 | 31% | 31% | 9.22 | 8.81 | 9.62 | 17.48 | 13.6 | 0.50 | 0.44 | -0.00 | -0.00 | 1.00 | 0 | 0.4 | levels exhausted |
+| karl18_noreg_hilum_wall | fit_gE1700 | left | 1 | 31% | 33% | 8.34 | 8.01 | 8.68 | 15.74 | 11.3 | 0.56 | 0.26 | 0.00 | -0.00 | 1.00 | 0 | 0.2 | levels exhausted |
+| karl18_noreg_hilum_wall | fit_gE3000 | left | 1 | 31% | 39% | 6.72 | 6.26 | 7.18 | 13.65 | 7.3 | 0.66 | 0.15 | -0.00 | 0.00 | 1.00 | 0 | 0.2 | levels exhausted |
 | karl18_noreg_hilum_wall | fit_torch | left | 14 | 31% | 30% | 2.16 | 2.22 | 2.10 | 5.32 | 1.4 | 0.50 | 0.17 | 0.16 | 0.30 | 0.22 | 0 | 0.3 | target error reached |
 | karl18_noreg_hilum_wall | fit_sym | left | 14 | 31% | 28% | 2.25 | 2.41 | 2.09 | 5.41 | 1.9 | 0.47 | 0.17 | 0.15 | 0.30 | 0.23 | 0 | 1.9 | target error reached |
 | karl18_noreg_hilum_wall | fit_sym_k0.001 | left | 8 | 31% | 28% | 2.42 | 2.61 | 2.24 | 5.57 | 2.0 | 0.46 | 0.20 | 0.14 | 0.34 | 0.33 | 0 | 0.2 | target error reached |
@@ -124,6 +135,8 @@
 | karl20_noreg_hilum | fit_sym_k0.001 | left | 40 | 58% | 55% | 3.64 | 4.25 | 3.04 | 11.54 | 19.6 | 0.97 | 1.41 | -0.30 | 0.35 | 0.16 | 0 | 9.3 | levels exhausted |
 | karl20_noreg_hilum | fit_sym_k0.003 | left | 40 | 58% | 56% | 3.18 | 3.83 | 2.53 | 10.91 | 13.1 | 1.11 | 1.99 | -0.28 | 0.47 | 0.27 | 3 | 16.7 | levels exhausted |
 | karl20_noreg_hilum_wall | fit_grad_ap_sym | left | 2 | 58% | 64% | 9.80 | 10.78 | 8.83 | 29.43 | 20.7 | 1.10 | 0.79 | -0.00 | -0.00 | 1.00 | 8 | 16.6 | levels exhausted |
+| karl20_noreg_hilum_wall | fit_gE1700 | left | 1 | 58% | 54% | 12.92 | 17.14 | 8.70 | 51.97 | 13.6 | 0.93 | 0.30 | -0.00 | -0.00 | 1.00 | 0 | 0.5 | levels exhausted |
+| karl20_noreg_hilum_wall | fit_gE3000 | left | 1 | 58% | 30% | 14.97 | 23.38 | 6.57 | 73.73 | 10.0 | 0.50 | 0.17 | -0.00 | -0.00 | 1.00 | 0 | 0.4 | levels exhausted |
 | karl20_noreg_hilum_wall | fit_torch | left | 4 | 58% | 68% | 8.37 | 7.84 | 8.89 | 17.74 | 19.5 | 1.14 | 0.79 | -0.47 | 0.01 | 0.42 | 11 | 21.3 | fit plateau (2 levels < 2% gain) |
 | karl20_noreg_hilum_wall | fit_sym | left | 4 | 58% | 58% | 7.35 | 7.91 | 6.79 | 20.90 | 21.4 | 0.91 | 0.57 | -0.16 | 0.08 | 0.54 | 11 | 24.8 | fit plateau (2 levels < 2% gain) |
 | karl20_noreg_hilum_wall | fit_sym_k0.001 | left | 8 | 58% | 57% | 6.02 | 6.55 | 5.49 | 15.94 | 14.6 | 1.03 | 1.26 | -0.82 | 0.15 | 0.49 | 13 | 26.6 | fit plateau (2 levels < 2% gain) |
@@ -150,6 +163,7 @@
 | karl24_noreg_hilum | fit_sym_k0.001 | left | 25 | 24% | 25% | 2.33 | 2.79 | 1.87 | 9.56 | 7.1 | 0.42 | 0.12 | -0.28 | 0.05 | 0.15 | 0 | 4.6 | target error reached |
 | karl24_noreg_hilum | fit_sym_k0.003 | left | 25 | 24% | 26% | 2.24 | 2.62 | 1.86 | 8.98 | 5.8 | 0.47 | 0.31 | -0.47 | 0.09 | 0.32 | 0 | 4.5 | target error reached |
 | karl24_noreg_hilum_wall | fit_grad_ap_sym | left | 2 | 24% | 26% | 5.60 | 6.68 | 4.53 | 22.15 | 7.9 | 0.44 | 0.03 | -0.00 | 0.00 | 1.00 | 0 | 0.2 | levels exhausted |
+| karl24_noreg_hilum_wall | fit_gE3000 | left | 1 | 24% | 25% | 5.65 | 6.45 | 4.86 | 16.68 | 13.0 | 0.42 | 0.14 | -0.00 | 0.00 | 1.00 | 0 | 0.4 | levels exhausted |
 | karl24_noreg_hilum_wall | fit_torch | left | 4 | 24% | 25% | 4.52 | 5.01 | 4.02 | 13.09 | 14.3 | 0.39 | 0.12 | -0.17 | 0.02 | 0.60 | 2 | 2.6 | fit plateau (2 levels < 2% gain) |
 | karl24_noreg_hilum_wall | fit_sym | left | 4 | 24% | 20% | 4.24 | 5.01 | 3.47 | 14.34 | 13.4 | 0.31 | 0.12 | -0.14 | 0.02 | 0.64 | 10 | 23.1 | fit plateau (2 levels < 2% gain) |
 | karl24_noreg_hilum_wall | fit_sym_k0.001 | left | 25 | 24% | 25% | 2.43 | 2.83 | 2.03 | 9.85 | 5.8 | 0.41 | 0.10 | -0.27 | 0.05 | 0.14 | 0 | 0.8 | target error reached |
@@ -163,6 +177,7 @@
 | patient_1_noreg_hilum | fit_sym_k0.001 | left | 40 | 59% | 56% | 4.57 | 4.94 | 4.21 | 13.30 | 20.4 | 0.87 | 0.07 | -0.19 | 0.09 | 0.01 | 20 | 25.8 | fit plateau (2 levels < 2% gain) |
 | patient_1_noreg_hilum | fit_sym_k0.003 | left | 40 | 59% | 56% | 3.78 | 4.27 | 3.29 | 12.58 | 18.5 | 1.08 | 0.43 | -0.77 | -0.02 | 0.06 | 10 | 26.9 | levels exhausted |
 | patient_1_noreg_hilum_wall | fit_grad_ap_sym | left | 2 | 59% | 63% | 12.58 | 13.54 | 11.62 | 33.78 | 23.9 | 1.08 | 0.41 | 0.00 | -0.00 | 1.00 | 5 | 11.3 | levels exhausted |
+| patient_1_noreg_hilum_wall | fit_gE3000 | left | 1 | 59% | 48% | 14.00 | 18.49 | 9.52 | 52.49 | 15.7 | 0.82 | 0.15 | 0.00 | -0.00 | 1.00 | 0 | 1.1 | levels exhausted |
 | patient_1_noreg_hilum_wall | fit_torch | left | 40 | 59% | 95% | 24.32 | 8.34 | 40.29 | 20.91 | 17.5 | 2.27 | -0.39 | 2.06 | 2.28 | 0.27 | 0 | 0.8 | levels exhausted |
 | patient_1_noreg_hilum_wall | fit_sym | left | 4 | 59% | 56% | 11.37 | 13.84 | 8.91 | 41.79 | 18.7 | 0.92 | 0.10 | 0.06 | -0.05 | 0.21 | 11 | 24.3 | fit plateau (2 levels < 2% gain) |
 | patient_1_noreg_hilum_wall | fit_sym_k0.001 | left | 4 | 59% | 49% | 7.52 | 8.95 | 6.09 | 24.62 | 19.4 | 0.77 | 0.50 | -0.12 | -0.23 | 0.18 | 13 | 26.6 | fit plateau (2 levels < 2% gain) |
@@ -213,6 +228,7 @@
 | noreg / hilum only / no wall / regions / one-sided | 15 | 2.95 | 3.03 | 3.08 | -3.4 | 10.7 | 14/15 | 10/15 | 0.23 | -0.28 | -0.62 + 3.86·c (max res 0.97) | 0.4 |
 | noreg / hilum only / no wall / regions / symmetric | 43 | 2.59 | 2.85 | 2.53 | 0.9 | 8.6 | 42/43 | 36/43 | 0.56 | -0.36 | -0.09 + 2.02·c (max res 0.23) | 5.3 |
 | noreg / hilum only / wall / gradient ap / symmetric | 14 | 7.14 | 7.94 | 6.33 | 0.4 | 13.7 | 13/14 | 10/14 | 0.41 | -0.00 | -0.03 + 1.83·c (max res 0.20) | 5.8 |
+| noreg / hilum only / wall / gradient ap+si / symmetric | 15 | 6.79 | 7.54 | 6.41 | 2.1 | 12.8 | 15/15 | 8/15 | 0.34 | -0.00 | 0.19 + 1.05·c (max res 0.31) | 0.4 |
 | noreg / hilum only / wall / regions / one-sided | 15 | 5.67 | 6.02 | 5.32 | -3.2 | 14.3 | 13/15 | 7/15 | 0.38 | 0.00 | -0.63 + 3.80·c (max res 0.99) | 21.3 |
 | noreg / hilum only / wall / regions / symmetric | 46 | 4.39 | 4.83 | 3.87 | 4.1 | 8.5 | 46/46 | 36/46 | 0.68 | -0.28 | 0.10 + 1.31·c (max res 0.35) | 26.3 |
 
@@ -222,17 +238,18 @@
 | comparison | fixed | n | B better (ASSD) | Δ ASSD | Δ fit→tgt | Δ tgt→fit | Δ rot ° | Δ mean p/E | Δ ap | Δ failed | Δ min |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | wall: False → True | noreg, hilum only, gradient ap, symmetric | 14 | 13/14 | -0.78 | -0.67 | -0.75 | 0.5 | -0.03 | 0.11 | 2 | 5.6 |
+| wall: False → True | noreg, hilum only, gradient ap+si, symmetric | 15 | 4/15 | 0.66 | 0.29 | 0.00 | 3.2 | -0.03 | 0.11 | 0 | 0.2 |
 | wall: False → True | noreg, hilum only, regions, one-sided | 15 | 4/15 | 1.41 | 1.70 | 1.52 | 0.6 | -0.02 | -0.01 | 11 | 20.6 |
 | wall: False → True | noreg, hilum only, regions, symmetric | 138 | 20/138 | 1.69 | 2.01 | 1.26 | -0.0 | -0.06 | 0.02 | 11 | 19.1 |
 | model: regions → gradient ap+si | noreg, hilum only, no wall, one-sided | 45 | 11/45 | 3.69 | 3.61 | 3.13 | 1.4 | 0.05 | -0.08 | 0 | -0.1 |
 | model: regions → gradient ap+si | noreg, hilum only, no wall, symmetric | 101 | 13/101 | 4.80 | 5.50 | 4.30 | 1.1 | 0.00 | -0.21 | 0 | -3.2 |
-| model: regions → gradient ap+si | noreg, hilum only, wall, symmetric | 46 | 5/46 | 2.71 | 3.34 | 2.56 | 3.2 | 0.02 | -0.17 | -8 | -19.0 |
+| model: regions → gradient ap+si | noreg, hilum only, wall, symmetric | 106 | 7/106 | 2.97 | 3.57 | 2.40 | 4.7 | 0.02 | -0.10 | -6 | -13.4 |
 | model: regions → gradient ap | noreg, hilum only, no wall, one-sided | 45 | 11/45 | 3.69 | 3.61 | 3.13 | 1.4 | 0.05 | -0.08 | 0 | -0.1 |
 | model: regions → gradient ap | noreg, hilum only, no wall, symmetric | 101 | 13/101 | 4.80 | 5.50 | 4.30 | 1.1 | 0.00 | -0.21 | 0 | -3.2 |
-| model: regions → gradient ap | noreg, hilum only, wall, symmetric | 46 | 5/46 | 2.71 | 3.34 | 2.56 | 3.2 | 0.02 | -0.17 | -8 | -19.0 |
+| model: regions → gradient ap | noreg, hilum only, wall, symmetric | 106 | 7/106 | 2.97 | 3.57 | 2.40 | 4.7 | 0.02 | -0.10 | -6 | -13.4 |
 | model: gradient ap → gradient ap+si | noreg, hilum only, no wall, one-sided | 45 | 11/45 | 3.69 | 3.61 | 3.13 | 1.4 | 0.05 | -0.08 | 0 | -0.1 |
 | model: gradient ap → gradient ap+si | noreg, hilum only, no wall, symmetric | 101 | 13/101 | 4.80 | 5.50 | 4.30 | 1.1 | 0.00 | -0.21 | 0 | -3.2 |
-| model: gradient ap → gradient ap+si | noreg, hilum only, wall, symmetric | 46 | 5/46 | 2.71 | 3.34 | 2.56 | 3.2 | 0.02 | -0.17 | -8 | -19.0 |
+| model: gradient ap → gradient ap+si | noreg, hilum only, wall, symmetric | 106 | 7/106 | 2.97 | 3.57 | 2.40 | 4.7 | 0.02 | -0.10 | -6 | -13.4 |
 | loss: one-sided → symmetric | noreg, hilum only, no wall, gradient ap | 15 | 15/15 | -0.45 | 0.19 | -1.32 | -1.4 | -0.15 | -0.02 | 0 | 0.0 |
 | loss: one-sided → symmetric | noreg, hilum only, no wall, gradient ap+si | 15 | 15/15 | -0.47 | 0.35 | -1.36 | -1.3 | -0.13 | -0.01 | 0 | -0.0 |
 | loss: one-sided → symmetric | noreg, hilum only, no wall, regions | 43 | 33/43 | -0.22 | 0.04 | -0.50 | -1.6 | -0.03 | 0.13 | 0 | 5.0 |
@@ -250,5 +267,6 @@
 | noreg / hilum only / no wall / regions / one-sided | 15 | -0.22 | 0.28 | 0.22 | -0.13 | -0.47 |
 | noreg / hilum only / no wall / regions / symmetric | 43 | 0.03 | 0.22 | 0.08 | 0.29 | -0.38 |
 | noreg / hilum only / wall / gradient ap / symmetric | 14 | 0.13 | 0.02 | -0.18 | 0.14 | -0.31 |
+| noreg / hilum only / wall / gradient ap+si / symmetric | 15 | -0.51 | -0.06 | 0.53 | 0.15 | -0.42 |
 | noreg / hilum only / wall / regions / one-sided | 15 | -0.27 | 0.37 | 0.18 | -0.13 | -0.47 |
 | noreg / hilum only / wall / regions / symmetric | 46 | 0.19 | 0.19 | -0.06 | 0.17 | -0.32 |

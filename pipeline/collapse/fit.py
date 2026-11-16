@@ -321,7 +321,7 @@ def run_level(L, model, x0, lb, ub, ctx):
                           q=np.array(qs, float))
         else:
             anchor["current"] = anchor["state"] is None         # the solver now holds this trial
-        trk.improve(err, r, state)
+        trk.improve(rms if cfg.best_by == "rms" else err, r, state)
         return last["r"], err + np.dot(rreg, rreg) / max(1, len(rreg))
 
     # regularisation rows of the Jacobian: d(reg (q_a - q_b))/dx, constant
@@ -400,7 +400,7 @@ def run(cfg):
         log.warning("loss_symmetric_weight %g ignored: the reference is registered (node-to-node "
                     "correspondence, already symmetric)", cfg.loss_symmetric_weight)
     r_zero = loss.residual(X_ref)
-    e0, _ = loss.error(r_zero)
+    e0, rms0 = loss.error(r_zero)
     mism = np.linalg.norm(X_ref - X_tgt, axis=1)[~free]
     log.info("problem: %d surface points (%d clamped, left out of the error: %.2f mm mean / %.2f max from "
              "their target), %d volume nodes, %d tets, levels K = %s; loss %s%s%s%s, no-deformation error "
@@ -446,20 +446,32 @@ def run(cfg):
         models = [PressureModel.gradient(coords, [], clamped, offset)]
         if axes:
             models.append(PressureModel.gradient(coords, axes, clamped, offset))
+        if offset is not None:
+            # continuation: a solve from rest with the whole gravity term pushes the lung onto the wall
+            # from the first increment and often fails (2026-11-16 scan: 27 / 42 first solves). Fit the
+            # uniform level without, then with half the gravity term first; these levels only provide
+            # the warm start and their states are not candidates for the result
+            pre = [PressureModel.gradient(coords, [], clamped, f * offset) for f in cfg.gravity_prefit]
+            for m in pre:
+                m.prefit = True
+            models = pre + models
     slope_max = cfg.q_bounds[1] - cfg.q_bounds[0]
 
     trk = Tracker(cfg, out)
     ctx = dict(solver=solver, trk=trk, cfg=cfg, sign=sign, X_ref=X_ref, loss=loss, clamped=clamped,
                r_zero=r_zero.ravel())
     q_tri, nu_best = np.where(clamped, np.nan, cfg.q0), cfg.nu
-    summary, stall, prev = [], 0, e0
+    base0 = rms0 if cfg.best_by == "rms" else e0          # in the measure that picks the best
+    summary, stall, prev = [], 0, base0
     stop_reason = "levels exhausted"
     with guarded(trk, int(60 * (cfg.time_budget_min + cfg.hard_grace_min))):
+        warm = None                                     # best of the last prefit level
         for L, model in enumerate(models, start=1):
             K = model.P
-            if trk.best is not None:                       # warm start from the best so far
-                q_tri, nu_best = trk.best["q_tri"], trk.best["nu"]
-                solver.set_state(trk.best["solver_state"], ctx["sign"] * trk.best["q_tri"])
+            src = trk.best if trk.best is not None else warm
+            if src is not None:                             # warm start from the best so far
+                q_tri, nu_best = src["q_tri"], src["nu"]
+                solver.set_state(src["solver_state"], ctx["sign"] * src["q_tri"])
             x0 = model.x0_from(q_tri, area, clamped)
             lb, ub = np.full(K, cfg.q_bounds[0]), np.full(K, cfg.q_bounds[1])
             if model.name == "gradient":                   # slopes: p/E difference across the lung
@@ -473,6 +485,15 @@ def run(cfg):
                                 evals=trk.level_evals, elapsed_min=trk.elapsed() / 60))
             log.info("level %d done (%s): level best %.3f mm, overall best %.3f mm, improvement %.1f%%",
                      L, reason, lvl_err, trk.best_err, 100 * imp)
+            if getattr(model, "prefit", False):
+                summary[-1]["prefit"] = True
+                if reason == "time budget" or reason.startswith("signal"):
+                    stop_reason = reason
+                    break
+                if trk.best is not None:                    # warm start only, not a result
+                    warm = trk.best
+                trk.best, trk.best_err, prev = None, np.inf, base0
+                continue
             trk.checkpoint()
             if reason in ("target error reached", "time budget") or reason.startswith("signal"):
                 stop_reason = reason

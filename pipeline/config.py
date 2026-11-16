@@ -172,6 +172,12 @@ class FemFitConfig:
     # E_Pa is set to gravity_E_Pa, so the reported pressures are in physical Pa. None = slope fitted
     gravity_E_Pa: float | None = None
     tissue_density: float = 250.0      # kg/m3, mean density of the inflated lung (assumed: no CT HU)
+    gravity_prefit: list = field(default_factory=lambda: [0.0, 0.5])  # continuation: fractions of the
+                                       # gravity term fitted first (uniform level), only as warm start
+    # which state is the result (and drives level plateau / target stop): "mean" = lowest mean distance;
+    # "rms" = lowest rms, i.e. the least-squares cost the optimiser minimises (without the reg term).
+    # With 1-2 parameters the two can disagree and "mean" may keep the starting point
+    best_by: str = "mean"
     optimizer: str = "lsq"            # lsq (bounded least squares, TRF) | nm (Nelder-Mead)
     jacobian: str = "analytic"         # lsq: analytic (from the core; finite differences if it has none) | 2-point
     lsq_diff_step: float = 5e-3        # lsq: relative finite-difference step for the Jacobian
@@ -224,6 +230,10 @@ class FemFitConfig:
         bad = [a for a in self.gradient_axes if a not in ("ap", "si", "ml")]
         if bad or len(set(self.gradient_axes)) != len(self.gradient_axes):
             raise ValueError("fem_fit.gradient_axes: distinct values among ap, si, ml (got %s)" % self.gradient_axes)
+        if self.best_by not in ("mean", "rms"):
+            raise ValueError("fem_fit.best_by must be mean or rms")
+        if any(not 0.0 <= f < 1.0 for f in self.gravity_prefit):
+            raise ValueError("fem_fit.gravity_prefit: fractions in [0, 1)")
         if self.gravity_E_Pa is not None:
             if self.pressure_model != "gradient":
                 raise ValueError("fem_fit.gravity_E_Pa needs pressure_model gradient")
