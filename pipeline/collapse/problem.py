@@ -27,6 +27,14 @@ class CollapseProblem:
     wall_points: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
     wall_tris: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.int64))
     wall_allow: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    # the same wall as a smooth field (solver option wall_update "potential"; empty = not built):
+    # smoothed signed distance on a regular grid (wall_field.py), and the margin of each surface
+    # point measured with this field
+    wall_grid: np.ndarray = field(default_factory=lambda: np.zeros((0, 0, 0), dtype=np.float32))
+    wall_origin: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    wall_spacing: np.ndarray = field(default_factory=lambda: np.zeros(()))        # mm
+    wall_smoothing_mm: np.ndarray = field(default_factory=lambda: np.zeros(()))   # Gaussian sigma
+    wall_field_allow: np.ndarray = field(default_factory=lambda: np.zeros(0))
     # unregistered reference (no node correspondence): the collapsed surface itself; `target` is
     # then the closest point of each reference point on it, and fem_fit re-matches every fitted
     # point to its closest point. Empty = registered, `target` is node-to-node
@@ -36,6 +44,15 @@ class CollapseProblem:
     @property
     def has_wall(self):
         return len(self.wall_tris) > 0
+
+    @property
+    def has_wall_field(self):
+        return self.wall_grid.size > 0
+
+    def wall_field(self):
+        """The smooth wall field (wall_field.WallField)."""
+        from .wall_field import WallField
+        return WallField(self.wall_grid, self.wall_origin, float(self.wall_spacing))
 
     @property
     def closest_point(self):

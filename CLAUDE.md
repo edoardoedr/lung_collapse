@@ -36,7 +36,7 @@ The original scripts (`pipeline_codes_v1/`) were removed on 2026-10-05 (in git; 
 | Mac (this machine) | base Python with numpy/scipy; **no** pyvista, vtk, itk, gmsh, getfem, warp, torch | editing, `py_compile`, `load_config` checks, numpy-only tests, reading `results/` |
 | Server (Jupyter, conda env `lungfem`, `/home/jovyan/Lung_project/lung_collapse`) | GetFEM (MUMPS), warp-lang, torch, nvmath-python (cuDSS), pypardiso; Xeon CPUs (slow) + CUDA GPU (driver CUDA 12; a cuda-bindings 13 warning is harmless) | all pipeline runs and validation scripts |
 
-- Local testing without the heavy libraries: `pipeline/collapse/geometry.py` imports pyvista/vtk at module level, so tests that import `nodal.py` need those modules stubbed (`sys.modules[...] = MagicMock()`). A numpy mirror of the torch assembly on `NodalSolver`, or a fake linear core, on a local `problem.npz` was used this way to test the shared code.
+- Local tests: `tests/` runs on the Mac with `python3 tests/<file>.py` (no pytest there; the files are pytest-compatible). `tests/stubs.py` stands in for the heavy libraries (pyvista, vtk, torch, ...) with `MagicMock` modules, `tests/numpy_core.py` is a numpy Neo-Hookean core on `NodalSolver` (same physics, complex-step tangent) that runs the shared solver code on a local `results/<p>/fem/setup/problem.npz`, and `tests/sdf_numpy.py` builds the wall distance grid without VTK (cached in `tests/.cache/`).
 - `results/` on the Mac is a downloaded copy of the server outputs (`/home/jovyan/Dataset_Lungs/{HD_dataset/FEM_fit_HD, CZ_dataset/FEM_fit_CZ}/<p>_noreg_hilum[_wall]`): `fem/setup/problem.npz` and every `fem/<run>/result_summary.json`, `best_state.npz`, `history.csv`. Check the file dates against the git log before saying which code a run used.
 
 ## Commands
@@ -51,10 +51,12 @@ python scripts/compare_warp_getfem.py --config configs/<p>_torch.json [--core to
        [--jac-q 0.1] [--core-options '{"wall_update": "newton"}']
 python scripts/wall_diagnose.py --config configs/<p>_wall_torch.json [--q 0.2] [--steps 10] [--options '{...}'] \
        [--from-fit RUN [--fit-state]] [--perturb r ...] [--trials 3]      # Newton / wall-round trace
+python scripts/add_wall_field.py --config configs/<p>_wall_torch.json [--grid 1.5] [--smoothing 3]   # wall field into an existing problem.npz
 python scripts/collapse_sequence.py --config configs/<p>_torch.json [--frames 30] [--mode fem|linear] [--volume]
 python scripts/summarize_fits.py <results folder> [...] [--out analysis]   # Mac: runs.csv, compare.csv, report.md, plots
 # in Slicer's console: exec(open('scripts/slicer_compare_sequences.py').read()); load('<seq folder>', ...)
-python -m py_compile pipeline/collapse/solvers/*.py scripts/*.py    # the only check possible on the Mac for FEM code
+python -m py_compile pipeline/collapse/solvers/*.py scripts/*.py    # Mac: syntax of the FEM code
+python3 tests/test_wall_field.py; python3 tests/test_wall_potential.py   # Mac: numpy tests (tests/)
 ```
 
 Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output. Many parallel jobs slow every solve (~15× with 28 jobs): use `JOBS` ≤ 4 when times or wall failures matter.
@@ -85,9 +87,10 @@ Model and equations in METHODOLOGY.md section 3.
 | `__init__.py` | registry `getfem`, `warp`, `torch` (lazy import) or `"module:Class"`; `options_for` |
 | `common.py` | `DEFAULTS` solver options, `mat_params`, `dmat_params_dnu`, `adaptive_path`, `wall_gap_change` |
 | `getfem_solver.py` | GetFEM core (P1/P2, MUMPS); Jacobian via `K_t dU/dq = d(rhs)/dq`, d/dν by central difference; wall only `"outer"`, re-linearises at every warm start; no `support_k` |
-| `nodal.py` | `NodalSolver`: everything except assembly for P1 cores that assemble themselves — mesh prep, sparsity, `_csr(Kb, Fb)`, `LinearSolver` (cudss / pardiso / scipy), GetFEM-replica Newton, load path on face pressures (`fq_last`) with `adaptive_steps` / `warm_substeps`, wall `"outer"` (equilibrium linearisation kept for the last 256 converged states) or `"newton"`, `wall_quadrature` `face` / `nodal`, `support_k` block in `_assemble_at`, Jacobian |
+| `nodal.py` | `NodalSolver`: everything except assembly for P1 cores that assemble themselves — mesh prep, sparsity, `_csr(Kb, Fb)`, `LinearSolver` (cudss / pardiso / scipy), GetFEM-replica Newton, load path on face pressures (`fq_last`) with `adaptive_steps` / `warm_substeps`, wall `"outer"` (equilibrium linearisation kept for the last 256 converged states), `"newton"` or `"potential"` (smooth field, force and exact tangent added in `_assemble_at`), `wall_quadrature` `face` / `nodal`, `support_k` block in `_assemble_at`, Jacobian |
 | `warp_solver.py` | Warp kernels: hand-derived `nh_P` / `nh_dP`, pressure, wall; `_dfint_dnu` uses linearity in (c1, d1) |
 | `torch_solver.py` | `TorchFEM` (assembly only, differentiable, any device/dtype incl. mps float32: physics loss for the GNN) + `TorchSolver` (cpu/cuda float64; refuses mps). Stress and tangent by `torch.func` (vmap(grad), vmap(jacfwd(grad))), d/dν by `jvp` |
+| `../wall_field.py` | not a core: the wall as a smooth field. `signed_distance_grid` (VTK, used by `fem_setup` with `wall_grid_mm`) and `WallField` (numpy: tricubic B-spline value, gradient, Hessian), `penalty` force law |
 | `materials.py` | torch materials as energy W(F, nu, **params) with E = 1: `neo_hookean` (= GetFEM/Warp), `mooney_rivlin` (example, unvalidated). New material = new function + entry in `MATERIALS`; options `material`, `material_params` |
 
 - Block layout for `_csr`: `Kb[t, a, b, i, j] = dR[node a, i] / dU[node b, j]` (n_tets, 4, 4, 3, 3); `Fb` the same per face (n_faces, 3, 3, 3, 3), pressure + wall summed.
@@ -104,6 +107,7 @@ Not obvious from the code; the reasons and numbers are in analysis/results.md.
 - `PressureModel`: regions = indicator Φ; gradient = one core region per free triangle and Jacobian J_tri · Φ, so no core changed. Tested with a fake linear core (synthetic gradient recovered to 1e-15).
 - `gravity_E_Pa`: `PressureModel.offset` = fixed p/E γ (h − h̄) added to q_tri and to the core pressures (`fit.gravity_offset`), not a parameter, so Jacobians are unchanged; `ap` is dropped from the fitted axes and `E_Pa` is overwritten. Checked on karl01 (Mac, stubbed imports): q_solver = q_tri, x0_from recovers x, regression slope = γ L. Prefit levels (`gravity_prefit`, attributes `prefit` / `frac` on the model; a gravity level failing at its first solve gets a mid-fraction level inserted before it, up to `gravity_bisect`, so `models` grows inside the loop) warm-start the gravity level and are then dropped from the tracker (`trk.best` reset, `warm` kept). `best_by` picks the result by mean or rms. The whole loop was tested with a fake linear core that fails cold starts with a non-uniform load (`fit.run` with fakes for WallDistance / closest_on_surface / assd / polydata).
 - Outer wall rounds: unsettled after `wall_max_updates` = failure (`fail_unsettled`); the settle measure is `common.wall_gap_change` (previous linearised gap vs true gap, points with gap > −1 mm). A settled state keeps the linearisation it was solved with (Jacobian too); states loaded from a file (`best_state.npz`, `wall_diagnose --fit-state`) have none and re-linearise.
+- Wall `potential` (branch `refactoring_to_v2`, REWRITE_PLAN.md Phase 1): `problem.npz` gains `wall_grid` / `wall_origin` / `wall_spacing` / `wall_smoothing_mm` / `wall_field_allow` (old files load unchanged; the solver asks for `fem_setup.wall_grid_mm` when they are missing). A Newton trial with a surface point outside the grid is rejected like an inverted element (`fail_inverted`). The cores' own wall term is skipped (`_assemble(..., wall=False)`). Tested on the Mac with the numpy core on karl04 (4 mm grid): wall tangent vs FD 1e-7, Jacobian with contact vs FD 3e-8, and cold starts with the whole gravity term converge up to γ of E 0.5 kPa (on the server E 1 kPa failed with the outer rounds). Not yet run on the server.
 - `support_k`: constant block k a (I − n nᵀ) per surface node (reference area / normal), added to R and the free-dof tangent, so Newton, load path and Jacobian see it; `support_share` in the summary = Σ|support force| / Σ|pressure force|.
 - Summary keys added over time: `mean_normal_err_mm`, `best_loss_err_mm`, `assd_mm`, `target_to_fitted_mm`, `rigid_rotation_deg` / `rigid_shift_mm` (target, fitted), `baseline_loss_mm`, `pressure_model`, `gradient`, `support_k`, `support_share`, `wall_max_penetration_mm`, `wall_points_beyond`; the fitted surface has `NormalError_mm`.
 

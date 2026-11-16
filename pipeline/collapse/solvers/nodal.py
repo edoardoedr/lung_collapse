@@ -17,7 +17,14 @@ options: the GetFEMSolver ones (order must be 1), plus
                  wall_settle_mm). "newton": the wall (normal, gap) is re-linearised at every
                  residual evaluation inside one Newton solve, so the contact is part of Newton
                  and the outer rounds disappear; at convergence it solves the same equations
-                 (gap = signed distance - allowed margin), without the wall_settle_mm tolerance
+                 (gap = signed distance - allowed margin), without the wall_settle_mm tolerance.
+                 "potential": the wall is a smooth field (wall_field.py: smoothed signed distance
+                 phi on a grid, C2 interpolation; fem_setup.wall_grid_mm), evaluated at the current
+                 position of every surface node: R_i += a_i w(g_i) grad phi(x_i), g_i = phi(x_i) -
+                 margin_i, a_i = reference area of the node on the non-clamped faces, w the same
+                 force law (wall_stiffness, wall_eps), tangent a_i [w' grad phi grad phi^T + w
+                 Hess phi] (exact). Contact is part of the one Newton solve: no rounds, no
+                 linearisation to keep, and the Jacobian is exact. wall_quadrature is not used
   linear_solver  auto | cudss (nvmath-python, CUDA) | pardiso (pypardiso) | scipy (SuperLU); None = auto
   wall_quadrature  "face": wall term with the IM_TRIANGLE(3) face rule (= GetFEM's IM_TETRAHEDRON(3),
                  negative centre weight); "nodal": vertex rule, positive weights 1/3, each node's
@@ -54,6 +61,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from ..geometry import WallDistance, vertex_normals
+from ..wall_field import penalty
 from .base import ForwardSolver
 from .common import DEFAULTS as GETFEM_DEFAULTS
 from .common import WALL_QUADRATURES, adaptive_path, ramps, wall_gap_change
@@ -147,8 +155,8 @@ class NodalSolver(ForwardSolver):
         o = self.options
         if o["order"] != 1:
             raise NotImplementedError("the %s solver implements P1 only (solver_options.order = 1)" % self.name)
-        if o["wall_update"] not in ("outer", "newton"):
-            raise ValueError("%s solver: wall_update must be 'outer' or 'newton'" % self.name)
+        if o["wall_update"] not in ("outer", "newton", "potential"):
+            raise ValueError("%s solver: wall_update must be 'outer', 'newton' or 'potential'" % self.name)
         if o["wall_quadrature"] not in WALL_QUADRATURES:
             raise ValueError("%s solver: wall_quadrature must be one of %s" % (self.name, ", ".join(WALL_QUADRATURES)))
         self.qb, self.qw = ((FACE_QUAD_B, FACE_QUAD_W) if o["wall_quadrature"] == "face"
@@ -229,6 +237,25 @@ class NodalSolver(ForwardSolver):
             self.wallN = np.zeros((self.nn, 3))
             self.wallG = np.zeros(self.nn)
         self.wall_in_newton = self.wall is not None and o["wall_update"] == "newton"
+        self.wall_outer = self.wall is not None and o["wall_update"] == "outer"
+        # wall as a smooth field (wall_update "potential"): nodal force and 3x3 tangent block per
+        # surface node, added in _assemble_at; the core's own (linearised) wall term is then off
+        self.field = None
+        if self.wall is not None and o["wall_update"] == "potential":
+            if not problem.has_wall_field:
+                raise RuntimeError("%s solver: wall_update 'potential' needs the wall field in problem.npz: set "
+                                   "fem_setup.wall_grid_mm (e.g. 1.5) and rerun fem_setup" % self.name)
+            self.field = problem.wall_field()
+            a = np.zeros(self.nn)
+            act = ~self.clamped
+            np.add.at(a, faces[act].ravel(), np.repeat(self.area0[act] / 3.0, 3))
+            self.field_area = a[self.surf_node]
+            self.field_allow = np.asarray(problem.wall_field_allow, float)
+            fr = self.dof2free[3 * self.surf_node]                 # a node's 3 dofs are all free or all fixed
+            self.field_free = fr >= 0
+            base = fr[self.field_free]
+            self.field_rows = (base[:, None, None] + np.arange(3)[None, :, None] + np.zeros((1, 1, 3), np.int64)).ravel()
+            self.field_cols = (base[:, None, None] + np.arange(3)[None, None, :] + np.zeros((1, 3, 1), np.int64)).ravel()
 
         self.labels, self.K = None, 0
         self.fq = np.zeros(len(faces))
@@ -252,8 +279,11 @@ class NodalSolver(ForwardSolver):
     def _log_setup(self, device, extra=""):
         log.info("%s: %d nodes, %d tets, %d dofs (P1), %d clamped faces, wall %s, device %s, linear solver %s%s",
                  self.name, self.nn, len(self.tets), self.ndof, self.clamped.sum(),
-                 "on (stiffness %g, update %s, quadrature %s)" % (self.options["wall_stiffness"], self.options["wall_update"],
-                                                  self.options["wall_quadrature"])
+                 ("on (stiffness %g, potential: smooth field, grid %.2f mm, smoothing %.1f mm)"
+                  % (self.options["wall_stiffness"], self.field.h, float(self.problem.wall_smoothing_mm))
+                  if self.field is not None else
+                  "on (stiffness %g, update %s, quadrature %s)" % (self.options["wall_stiffness"], self.options["wall_update"],
+                                                                   self.options["wall_quadrature"]))
                  if self.wall else "off", device, self.lin.backend, extra)
         if self.support is not None:
             log.info("%s: tangential surface support k = %g E/mm on %d surface nodes", self.name,
@@ -334,7 +364,10 @@ class NodalSolver(ForwardSolver):
                    max_u=float(np.linalg.norm(U.reshape(-1, 3), axis=1).max()))
         if self.wall is not None:
             Us = U.reshape(-1, 3)[self.surf_node]
-            g = np.einsum("ij,ij->i", Us, self.wallN[self.surf_node]) - self.wallG[self.surf_node]
+            if self.field is not None:
+                g = self.field(self.surf_pts + Us, derivatives=0) - self.field_allow
+            else:
+                g = np.einsum("ij,ij->i", Us, self.wallN[self.surf_node]) - self.wallG[self.surf_node]
             rec.update(n_contact=int((g > 0).sum()), max_gap=float(g.max()))
         self.trace.append(rec)
 
@@ -392,20 +425,44 @@ class NodalSolver(ForwardSolver):
 
     def _assemble_at(self, U, compute_K):
         """_assemble, with the wall re-linearised at U first when the contact is part of Newton,
-        plus the tangential support (support_k)."""
+        plus the tangential support (support_k) and the wall as a smooth field (potential)."""
         if self.wall_in_newton:
             self._update_wall(U)
         t0 = time.time()
         try:
-            R, A = self._assemble(U, compute_K)
+            if self.field is not None and not self.field.inside(
+                    self.surf_pts + U.reshape(-1, 3)[self.surf_node]).all():
+                return None, None                                # a trial step left the grid: rejected
+            R, A = self._assemble(U, compute_K, wall=self.field is None)
             if self.support is not None and R is not None:
                 R = R + self.support @ U
                 if A is not None:
                     A = (A + self.support_ff).tocsr()
+            if self.field is not None and R is not None:
+                f, H = self._field_wall(U, compute_K)
+                R = R.copy()
+                R[self.surf_rows] += f.ravel()
+                if A is not None:
+                    A = (A + sp.csr_matrix((H[self.field_free].ravel(), (self.field_rows, self.field_cols)),
+                                           shape=A.shape)).tocsr()
             return R, A
         finally:
             self.times["assembly_s"] += time.time() - t0
             self.times["assemblies"] += 1
+
+    def _field_wall(self, U, compute_K):
+        """Wall as a smooth field: force (N, 3) and tangent blocks (N, 3, 3) of the surface nodes."""
+        x = self.surf_pts + U.reshape(-1, 3)[self.surf_node]
+        o = self.options
+        if not compute_K:
+            phi, grad = self.field(x, derivatives=1)
+            w, _ = penalty(phi - self.field_allow, o["wall_stiffness"], o["wall_eps"])
+            return (self.field_area * w)[:, None] * grad, None
+        phi, grad, hess = self.field(x)
+        w, dw = penalty(phi - self.field_allow, o["wall_stiffness"], o["wall_eps"])
+        a = self.field_area
+        H = (a * dw)[:, None, None] * grad[:, :, None] * grad[:, None, :] + (a * w)[:, None, None] * hess
+        return (a * w)[:, None] * grad, H
 
     def _update_wall(self, U=None):
         """Linearise the wall at U (default: the current state); returns how far the previous
@@ -423,7 +480,7 @@ class NodalSolver(ForwardSolver):
 
     def _solve(self):
         """Newton; with a wall, alternated with the wall re-linearisation until the gap settles."""
-        if self.wall is None or self.wall_in_newton:
+        if not self.wall_outer:
             return self._newton()
         if self._lin_start is not None:                          # warm start: the start state's own
             self._put_lin(self._lin_start)                       # linearisation, so an unchanged load
@@ -512,7 +569,7 @@ class NodalSolver(ForwardSolver):
             return None
         self.U, self.q_last, self.nu_last, self.fq_last = U, q.copy(), float(nu), self.fq.copy()
         self._lin_U = None
-        if self.wall is not None and not self.wall_in_newton:
+        if self.wall_outer:
             self._lin_U = self._get_lin()
             self._lin_cache = (self._lin_cache + [(U.copy(), self._lin_U)])[-256:]
         return U.reshape(-1, 3)[self.surf_node].copy()
@@ -521,7 +578,8 @@ class NodalSolver(ForwardSolver):
         """dU/dp = -K_t^-1 dR/dp at the converged state, one factorisation for all columns.
         dR/dq_k = pressure_sign * (current area vector / 3) on the nodes of region k;
         dR/dnu = d f_int / d nu (_dfint_dnu).
-        With a wall, wallN / wallG are held fixed (Gauss-Newton Jacobian, as GetFEMSolver)."""
+        With a wall, wallN / wallG are held fixed (Gauss-Newton Jacobian, as GetFEMSolver); with
+        the wall as a smooth field (potential) its tangent is part of K_t and the Jacobian is exact."""
         q, nu = np.asarray(q, float), float(nu)
         if self.U is None or self.q_last is None or not np.array_equal(q, self.q_last) or nu != self.nu_last:
             return None

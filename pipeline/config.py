@@ -132,6 +132,11 @@ class FemSetupConfig:
     wall: Path | str | None = None     # cavity the lung may not leave: "reference" = the registered inflated
                                        # surface itself, or a closed surface file (data_dir); None = no wall
     wall_tol_mm: float = 2.0           # allowed motion beyond the wall (registration noise margin)
+    # the wall also as a smooth field, for solver option wall_update "potential": signed distance on
+    # a grid of this spacing, Gaussian-smoothed, stored in problem.npz. None = not built
+    wall_grid_mm: float | None = None
+    wall_grid_margin_mm: float = 30.0  # grid = wall bounding box + this (more than any outward motion)
+    wall_smoothing_mm: float = 3.0     # Gaussian sigma: rounds the wall's corners by a few mm
     align: str = "hilum_rigid"        # rigid alignment of the target: hilum_rigid | rigid | none
     cluster_field: str = "rigid_residual"   # field clustered into regions: rigid_residual | hilum_rigid | raw
     feature: str = "normal"            # Ward feature: normal (u.n) | vector (u)
@@ -148,6 +153,9 @@ class FemSetupConfig:
             raise ValueError("fem_setup.cluster_field must be rigid_residual, hilum_rigid or raw")
         if self.feature not in ("normal", "vector"):
             raise ValueError("fem_setup.feature must be normal or vector")
+        if self.wall_grid_mm is not None and (self.wall_grid_mm <= 0 or self.wall_grid_margin_mm <= 0
+                                              or self.wall_smoothing_mm < 0):
+            raise ValueError("fem_setup: wall_grid_mm and wall_grid_margin_mm must be > 0, wall_smoothing_mm >= 0")
 
 
 @dataclass

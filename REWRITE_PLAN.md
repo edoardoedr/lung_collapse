@@ -1,6 +1,6 @@
 # Rewrite plan: the physical collapse model
 
-Plan for a new branch (`physical-model`) that rewrites the collapse part of the pipeline around the physical load model (METHODOLOGY.md section 8). Written 2026-11-16 for the agent that implements it. Read CLAUDE.md first (environments, rules, commands), then METHODOLOGY.md sections 3–8 and analysis/results.md sections 4–5b.
+Plan for a new branch (`refactoring_to_v2`; called `physical-model` below) that rewrites the collapse part of the pipeline around the physical load model (METHODOLOGY.md section 8). Written 2026-11-16 for the agent that implements it. Read CLAUDE.md first (environments, rules, commands), then METHODOLOGY.md sections 3–8 and analysis/results.md sections 4–5b.
 
 ## 0. Why, and what stays
 

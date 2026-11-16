@@ -12,7 +12,8 @@
      collapsed lung (clamp_still_mm), chosen after the alignment so that it is not affected
   4. optional cavity wall: closed surface the lung may not leave during the collapse, "reference"
      = the registered inflated surface itself (allowed outward margin per point = wall_tol_mm +
-     how far the point is already outside)
+     how far the point is already outside); with wall_grid_mm also as a smooth field
+     (wall_field.py: smoothed signed distance on a grid, for the solver's wall_update "potential")
   5. clean displacement field (rigid part removed) -> Ward pressure regions for every level
   6. tetrahedral volume mesh (Gmsh), surface nodes and triangles unchanged
   7. output_dir/fem/setup/: problem.npz (read by fem_fit) + files to inspect in Slicer / ParaView
@@ -20,6 +21,7 @@
 
 import json
 import logging
+import time
 
 import numpy as np
 import pyvista as pv
@@ -31,6 +33,7 @@ from .geometry import (WallDistance, assd, face_adjacency, faces_of, kabsch, pol
 from .problem import CollapseProblem
 from .regions import all_levels
 from .volume_mesh import tet_mesh
+from .wall_field import WallField, signed_distance_grid
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +43,28 @@ def rigid(X_from, X_to, weights=None):
     R, t = kabsch(X_from, X_to, weights)
     c = X_from.mean(0)
     return X_from @ R.T + t, rotation_deg(R), float(np.linalg.norm(R @ c + t - c))
+
+
+def wall_field_arrays(cfg, wall_pts, wall_tris, X_ref, target_pts, closest):
+    """The wall as a smooth field (wall_field.py): (the CollapseProblem arrays wall_grid, wall_origin,
+    wall_spacing, wall_smoothing_mm, wall_field_allow; smoothed distance of the reference points).
+    target_pts: the target's own points (closest: against the global margin) or the per-point target."""
+    t0 = time.time()
+    grid, origin = signed_distance_grid(wall_pts, wall_tris, cfg.wall_grid_mm, cfg.wall_grid_margin_mm,
+                                        cfg.wall_smoothing_mm)
+    fld = WallField(grid, origin, cfg.wall_grid_mm)
+    phis, grad = fld(X_ref, derivatives=1)
+    ex = fld(target_pts, derivatives=0) - cfg.wall_tol_mm - (max(phis.max(), 0.0) if closest else np.maximum(phis, 0.0))
+    gn = np.linalg.norm(grad, axis=1)
+    log.info("wall field: grid %s at %.2f mm (margin %.0f mm), smoothing %.1f mm, %.0f s; smoothed "
+             "distance of the reference points median %.2f, min %.2f, max %.2f mm (their margin = "
+             "tolerance + the positive part); |gradient| there %.3f-%.3f; target %d points beyond "
+             "their allowed position (max %.2f mm)", "x".join(map(str, grid.shape)), cfg.wall_grid_mm,
+             cfg.wall_grid_margin_mm, cfg.wall_smoothing_mm, time.time() - t0, np.median(phis),
+             phis.min(), phis.max(), gn.min(), gn.max(), (ex > 0).sum(), max(ex.max(), 0.0))
+    return dict(wall_grid=grid, wall_origin=origin, wall_spacing=np.array(float(cfg.wall_grid_mm)),
+                wall_smoothing_mm=np.array(float(cfg.wall_smoothing_mm)),
+                wall_field_allow=cfg.wall_tol_mm + np.maximum(phis, 0.0)), phis
 
 
 def run(cfg):
@@ -132,6 +157,7 @@ def run(cfg):
 
     # 4. cavity wall (optional)
     wall_pts, wall_tris, wall_allow, phi0 = np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), np.zeros(0), None
+    wfield, phis = {}, None
     if cfg.wall is not None:
         if cfg.wall == "reference":                   # the registered inflated surface (outward, closed)
             wall_name, wall_pts, wall_tris = "reference surface", X_ref.copy(), tris.copy()
@@ -157,6 +183,9 @@ def run(cfg):
                  signed_volume(wall_pts, wall_tris) / 1000, cfg.wall_tol_mm, (phi0 > 0).sum(), len(phi0),
                  np.median(phi0), max(phi0.max(), 0.0), (excess > 0).sum(), max(excess.max(), 0.0))
 
+        if cfg.wall_grid_mm is not None:              # the same wall as a smooth field (wall_update "potential")
+            wfield, phis = wall_field_arrays(cfg, wall_pts, wall_tris, X_ref, T_pts if closest else X_tgt, closest)
+
     # 5. clustering field and pressure regions
     if cfg.cluster_field == "raw" or closest:                  # closest point: nothing rigid to remove
         Xc = X_raw
@@ -179,7 +208,7 @@ def run(cfg):
     problem = CollapseProblem(nodes=nodes, tets=tets, surface_nodes=surface_nodes, tris=tris,
                               clamped_tri=clamped, target=X_tgt, levels=levels, regions=regions,
                               clean_field=u, wall_points=wall_pts, wall_tris=wall_tris,
-                              wall_allow=wall_allow, target_points=T_pts, target_tris=T_tris)
+                              wall_allow=wall_allow, target_points=T_pts, target_tris=T_tris, **wfield)
     problem.save(out / "problem.npz")
 
     s = polydata(X_ref, tris)
@@ -188,6 +217,8 @@ def run(cfg):
     s.cell_data["Clamped"] = clamp_kind                         # 1 = anchor balls, 2 = still (clamp_still_mm)
     if phi0 is not None:
         s.point_data["WallDistance_mm"] = phi0
+    if phis is not None:
+        s.point_data["WallFieldDistance_mm"] = phis
     for K, lab in zip(levels, regions):
         s.cell_data["Regions_K%d" % K] = lab
     write_surface(s, out / "reference.vtp", "LPS")
@@ -209,6 +240,7 @@ def run(cfg):
         baseline_mean_error_mm=float(d0.mean()), baseline_assd_mm=assd(X_ref, *problem.target_surface, tris_a=tris),
         cluster_field=cfg.cluster_field, feature=cfg.feature, levels=levels.tolist(),
         wall=str(cfg.wall) if cfg.wall is not None else None, wall_tol_mm=cfg.wall_tol_mm,
+        wall_grid_mm=cfg.wall_grid_mm if wfield else None, wall_smoothing_mm=cfg.wall_smoothing_mm if wfield else None,
         volume_nodes=int(len(nodes)), tets=int(len(tets)), mesh_size_mm=cfg.mesh_size_mm), indent=2))
     log.info("wrote %s/ (problem.npz, reference.vtp, target_aligned.vtp, volume.vtu)", out)
     return out

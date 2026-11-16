@@ -1,0 +1,49 @@
+"""Add the smooth wall field to an existing fem_setup output, without redoing the setup.
+
+    python scripts/add_wall_field.py --config configs/karl04_wall_torch.json [--grid 1.5] [--smoothing 3] [--margin 30]
+
+fem_setup builds the field when fem_setup.wall_grid_mm is set; this script does only that step on
+the problem.npz already there (same volume mesh, so the existing fits and their best_state.npz
+stay valid) and rewrites it with the field: needed by solver_options.wall_update "potential".
+Run it again to change the grid or the smoothing.
+"""
+
+import argparse
+import dataclasses
+import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from pipeline.collapse.problem import CollapseProblem                # noqa: E402
+from pipeline.collapse.setup import wall_field_arrays                # noqa: E402
+from pipeline.config import load_config                              # noqa: E402
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--config", required=True)
+    ap.add_argument("--grid", type=float, default=None, help="grid spacing [mm] (default: fem_setup.wall_grid_mm, else 1.5)")
+    ap.add_argument("--smoothing", type=float, default=None, help="Gaussian sigma [mm] (default: fem_setup.wall_smoothing_mm)")
+    ap.add_argument("--margin", type=float, default=None, help="grid margin [mm] (default: fem_setup.wall_grid_margin_mm)")
+    args = ap.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
+
+    cfg = load_config(args.config).fem_setup
+    cfg = dataclasses.replace(cfg, wall_grid_mm=args.grid or cfg.wall_grid_mm or 1.5,
+                              wall_smoothing_mm=cfg.wall_smoothing_mm if args.smoothing is None else args.smoothing,
+                              wall_grid_margin_mm=args.margin or cfg.wall_grid_margin_mm)
+    path = cfg.workdir / "problem.npz"
+    problem = CollapseProblem.load(path)
+    if not problem.has_wall:
+        sys.exit("%s has no wall (fem_setup.wall is null)" % path)
+    closest = problem.closest_point
+    arrays, _ = wall_field_arrays(cfg, problem.wall_points, problem.wall_tris, problem.reference,
+                                  problem.target_points if closest else problem.target, closest)
+    dataclasses.replace(problem, **arrays).save(path)
+    print("wrote %s with the wall field (grid %g mm, smoothing %g mm)" % (path, cfg.wall_grid_mm, cfg.wall_smoothing_mm))
+
+
+if __name__ == "__main__":
+    main()

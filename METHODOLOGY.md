@@ -153,6 +153,15 @@ $$
 - **Wall quadrature `nodal`:** vertex rule (weights 1/3) instead of the IM_TRIANGLE(3) face rule, whose negative centre weight makes the contact tangent indefinite.
 - **Time limit:** `max_solve_s` (120 s) with `slow_ramp: false`, so a hopeless solve fails fast.
 - `wall_update: "newton"` (re-linearise at every residual) exists for torch / Warp but is not used: it oscillates.
+- **Wall as a smooth field, `wall_update: "potential"`** (torch / Warp, 2026-11-16; being validated on the server). `fem_setup` samples the signed distance to the wall on a grid (`wall_grid_mm` 1.5), smooths it (Gaussian σ = `wall_smoothing_mm` 3) and stores it; $\tilde\varphi$ is its tricubic B-spline interpolation (C²). Per free surface node, with reference nodal area $a_i$ and margin $A_i$ = `wall_tol_mm` + $\langle\tilde\varphi(X_i)\rangle_+$:
+
+$$
+g_i = \tilde\varphi(x_i) - A_i,
+\qquad f_i = a_i\, w(g_i)\, \nabla\tilde\varphi(x_i),
+\qquad \frac{\partial f_i}{\partial x_i} = a_i \left[ w'(g_i)\, \nabla\tilde\varphi\, \nabla\tilde\varphi^T + w(g_i)\, \nabla^2\tilde\varphi \right]
+$$
+
+  with the same force law $w$ as above (same $k$, $e$), evaluated at the current position inside Newton. No rounds and no linearisation to keep; the tangent is exact, so the Jacobian of section 5 is exact with a wall. The corners of the wall are rounded by a few mm.
 
 ## 7. Code and verification
 
@@ -214,7 +223,7 @@ $$
 
 **Wall in the physical model.** The wall carries the weight, so it is part of the model. Expected effect on the convergence: the near-mechanism mostly goes (smooth load, resultant = the weight, vertical, pressing the lung into the concave dorsal wall: a stable minimum), the pressures at the bound and the crushed elements too; the corner points of the wall (analysis/results.md section 7) become central instead, since in a supine patient the paravertebral gutter is the lowest point. Two changes, in this order:
 
-*(a) Wall as a smooth potential (numerical).* The signed distance to the cavity is computed once on a grid and smoothed, so corners become rounded with a radius of a few mm; $\tilde\varphi$ is its interpolation, at least C² (cubic B-spline; trilinear has a discontinuous gradient). The contact energy is evaluated at the current position inside Newton:
+*(a) Wall as a smooth potential (numerical; implemented 2026-11-16 as `wall_update: "potential"`, section 6, with the force law of section 3 instead of the plain quadratic below).* The signed distance to the cavity is computed once on a grid and smoothed, so corners become rounded with a radius of a few mm; $\tilde\varphi$ is its interpolation, at least C² (cubic B-spline; trilinear has a discontinuous gradient). The contact energy is evaluated at the current position inside Newton:
 
 $$
 E_{wall} = \sum_i a_i\, \frac{k}{2}\,\langle \tilde\varphi(x_i) - a_i^{allow} \rangle_+^2,

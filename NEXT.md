@@ -13,7 +13,7 @@ Plan agreed on 2026-10-15: from the patient fits to collapsing any inflated lung
 
 Numbers in analysis/results.md, sections 2, 4, 5 and 6.
 
-**Next (user, 2026-11-16):** wall as a smooth potential, then a rewrite on the branch `physical-model` around the physical load model, one config per patient with every physical parameter given or fitted: [REWRITE_PLAN.md](REWRITE_PLAN.md).
+**Next (user, 2026-11-16):** wall as a smooth potential, then a rewrite on a new branch (`refactoring_to_v2`) around the physical load model, one config per patient with every physical parameter given or fitted: [REWRITE_PLAN.md](REWRITE_PLAN.md).
 
 ## The pipeline
 
@@ -95,7 +95,7 @@ Uniform pleural pressure + loss of the pleural gradient that carried the lung's 
 - [x] Gradient `ap` with the wall (k = 0) (2026-11-16, analysis/results.md 4b): shape 8.2 → 7.1 mm, failures halved (14 %) but not gone (karl20 / karl23 ~1/3), slope ×2–3 larger than without wall, E 0.5–2.9 kPa (×6 instead of ×17).
 - [x] Common E with the wall (scan 1 / 1.7 / 3 kPa, 2026-11-16, analysis/results.md 5b): E 1.7 kPa within 0.5 mm of the free slope on 8 / 12, outliers karl10 / karl18 (no gradient) and karl20 / karl23 (E ~0.5); almost no failed solves; E 1 kPa mostly not reachable (wall). To redo: E 1 kPa for karl06, karl17, karl24 (interrupted, invalid).
 - [ ] Leave-one-out check of the transferable model: q0 from the collapse % (rule from the other patients) + slope from E 1.7 kPa, one forward solve per patient, vs the fitted ones.
-- [ ] If the wall corners still fail the solves: wall as a smooth potential (METHODOLOGY.md section 8 (a)): smoothed signed-distance grid, C² cubic B-spline interpolation, contact energy inside Newton with the exact Hessian (torch autodiff), no outer rounds. Choose the smoothing radius (a few mm) and check that the allowance still contains the target.
+- [ ] Wall as a smooth potential (`wall_update: "potential"`, `fem_setup.wall_grid_mm`; METHODOLOGY.md section 6): implemented and tested on the Mac (2026-11-16, branch `refactoring_to_v2`). To do on the server: Jacobian check, outer vs potential on karl04, E scan on karl01 / karl04 / karl20 / karl23, smoothing 2 / 3 / 5 mm; then choose the default (REWRITE_PLAN.md Phase 1).
 - [ ] Later: deformable wall (section 8 (b)): stiffness per part of the cavity (ribs high, diaphragm / mediastinum low, from position and normal on the inflated surface).
 - [ ] With gravity, check whether `support_k` is still needed (probably not).
 - [ ] Physical parametrisation in `fit.py`: q = q0 + γ (h − h̄) in mm along e_g, γ = ρ̄g / E ≥ 0, report E and p0; option of one E common to all patients (one shared parameter, q0 per patient or from the collapse %).

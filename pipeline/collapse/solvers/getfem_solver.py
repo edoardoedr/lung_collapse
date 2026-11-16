@@ -15,8 +15,8 @@ options (fem_fit.solver_options):
                     by then fails (it may have slid through the linearised wall)
   wall_settle_mm    stop the rounds when the previous linearisation's gap is within this of the true
                     gap at all points near the wall (common.wall_gap_change)
-  wall_update       "outer": Newton / wall re-linearisation rounds (the only mode here; "newton",
-                    the wall updated at every Newton iteration, is implemented by the warp core)
+  wall_update       "outer": Newton / wall re-linearisation rounds (the only mode here; "newton"
+                    and "potential" are implemented by the warp and torch cores, nodal.py)
   wall_quadrature   "face": wall term with the displacement's integration method (IM_TETRAHEDRON(3)
                     faces, negative centre weight); "nodal": IM_NC(3,1), the face vertices with
                     positive weights, each node's force depends on its own gap
@@ -82,7 +82,8 @@ class GetFEMSolver(ForwardSolver):
         if o["wall_quadrature"] not in WALL_QUADRATURES:
             raise ValueError("getfem solver: wall_quadrature must be one of %s" % ", ".join(WALL_QUADRATURES))
         if o["wall_update"] != "outer":
-            raise ValueError("getfem solver: wall_update must be 'outer' ('newton' is for warp and torch)")
+            raise ValueError("getfem solver: wall_update must be 'outer' ('newton' and 'potential' are for "
+                             "warp and torch)")
         try:
             gf.util_trace_level(0)
             gf.util_warning_level(0)

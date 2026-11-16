@@ -14,8 +14,9 @@ solvers.options_for).
    column of solver.jacobian(q, nu, with_nu=True) with central finite differences of solve(),
    each warm-started from the same converged state. Newton is run with --newton-tol (tighter
    than the fit's default) so that the finite differences are not limited by the solve tolerance.
-   Expected relative error < 1e-5 per column without a wall; with a wall the Jacobian keeps the
-   contact linearisation fixed, so larger errors are possible where points touch the wall.
+   Expected relative error < 1e-5 per column without a wall; with a wall and wall_update "outer"
+   the Jacobian keeps the contact linearisation fixed, so larger errors are possible where points
+   touch the wall; with --options '{"wall_update": "potential"}' the Jacobian is exact again.
 2. --compare-fit: runs fem_fit twice (jacobian "2-point" and "analytic") into
    output_dir/fem/fit_2-point and fit_analytic, and prints errors, stop reasons, solves, time
    and pressures per level side by side.

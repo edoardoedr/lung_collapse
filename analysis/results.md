@@ -209,6 +209,22 @@ Cause found in the end: a **near-mechanism**. The small clamp and frictionless c
 
 **Options** (parked by the user on 2026-11-02): smoothing only the wall copy in `fem_setup` (preferred), two-plane contact, anatomical clamp (hilum + pulmonary ligament). Rejected: accepting a state within a penetration tolerance (4–5 mm here, too much); Coulomb friction (lubricated pleura, path-dependent solution, noisy objective, non-smooth tangent).
 
+### 7b. Wall as a smooth field (`wall_update: "potential"`), local test only (2026-11-16)
+
+Not a server result: karl04 (`_wall` setup, 1355 nodes, 6777 tets) on the Mac with the numpy test core (`tests/numpy_core.py`, same Neo-Hookean model, ν 0.40) and a wall field built in numpy on a coarse grid (4 mm, σ 3 mm, tolerance 5 mm; the server default is 1.5 mm). Load = uniform p/E + ap gradient γ (h − h̄), **cold start from the reference with the whole load** (no continuation), `adaptive_steps`.
+
+| Load | q0 | ap slope (p/E over the lung) | Result | Volume | Points in contact | Max gap beyond the margin | Newton runs / iterations |
+|---|---|---|---|---|---|---|---|
+| γ of E 1.7 kPa | 0.30 | 0.30 | converged | 81 % | 100 | 0.15 mm | 3 / 53 |
+| γ of E 1 kPa | 0.30 | 0.51 | converged | 79 % | 139 | 0.19 mm | 4 / 97 |
+| γ of E 1 kPa | 0.50 | 0.51 | converged | 68 % | 103 | 0.18 mm | 6 / 135 |
+| γ of E 0.5 kPa | 0.40 | 1.02 | converged | 69 % | 160 | 0.23 mm | 6 / 141 |
+
+- No wall rounds, no failed path. With the outer rounds on the server, karl04 at E 1 kPa needed the continuation and still stopped at 0.75 of the gravity term (section 5b).
+- Checks: wall tangent vs finite differences 1e-7 (336 nodes in contact), Jacobian with contact vs finite differences 3e-8 (with the outer rounds this check was meaningless).
+- Newton takes ~20–25 iterations per run, close to `newton_maxit` 30: watch `fail_maxit` on the server.
+- To confirm on the server with the torch core and the 1.5 mm grid (commands in REWRITE_PLAN.md Phase 1 / NEXT.md).
+
 ## 8. Evidence behind the design choices
 
 - **No alignment, `plane` loss** (2026-10-05, registered setup): with `hilum_rigid` alignment karl04 was 14.6 mm from the real collapsed surface, against 3.1–3.3 mm unaligned with the plane loss; the alignment rotated the target ~16° and put up to 22 target points beyond the wall (20.6 mm).

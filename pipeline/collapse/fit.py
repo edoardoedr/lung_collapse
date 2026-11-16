@@ -561,6 +561,12 @@ def run(cfg):
     if problem.has_wall:
         pen = WallDistance(problem.wall_points, problem.wall_tris)(Xs)[0] - problem.wall_allow
         s.point_data["WallPenetration_mm"] = pen               # > 0 = beyond the allowed position
+    pen_f = None
+    if problem.has_wall_field:                                 # the same with the smooth wall field
+        fld = problem.wall_field()
+        pen_f = np.where(fld.inside(Xs), 0.0, np.nan)
+        pen_f[fld.inside(Xs)] = fld(Xs[fld.inside(Xs)], derivatives=0) - problem.wall_field_allow[fld.inside(Xs)]
+        s.point_data["WallFieldPenetration_mm"] = pen_f
     write_surface(s, cfg.output, "LPS")
     if b["solver_state"] is not None:
         try:
@@ -605,6 +611,8 @@ def run(cfg):
                elapsed_min=trk.elapsed() / 60, levels=summary, wall=bool(problem.has_wall),
                wall_max_penetration_mm=None if pen is None else float(max(pen.max(), 0.0)),
                wall_points_beyond=None if pen is None else int((pen > 0).sum()),
+               wall_field_max_penetration_mm=None if pen_f is None else float(max(np.nanmax(pen_f), 0.0)),
+               wall_field_points_beyond=None if pen_f is None else int((pen_f > 0).sum()),
                support_k=cfg.solver_options.get("support_k", 0.0),
                support_share=solver.support_share(b["Us"], b["q_tri"]))
     (out / "result_summary.json").write_text(json.dumps(res, indent=2))
@@ -624,6 +632,9 @@ def run(cfg):
     if pen is not None:
         log.info("wall: %d points beyond the allowed position, max %.2f mm",
                  res["wall_points_beyond"], res["wall_max_penetration_mm"])
+    if pen_f is not None:
+        log.info("wall field (smoothed): %d points beyond the allowed position, max %.2f mm",
+                 res["wall_field_points_beyond"], res["wall_field_max_penetration_mm"])
     if res["support_share"] is not None:
         log.info("tangential support k = %g E/mm: %.1f%% of the pressure force (sum of magnitudes)",
                  res["support_k"], 100 * res["support_share"])
