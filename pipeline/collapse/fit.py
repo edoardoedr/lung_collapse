@@ -174,26 +174,32 @@ class PressureModel:
         with xi_a the triangle centroid's coordinate along axis a in the reference, centred (area-
         weighted mean 0 over the free triangles) and divided by the lung's extent along a, so a slope
         is the p/E difference between the two ends of the lung. Each free triangle is its own core
-        region (fine for the nodal cores; GetFEM would build one brick per triangle: slow)."""
+        region (fine for the nodal cores; GetFEM would build one brick per triangle: slow).
 
-    def __init__(self, name, Phi, labels, n_solver, M=None, pairs=None, names=None):
+    `offset` (T,) is a fixed p/E added to q_tri and to the core's pressures, not fitted: the gravity term
+    of the gradient model with `gravity_E_Pa` (q_tri = Phi x + offset). Jacobians are unchanged."""
+
+    def __init__(self, name, Phi, labels, n_solver, M=None, pairs=None, names=None, offset=None):
         self.name, self.Phi, self.labels, self.n_solver, self.M = name, Phi, labels, n_solver, M
         self.P = Phi.shape[1]
         self.pairs = np.zeros((0, 2), dtype=int) if pairs is None else pairs
         self.names = names
+        self.offset = np.zeros(len(Phi)) if offset is None else offset
+        self.offset_solver = self.offset[labels >= 0][np.argsort(labels[labels >= 0])] \
+            if offset is not None else 0.0
 
     def q_solver(self, x):
-        return x if self.M is None else self.M @ x
+        return (x if self.M is None else self.M @ x) + self.offset_solver
 
     def q_tri(self, x, clamped):
-        return np.where(clamped, np.nan, self.Phi @ x)
+        return np.where(clamped, np.nan, self.Phi @ x + self.offset)
 
     def x0_from(self, q_tri, area, clamped):
         """Area-weighted least-squares projection of a per-triangle p/E (the warm start of a level):
         for the regions model the area-weighted mean per region."""
         m = ~clamped & np.isfinite(q_tri)
         w = np.sqrt(area[m])
-        return np.linalg.lstsq(self.Phi[m] * w[:, None], q_tri[m] * w, rcond=None)[0]
+        return np.linalg.lstsq(self.Phi[m] * w[:, None], (q_tri[m] - self.offset[m]) * w, rcond=None)[0]
 
     @classmethod
     def regions(cls, tri_labels, K, adj):
@@ -203,13 +209,26 @@ class PressureModel:
         return cls("regions", Phi, tri_labels, K, pairs=region_pairs(tri_labels, adj))
 
     @classmethod
-    def gradient(cls, coords, axes, clamped):
+    def gradient(cls, coords, axes, clamped, offset=None):
         free = np.nonzero(~clamped)[0]
         Phi = np.c_[np.ones(len(clamped)), *[coords[a] for a in axes]]
         Phi[clamped] = 0.0
         labels = np.full(len(clamped), -1)
         labels[free] = np.arange(len(free))
-        return cls("gradient", Phi, labels, len(free), M=Phi[free], names=["mean"] + list(axes))
+        if offset is not None:
+            offset = np.where(clamped, 0.0, offset)
+        return cls("gradient", Phi, labels, len(free), M=Phi[free], names=["mean"] + list(axes), offset=offset)
+
+
+def gravity_offset(X_ref, tris, clamped, area, rho, E_Pa):
+    """Fixed p/E of the lung's weight (supine: anterior = up): gamma (h - h_mean), h = anterior
+    coordinate (-y in LPS) of the triangle centroid in mm, centred (area-weighted over the free
+    triangles), gamma = rho g / E per mm. Returns (offset per triangle, gamma, AP extent L in mm)."""
+    h = -X_ref[tris].mean(1)[:, 1]
+    free = ~clamped
+    h = h - np.average(h[free], weights=area[free])
+    gamma = rho * 9.81e-3 / E_Pa                      # rho g in Pa/mm, divided by E
+    return np.where(clamped, 0.0, gamma * h), gamma, float(np.ptp(h[free]))
 
 
 def axis_coords(X_ref, tris, clamped, area, hilum):
@@ -415,8 +434,18 @@ def run(cfg):
             if hilum is None:
                 raise RuntimeError("gradient axis 'ml' needs the hilum position from %s" % ss)
         coords = axis_coords(X_ref, tris, clamped, area, hilum)
-        models = [PressureModel.gradient(coords, [], clamped),
-                  PressureModel.gradient(coords, list(cfg.gradient_axes), clamped)]
+        axes, offset = list(cfg.gradient_axes), None
+        if cfg.gravity_E_Pa is not None:                # ap slope fixed by the weight, not fitted
+            offset, gamma, L_ap = gravity_offset(X_ref, tris, clamped, area, cfg.tissue_density, cfg.gravity_E_Pa)
+            axes = [a for a in axes if a != "ap"]
+            gravity = dict(E_Pa=cfg.gravity_E_Pa, density_kg_m3=cfg.tissue_density, gamma_pE_per_mm=gamma,
+                           ap_extent_mm=L_ap, slope_ap_pE=gamma * L_ap)
+            log.info("gravity: E %.0f Pa, density %.0f kg/m3 -> fixed ap slope %.4f p/E per mm, %.3f across "
+                     "the lung (%.0f mm); free axes: %s", cfg.gravity_E_Pa, cfg.tissue_density, gamma,
+                     gamma * L_ap, L_ap, ", ".join(axes) or "none")
+        models = [PressureModel.gradient(coords, [], clamped, offset)]
+        if axes:
+            models.append(PressureModel.gradient(coords, axes, clamped, offset))
     slope_max = cfg.q_bounds[1] - cfg.q_bounds[0]
 
     trk = Tracker(cfg, out)
@@ -491,7 +520,16 @@ def run(cfg):
             pass
 
     grad = None
-    if b["model"] == "gradient":
+    if b["model"] == "gradient" and cfg.gravity_E_Pa is not None:
+        p = b["params"]
+        qf = b["q_tri"][~clamped]
+        grad = dict(axes=list(b["param_names"][1:]), mean_pE=float(p[0]),
+                    slope_pE={"ap": gravity["slope_ap_pE"], **{a: float(v) for a, v in zip(b["param_names"][1:], p[1:])}},
+                    slope_relative={"ap": gravity["slope_ap_pE"] / float(p[0]),
+                                    **{a: float(v / p[0]) for a, v in zip(b["param_names"][1:], p[1:])}},
+                    pE_min=float(qf.min()), pE_max=float(qf.max()), gravity=gravity,
+                    p0_Pa=float(p[0]) * cfg.gravity_E_Pa)
+    elif b["model"] == "gradient":
         p = b["params"]
         qf = b["q_tri"][~clamped]
         grad = dict(axes=list(b["param_names"][1:]), mean_pE=float(p[0]),

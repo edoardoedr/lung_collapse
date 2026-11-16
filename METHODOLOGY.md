@@ -171,9 +171,9 @@ Verification (karl04):
 - Jacobian vs finite differences ~1e-8; symmetric loss gradient vs FD 2e-10.
 - Forward solve: GetFEM 70–107 s, Warp + cuDSS 3.2 s, torch + cuDSS 5.7 s. Full no-wall fit: GetFEM 111 min (finite differences) / 7.9 min (analytic), torch < 1 min.
 
-## 8. Physical load model (proposed 2026-11-12, not implemented)
+## 8. Physical load model (proposed 2026-11-12, partly implemented)
 
-Replaces the regional pressures with the physics of the pneumothorax. Status and tests in NEXT.md.
+Replaces the regional pressures with the physics of the pneumothorax. Status and tests in NEXT.md. Implemented so far (2026-11-16): the fixed-gravity gradient, `fem_fit.gravity_E_Pa` / `tissue_density` (supine, e_g = +y): q = q0 + γ (h − h̄) with γ = ρ̄ g / E given, only q0 (and any non-`ap` slope) fitted, for scans over a common E. Not yet: E or γ as a fitted / shared parameter, other e_g, the barrier material.
 
 **Load.** In vivo the pleural pressure is not uniform: it is lower at the top, and its vertical gradient carries the lung's weight. A pressure linear in height on a closed surface gives, by the divergence theorem, exactly Archimedes' force:
 

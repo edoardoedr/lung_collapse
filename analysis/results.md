@@ -2,7 +2,7 @@
 
 Results of the fits, the evidence behind the design choices and the problems found. Methods and equations are in [METHODOLOGY.md](../METHODOLOGY.md), the plan in [NEXT.md](../NEXT.md). Written by hand until a script produces it.
 
-Updated 2026-11-12. Shape errors, collapse, rotation and pressure pattern measured by `scripts/summarize_fits.py` (same measure for every fit; output in `analysis/runs.csv`, `compare.csv`, `report.md`, `*.png`):
+Updated 2026-11-16. Shape errors, collapse, rotation and pressure pattern measured by `scripts/summarize_fits.py` (same measure for every fit; output in `analysis/runs.csv`, `compare.csv`, `report.md`, `*.png`):
 
     python scripts/summarize_fits.py results/*_noreg_hilum results/*_noreg_hilum_wall --out analysis
 
@@ -19,11 +19,13 @@ ASSD = mean of fitted → target and target → fitted surface distance, free po
 | `fit_sym` | symmetric | no / yes | 0 | 15 / 14 | |
 | `fit_sym_k0.001` | symmetric | no / yes | 0.001 | 14 / 14 | wall: rerun one at a time |
 | `fit_sym_k0.003` | symmetric | no / yes | 0.003 | 14 / 14 | all 28 run in parallel: times and wall failures not reliable |
-| `fit_grad_ap`, `fit_grad_apsi` | one-sided | no | 0 | 15 | to redo with the symmetric loss |
+| `fit_grad_ap`, `fit_grad_apsi` | one-sided | no | 0 | 15 | superseded by the `_sym` runs |
+| `fit_grad_ap_sym`, `fit_grad_apsi_sym` | symmetric | no | 0 | 15 | 2026-11-16 |
+| `fit_grad_ap_sym` | symmetric | yes | 0 | 14 | 2026-11-16, after the 2026-10-30 fix, `JOBS=4` |
 | `fit_sym_k0.001_{t20,t300,q2}` | symmetric | yes | 0.001 | karl04 | tests of `max_solve_s` and of the q bound |
 | `fit_sym_k0.001_fix` | symmetric | yes | 0.001 | karl04 | after the 2026-10-30 fix; stopped by hand at K = 25 (4 min): ASSD 5.88, 11 failed solves, same as before the fix |
 
-- **Every wall fit except `fit_sym_k0.001_fix` (karl04, interrupted) predates the 2026-10-30 fix** of the outer rounds (section 7).
+- **Every regions wall fit except `fit_sym_k0.001_fix` (karl04, interrupted) predates the 2026-10-30 fix** of the outer rounds (section 7).
 
 ## 2. Regions without wall (`fit_sym`)
 
@@ -40,38 +42,76 @@ ASSD = mean of fitted → target and target → fitted surface distance, free po
 - **Anterior third > posterior third in 15 / 15; apex < base in 14 / 15.**
 - A linear gradient (ap, si, ml) explains only **2–20 %** of the regional p/E variance (R² 0.02–0.20): most of the regional pattern is local and patient-specific.
 
-## 4. Gradient fits (one-sided loss, no wall)
+## 4. Gradient fits (no wall)
 
-| Patient | Collapse | Regions ASSD | ap: ASSD | ap: slope | ap + si: ASSD | ap slope | si slope | Fitted collapse (ap + si) |
+Symmetric loss (`fit_grad_ap_sym`, `fit_grad_apsi_sym`, 2026-11-16) next to the one-sided runs (`fit_grad_ap`, `fit_grad_apsi`). ASSD in mm; slopes in p/E across the lung (ap + = anterior, si + = superior); collapse fitted vs real.
+
+| Patient | Collapse | Regions ASSD | ap: one-sided → sym | ap slope | ap + si: one-sided → sym | ap slope | si slope | Fitted collapse ap / ap + si |
 |---|---|---|---|---|---|---|---|---|
-| karl01 | 25 % | 2.40 | 6.38 | 0.14 | 6.66 | 0.17 | −0.13 | 37 % |
-| karl02 | 53 % | 3.20 | 8.44 | 0.12 | 8.50 | 0.12 | −0.04 | 53 % |
-| karl04 | 51 % | 3.90 | 12.97 | 0.10 | 12.20 | 0.14 | −0.14 | 53 % |
-| karl06 | 23 % | 2.31 | 5.61 | 0.09 | 5.20 | 0.08 | −0.04 | 28 % |
-| karl08 | 28 % | 2.25 | 7.53 | 0.07 | 6.80 | 0.09 | −0.18 | 30 % |
-| karl10 | 56 % | 2.75 | 12.60 | 0.47 | 7.37 | −0.05 | 0.39 | 63 % |
-| karl17 | 24 % | 2.99 | 8.19 | 0.13 | 7.70 | 0.09 | −0.06 | 33 % |
-| karl18 | 31 % | 2.42 | 6.02 | 0 (uniform kept) | 6.03 | 0.14 | 0.16 | 42 % |
-| karl20 | 58 % | 3.94 | 12.60 | 1.02 | 11.06 | 0.83 | −0.59 | 72 % |
-| karl24 | 24 % | 2.45 | 6.11 | 0.05 | 5.20 | 0.03 | −0.07 | 28 % |
-| patient_3 | 37 % | 2.67 | 8.51 | 0.15 | 8.54 | 0.16 | −0.03 | 47 % |
-| patient_10 | 47 % | 2.92 | 8.79 | 0.25 | 8.06 | 0.25 | −0.09 | 52 % |
-| **median (12)** | | **2.71** | **8.32** | | **7.54** | | | |
-| karl23 | 51 % | 3.98 | 28.27 | −3.49 | 27.57 | −4.00 | −2.71 | 94 % |
-| patient_1 | 59 % | 2.93 | 29.74 | −0.70 | 29.42 | −1.11 | 2.66 | 97 % |
-| patient_2 | 86 % | 5.00 | 27.15 | −1.11 | 27.09 | −0.86 | 2.99 | 99 % |
+| karl01 | 25 % | 2.40 | 6.38 → 6.16 | 0.11 | 6.66 → 6.11 | 0.11 | −0.06 | 30 / 30 % |
+| karl02 | 53 % | 3.20 | 8.44 → 8.31 | 0.10 | 8.50 → 8.30 | 0.10 | −0.01 | 49 / 49 % |
+| karl04 | 51 % | 3.90 | 12.97 → 12.22 | 0.08 | 12.20 → 11.40 | 0.09 | −0.09 | 46 / 45 % |
+| karl06 | 23 % | 2.31 | 5.61 → 5.29 | 0.07 | 5.20 → 4.91 | 0.07 | −0.04 | 25 / 24 % |
+| karl08 | 28 % | 2.25 | 7.53 → 7.27 | 0.07 | 6.80 → 6.57 | 0.08 | −0.15 | 26 / 26 % |
+| karl10 | 56 % | 2.75 | 12.60 → 10.24 | 0.01 | 7.37 → 7.04 | −0.02 | 0.30 | 54 / 56 % |
+| karl17 | 24 % | 2.99 | 8.19 → 7.27 | 0.09 | 7.70 → 7.15 | 0.09 | −0.04 | 28 / 28 % |
+| karl18 | 31 % | 2.42 | 6.02 → 5.75 | 0 (uniform kept) | 6.03 → 5.75 | 0 | 0 | 29 / 29 % |
+| karl20 | 58 % | 3.94 | 12.60 → 12.00 | 0.69 | 11.06 → 10.52 | 0.61 | −0.45 | 69 / 66 % |
+| karl23 | 51 % | 3.98 | 28.27 → 16.38 | 0.67 | 27.57 → 16.31 | 0.76 | 0.16 | 62 / 61 % |
+| karl24 | 24 % | 2.45 | 6.11 → 5.70 | 0.03 | 5.20 → 5.00 | 0.03 | −0.04 | 26 / 25 % |
+| patient_1 | 59 % | 2.93 | 29.74 → 13.79 | 0.34 | 29.42 → 12.48 | 0.23 | −0.24 | 67 / 61 % |
+| patient_2 | 86 % | 5.00 | 27.15 → 12.03 | 0.57 | 27.09 → 9.80 | 0.51 | −0.28 | 87 / 85 % |
+| patient_3 | 37 % | 2.67 | 8.51 → 8.06 | 0.10 | 8.54 → 8.07 | 0.10 | −0.02 | 39 / 39 % |
+| patient_10 | 47 % | 2.92 | 8.79 → 8.56 | 0.21 | 8.06 → 7.84 | 0.20 | −0.08 | 48 / 48 % |
+| **median (15)** | | **2.92** | 8.51 → **8.31** | | 8.06 → **7.84** | | | |
 
-- Slopes in p/E across the lung. About 0.2 min per fit, no failed solve.
-- The shape error is ~3× that of the regions. Adding si helps clearly only on karl10.
-- Signs (ap + si, 12 patients): ap > 0 in 11, si < 0 in 10.
-- **karl23, patient_1, patient_2 are broken:** mean p/E at the bound 3, collapse 94–99 %, ASSD 27–30 mm. It is the shrinkage of the one-sided loss that the symmetric term removed in the regions fits (section 8). The others over-collapse too (karl01 37 vs 25 %, karl17 33 vs 24 %, karl18 42 vs 31 %, karl20 72 vs 58 %, patient_3 47 vs 37 %), so p/E and slopes are biased upward. The pressure rule from these fits is meaningless (r 0.77).
+- 8–28 solves, ~0.2 min per fit, no failed solve, stop "levels exhausted" everywhere.
+- **The symmetric loss repairs the 3 broken cases** (karl23 28 → 16 mm, patient_1 30 → 12–14, patient_2 27 → 10–12): mean p/E off the bound, collapse 61–87 % instead of 94–99 %, ap slope now positive. On the other 12 it gains 0.2–0.5 mm (karl10 ap 2.4).
+- **Collapse:** fitted vs real median gap 2.5 points (ap) / 2.4 (ap + si), max 11 / 10 (karl23, karl20 over-collapse; karl04 under-collapses 5). The earlier systematic over-collapse is gone.
+- **Mean p/E = −0.00 + 1.82 × collapse** (ap, r 0.96): close to the hydrostatic 1.67 c of the material.
+- **Shape:** still 2.7× the regions (median 7.8–8.3 vs 2.9 mm); worst karl23 16, patient_1 12–14, karl04 / karl20 11–12.
+- **ap slope > 0 (anterior more load) in 13 / 15**, 0 in karl18 (uniform best: the optimiser lowers the rms but not the mean error, which picks the best state) and in karl10 (it prefers si).
+- **si slope < 0 (apex less load) in 12 / 15** (+0.30 karl10, +0.16 karl23, 0 karl18), as in the regions (apex < base 14 / 15). Not gravity in a supine scan. si gains > 1 mm only on karl10 (3.2), patient_2 (2.2), patient_1 (1.3); median gain 0.3 mm.
+- Rotation of the fitted displacement lower than with the regions: karl23 23–28° (regions 73°), patient_2 35–38° (44°), patient_1 20–23° (34°).
+
+### 4b. Gradient `ap` with the wall (`fit_grad_ap_sym` in `_wall`, 2026-11-16, k = 0, `JOBS=4`, after the 2026-10-30 fix)
+
+14 patients (not patient_2). ASSD in mm; "regions + wall" = `fit_sym` / `fit_sym_k0.001` with the wall, **before the fix**, so their failures are not directly comparable.
+
+| Patient | Collapse | ap no wall | **ap + wall** | ap slope (no wall → wall) | Fitted collapse | Failed / solves | min | Regions + wall (k 0 / 0.001) | Regions no wall |
+|---|---|---|---|---|---|---|---|---|---|
+| karl01 | 25 % | 6.16 | **5.76** | 0.11 → 0.26 | 28 % | 0 / 24 | 0.5 | 3.55 / 3.70 | 2.40 |
+| karl02 | 53 % | 8.31 | **5.30** | 0.10 → 0.33 | 49 % | 4 / 27 | 8.4 | 6.57 / 6.49 | 3.20 |
+| karl04 | 51 % | 12.22 | **8.62** | 0.08 → 0.45 | 46 % | 4 / 22 | 9.4 | 8.33 / 5.58 | 3.90 |
+| karl06 | 23 % | 5.29 | **4.95** | 0.07 → 0.21 | 21 % | 0 / 26 | 0.5 | 2.33 / 2.36 | 2.31 |
+| karl08 | 28 % | 7.27 | **6.76** | 0.07 → 0.19 | 25 % | 0 / 20 | 0.4 | 2.23 / 2.46 | 2.25 |
+| karl10 | 56 % | 10.24 | **10.31** | 0.01 → 0.02 | 54 % | 0 / 18 | 0.2 | 4.54 / 3.75 | 2.75 |
+| karl17 | 24 % | 7.27 | **6.10** | 0.09 → 0.27 | 24 % | 3 / 22 | 7.0 | 4.81 / 3.52 | 2.99 |
+| karl18 | 31 % | 5.75 | **5.75** | 0 → 0 (uniform kept) | 29 % | 0 / 8 | 0.1 | 2.25 / 2.42 | 2.42 |
+| karl20 | 58 % | 12.00 | **9.80** | 0.69 → 0.79 | 64 % | 8 / 25 | 16.6 | 7.35 / 6.02 | 3.94 |
+| karl23 | 51 % | 16.38 | **14.24** | 0.67 → 1.09 | 61 % | 8 / 23 | 15.6 | 13.14 / 11.89 | 3.98 |
+| karl24 | 24 % | 5.70 | **5.60** | 0.03 → 0.03 | 26 % | 0 / 16 | 0.2 | 4.24 / 2.43 | 2.45 |
+| patient_1 | 59 % | 13.79 | **12.58** | 0.34 → 0.41 | 63 % | 5 / 21 | 11.3 | 11.37 / 7.52 | 2.93 |
+| patient_3 | 37 % | 8.06 | **7.92** | 0.10 → 0.19 | 41 % | 2 / 21 | 4.5 | 6.25 / 3.61 | 2.67 |
+| patient_10 | 47 % | 8.56 | **7.51** | 0.21 → 0.28 | 46 % | 6 / 21 | 12.5 | 5.95 / 3.98 | 2.92 |
+| **median (14)** | | 8.19 | **7.14** | | | | 7.0 | 5.38 / 3.73 | 2.84 |
+
+- **Shape:** the wall improves the gradient fit in 12 / 14 (equal on karl10, karl18), median 8.2 → 7.1 mm; most on karl04 (−3.6), karl02 (−3.0), karl20 (−2.2), karl23 (−2.1). karl02 with gradient + wall (5.3) beats the regions + wall fits (6.5–6.6). Still 2.5× the regions without wall.
+- **Collapse** matched as without wall (median gap ~3 points; karl23 61 vs 51 %, karl20 64 vs 58 %). Wall penetration ≤ 0.52 mm (within `wall_settle_mm`), 0–54 points slightly beyond.
+- **Failed solves 40 / 294 (14 %)** vs 146 / 496 (29 %) for the regions + wall (k 0, before the fix) and 25–26 % with k 0.001 / 0.003. Zero failures in 6 / 14 patients (karl01, 06, 08, 10, 18, 24: small collapse or small slope). Failures concentrate where collapse and slope are large: karl20 and karl23 8 each (32–35 %), patient_10 6, patient_1 5. Failed attempts by cause (summed): unsettled outer rounds 268, Newton `maxit` 160 (74 on karl23), time 147, inverted 3. Same causes as before (corners, section 7): the gradient halves the failure rate but does not remove it. Part of the gain may be the 2026-10-30 fix itself (karl04 regions after the fix: still 11 failures).
+- Time: median 7 min (0.1–0.5 min without failures; 8–17 min with failures, ~20–40 s per solve).
+- **The wall makes the ap slope larger, not smaller:** ×2–3 on karl01/02/06/08/17/patient_3, ×5 on karl04. Without the wall a strong anterior load pushes the lung backwards out of the cavity; with the wall the posterior side rests on it, so a larger gradient becomes usable. The hypothesis of section 5 (the no-wall slope stands in for the wall) was wrong.
 
 ## 5. Physical reading of the pressures
 
 - p/E is an equivalent surface load lumping elastic recoil, weight and the support of the neighbouring organs.
 - **Mean level:** mostly the volumetric response of the material (section 3).
 - **Anterior > posterior:** probably gravity in the supine scan (now the proposed load model, METHODOLOGY.md section 8). The inflated lung carries its weight through the vertical gradient of pleural pressure, which the pneumothorax removes; with a stress-free reference the collapse load is uniform + linear in height, slope ρ g per unit height. A body force on top would count gravity twice. Hence E ≈ ρ g L / slope (L = AP depth).
-- E estimate (ρ = 250 kg/m³, assumed): from the linear slope of the regional p/E (12 patients) median 2.3 kPa, range 0.4–8.4; from the gradient fits (ap only, one-sided loss) median 4.4 kPa, IQR 3.1–6.6, range 0.5 (karl20) to 9.1 (karl24). Plausible in sign and order of magnitude, not proven: E spreads ×18. To redo with the symmetric loss.
+- E estimate (ρ = 250 kg/m³ assumed, ρ g = 2.45 Pa/mm; L = AP extent of the free surface, 167–232 mm): E = ρ g L / θ_ap from the symmetric `ap` fits, 13 patients with θ_ap > 0.03 (not karl10, karl18): **median 4.4 kPa, range 0.74 (karl20) – 12.8 (karl24), ×17**. p0 = (mean p/E) E: 0.9–5.6 kPa. ap + si gives the same within 15 % except karl24 / patient_1.
+- Low E (0.7–1.3 kPa) in the 4 largest-rotation / largest-collapse cases (karl20, karl23, patient_2, patient_1), where the slope is 0.3–0.7.
+- **With the wall** (section 4b, 12 patients with θ_ap > 0.03): **median 1.7 kPa, range 0.46 (karl23) – 2.9 (karl08), ×6**, plus karl24 at 12.7 (slope 0.03, i.e. no gradient needed). Much tighter than without wall (×17): 8 of 12 between 1.1 and 2.9 kPa. Lowest still in karl23 (0.46), karl20 (0.64), patient_1 (1.07), karl04 (1.13). p0 = (mean p/E) E: 0.5–1.6 kPa (karl24 5.6). Order of magnitude plausible for lung tissue and for the transpulmonary pressure of an inflated lung; not proven.
+- **E from no-wall fits is not reliable; the wall fits are the ones to use.** A common E (~1.7 kPa) is the next test: one parameter fewer per patient, with the slope then fixed by ρ̄ g L / E.
+- The relative slope θ_ap / mean p/E (= ρ g L / p0) is not constant either (0.07–0.59).
 
 ## 6. Wall and tangential support
 

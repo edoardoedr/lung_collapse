@@ -166,6 +166,12 @@ class FemFitConfig:
     # fitted as a uniform level then the slopes; transferable to another lung (no regions needed)
     pressure_model: str = "regions"
     gradient_axes: list = field(default_factory=lambda: ["ap", "si"])
+    # gradient model only: fix the ap slope to the lung's weight instead of fitting it (METHODOLOGY.md
+    # section 8): q = mean + gamma (h - h_mean), h = anterior coordinate in mm (up in a supine scan),
+    # gamma = tissue_density g / gravity_E_Pa. ap is then not fitted (other gradient_axes still are);
+    # E_Pa is set to gravity_E_Pa, so the reported pressures are in physical Pa. None = slope fitted
+    gravity_E_Pa: float | None = None
+    tissue_density: float = 250.0      # kg/m3, mean density of the inflated lung (assumed: no CT HU)
     optimizer: str = "lsq"            # lsq (bounded least squares, TRF) | nm (Nelder-Mead)
     jacobian: str = "analytic"         # lsq: analytic (from the core; finite differences if it has none) | 2-point
     lsq_diff_step: float = 5e-3        # lsq: relative finite-difference step for the Jacobian
@@ -218,6 +224,12 @@ class FemFitConfig:
         bad = [a for a in self.gradient_axes if a not in ("ap", "si", "ml")]
         if bad or len(set(self.gradient_axes)) != len(self.gradient_axes):
             raise ValueError("fem_fit.gradient_axes: distinct values among ap, si, ml (got %s)" % self.gradient_axes)
+        if self.gravity_E_Pa is not None:
+            if self.pressure_model != "gradient":
+                raise ValueError("fem_fit.gravity_E_Pa needs pressure_model gradient")
+            if self.gravity_E_Pa <= 0 or self.tissue_density <= 0:
+                raise ValueError("fem_fit.gravity_E_Pa and tissue_density must be > 0")
+            self.E_Pa = float(self.gravity_E_Pa)
 
 
 @dataclass

@@ -2,14 +2,15 @@
 
 Plan agreed on 2026-10-15: from the patient fits to collapsing any inflated lung, and a GNN surrogate trained on synthetic collapses. Methods in [METHODOLOGY.md](METHODOLOGY.md), results and problems in [analysis/results.md](analysis/results.md), code history in [CLAUDE.md](CLAUDE.md). The old results log is in git: `git show 3260c03:NEXT.md`.
 
-## Where we are (2026-11-12)
+## Where we are (2026-11-16)
 
 - **Regions fit without wall: done and reliable** on 15 of 16 patients (median ASSD 2.9 mm, no failed solve, < 1 min).
-- **Gradient fit:** done with the one-sided loss only (median ASSD ~8 / ~7 mm, 3 patients broken); to redo.
-- **Wall:** still failing on most patients; every wall fit predates the 2026-10-30 fix. `support_k` helps on some patients, hurts on others.
+- **Gradient fit (symmetric loss, no wall): done** on 15 patients, median ASSD 8.3 (ap) / 7.8 mm (ap + si), the 3 broken cases repaired, collapse within ~2.5 points. ap slope > 0 in 13 / 15, but E = ρ̄gL/θ_ap spreads ×17 (0.7–12.8 kPa).
+- **Gradient `ap` + wall (2026-11-16): done** on 14 patients: median ASSD 7.1 mm (8.2 without wall), failed solves 14 % (regions + wall 25–29 %), 0 failures on 6; E = ρ̄gL/θ_ap 0.5–2.9 kPa (×6, median 1.7).
+- **Wall:** still failing where collapse and slope are large (karl20, karl23 ~1/3 of the solves); every regions wall fit predates the 2026-10-30 fix. `support_k` helps on some patients, hurts on others.
 - **Nothing yet towards the GNN** (steps 3–4 below).
 
-Numbers in analysis/results.md, sections 2, 4 and 6.
+Numbers in analysis/results.md, sections 2, 4, 5 and 6.
 
 ## The pipeline
 
@@ -87,8 +88,9 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
 
 Uniform pleural pressure + loss of the pleural gradient that carried the lung's weight (Archimedes), wall in the model, later heterogeneous tissue. Decided (user, 2026-11-13): the physical model becomes the default; the regions model stays in the code as an option, for the reference fits (best shape this FEM can give, ~2.9 mm), for diagnosis (physical load + regional δp: where δp stays large, physics is missing) and for comparing with the existing fits, with few levels (e.g. K = 1, 4, 8). The GNN's synthetic pressures come from the physical model plus smooth perturbations, not from Ward regions. Tests, cheapest first:
 
-- [ ] Gradient fits `ap` and `ap + si` with the symmetric loss, no wall (running: `fit_grad_ap_sym`, `fit_grad_apsi_sym`). Check: the 3 broken cases, fitted vs real collapse, sign of the slopes, E = ρ̄gL / θ_ap across patients.
-- [ ] Gradient `ap` with the wall (k = 0): does the wall converge better than with the regions (the resultant is vertical and presses the lung into the dorsal gutter)? Does the shape improve on ~7–8 mm?
+- [x] Gradient fits `ap` and `ap + si` with the symmetric loss, no wall (`fit_grad_ap_sym`, `fit_grad_apsi_sym`, 2026-11-16; analysis/results.md sections 4–5): broken cases repaired, collapse matched, ap > 0 in 13 / 15, si < 0 in 12 / 15 (not gravity), E not consistent across patients (lowest where the collapse is largest: the slope probably replaces the missing wall).
+- [x] Gradient `ap` with the wall (k = 0) (2026-11-16, analysis/results.md 4b): shape 8.2 → 7.1 mm, failures halved (14 %) but not gone (karl20 / karl23 ~1/3), slope ×2–3 larger than without wall, E 0.5–2.9 kPa (×6 instead of ×17).
+- [ ] Next: common E across patients with the wall (slope fixed = ρ̄ g L / E, fit q0 per patient): scan E 1, 1.7, 3 kPa with `fem_fit.gravity_E_Pa` (implemented 2026-11-16, not yet run on the server). How much shape is lost vs the free slope? Which E fits best overall?
 - [ ] If the wall corners still fail the solves: wall as a smooth potential (METHODOLOGY.md section 8 (a)): smoothed signed-distance grid, C² cubic B-spline interpolation, contact energy inside Newton with the exact Hessian (torch autodiff), no outer rounds. Choose the smoothing radius (a few mm) and check that the allowance still contains the target.
 - [ ] Later: deformable wall (section 8 (b)): stiffness per part of the cavity (ribs high, diaphragm / mediastinum low, from position and normal on the inflated surface).
 - [ ] With gravity, check whether `support_k` is still needed (probably not).
