@@ -22,7 +22,7 @@ Lung-collapse pipeline for a GNN surrogate of lung collapse in VATS surgery. CT 
 ## Working with the user
 
 - The user writes in Italian: answer in Italian. Code, comments, docstrings, READMEs, configs and the docs above are in English.
-- **Do not install anything on the Mac** (no getfem, warp, torch, pyvista, pytest...). The heavy runs happen on the server; give the user the commands to run there and read the logs they paste back.
+- **Do not install anything on the Mac** outside the conda env `lungct` (no getfem, warp, torch...): the user allowed `lungct` for image / surface analysis (2026-11-17), without torch. The heavy runs happen on the server; give the user the commands to run there and read the logs they paste back.
 - **No commits unless asked.** The user commits themself.
 - Before changing physics or defaults, explain the trade-off and let the user decide; implementation details can be decided directly.
 - A new or changed config key goes in `pipeline/config.py`, `configs/README.md` and, if user-visible, `README.md`.
@@ -33,6 +33,7 @@ Lung-collapse pipeline for a GNN surrogate of lung collapse in VATS surgery. CT 
 | Where | What is there | Use |
 |---|---|---|
 | Mac (this machine) | base Python with numpy / scipy; **no** pyvista, vtk, itk, gmsh, getfem, warp, torch, pytest | editing, `py_compile`, the tests in `tests/`, reading `results/` |
+| Mac, conda env `lungct` (`/opt/miniconda3/envs/lungct/bin/python`, created with the user's permission 2026-11-17) | numpy, scipy, SimpleITK + itk (pip wheels: the conda ones clash), vtk, pyvista, nibabel, scikit-image, pandas, matplotlib; **no** torch, getfem, warp, gmsh | image / surface analysis on `Input_CT/` (CTs) and `Input_Data/` (surfaces): `ct_density.py`, `cavity_volumes.py`, `pipeline.data_io` |
 | Server (Jupyter, conda env `lungfem`, `/home/jovyan/Lung_project/lung_collapse`) | GetFEM (MUMPS), warp-lang, torch, nvmath-python (cuDSS), pypardiso; Xeon CPUs (slow) + CUDA GPU (driver CUDA 12; a cuda-bindings 13 warning is harmless) | all pipeline runs and validation scripts |
 
 - **Tests on the Mac:** `python3 tests/<file>.py` (pytest-compatible files, run without it).
@@ -54,6 +55,7 @@ python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa -
 python scripts/summarize_runs.py <results folder> [--runs fit E1000] [--out analysis/runs_v2.csv]   # Mac or server
 python scripts/leave_one_out.py --configs configs/*.json [--fit-run fitE] [--run loo] [--jobs 4] [--frames 30] [--collect]   # E from the others' E(collapse %), forward to the own collapse %
 python scripts/cavity_volumes.py --configs configs/*.json [--fit-run fitE_nu30] [--out analysis/cavity.csv]   # cavity vs contralateral lung volume, trachea shift, vs fitted E (server)
+python scripts/ct_density.py [--fit-run fitE_nu30] [--out analysis/ct_density.csv]   # lung mass / density from the CT (Input_CT/), Mac env lungct
 python scripts/add_wall_field.py --config configs/<p>.json [--grid 1.5] [--smoothing 3]   # wall field into an existing problem.npz
 python scripts/init_output_dir.py --configs configs/*.json [--apply]   # new output_dir <- setup + v2 runs of the old one (dry run without --apply)
 python scripts/check_jacobian.py --config configs/<p>.json [--set ...] [--solver getfem] [--options '{...}']

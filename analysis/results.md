@@ -212,6 +212,49 @@ Fixed ap slope = ρ̄ g L / E (ρ̄ 250 kg/m³), only the mean p/E fitted, wall 
 - E moves by only +10–30 %: the gravity gradient, and the E(collapse %) trend, do not depend on ν.
 - Conclusion: ν is not identifiable from the collapsed shape; keep it fixed (from the literature) and always report p0 with the ν used.
 
+### 5d. Is the pleural cavity larger than the lung? (2026-11-17)
+
+There is one CT per patient, with the pneumothorax; the model's "inflated lung" is its pleural cavity (METHODOLOGY.md section 7, item 12). Hypothesis: the cavity is enlarged by the pneumothorax (chest wall, mediastinum, diaphragm), more so in the larger ones, and the low E of the large collapses compensates for it. Test from the input surfaces (`Input_Data/`, read with numpy on the Mac; same measures as `scripts/cavity_volumes.py`; table `analysis/cavity.csv`): cavity, collapsed and contralateral lung (sum of its lobes) volumes; enlargement = (cavity / contralateral) / normal ratio (right / left 1.15); E from `fitE` (ν 0.40) and `fitE_nu30`, patients with E at a bound left out. All surfaces closed; the collapse % against the cavity equals the fits' target.
+
+| Patient | side | cavity mL | collapsed mL | contralateral mL | enlargement | collapse vs cavity | vs expected volume | E fitE_nu30 |
+|---|---|---|---|---|---|---|---|---|
+| karl01 | L | 2135 | 1584 | 2269 | 1.08 | 26 % | 20 % | 1468 |
+| karl02 | R | 4976 | 2357 | 2671 | 1.62 | 53 % | 23 % | 1129 |
+| karl04 | R | 5460 | 2658 | 4460 | 1.06 | 51 % | 48 % | 685 |
+| karl06 | R | 3101 | 2384 | 2982 | 0.90 | 23 % | 31 % | 2089 |
+| karl08 | R | 3695 | 2657 | 4026 | 0.80 | 28 % | 43 % | 2599 |
+| karl10 | L | 2788 | 1231 | 2743 | 1.17 | 56 % | 48 % | (bound) |
+| karl17 | L | 3088 | 2346 | 3773 | 0.94 | 24 % | 29 % | 1460 |
+| karl18 | L | 1924 | 1338 | 3676 | 0.60 | 30 % | 58 % | (bound) |
+| karl19 | R | 2182 | 751 | 2413 | 0.79 | 66 % | 73 % | — |
+| karl20 | L | 2490 | 1036 | 2211 | 1.30 | 58 % | 46 % | 446 |
+| karl23 | L | 2610 | 1270 | 2969 | 1.01 | 51 % | 51 % | (bound) |
+| karl24 | L | 2185 | 1651 | 1904 | 1.32 | 24 % | 0 % | 3732 |
+| patient_1 | L | 2800 | 1152 | 3161 | 1.02 | 59 % | 58 % | 719 |
+| patient_10 | L | 4010 | 2122 | 3897 | 1.18 | 47 % | 37 % | 650 |
+| patient_2 | L | 5350 | 740 | 2596 | 2.37 | 86 % | 67 % | 403 |
+| patient_3 | L | 2758 | 1741 | 3451 | 0.92 | 37 % | 42 % | 1450 |
+
+- **Enlargement:** median 1.06 (IQR 0.93–1.24), range 0.60–2.37. 11 of 16 are within 0.8–1.2, i.e. within the normal individual right / left variability: for most patients the cavity is close to the expected lung volume and is a fair reference; the outliers are patient_2 (2.37), karl02 (1.62), karl24 (1.32), karl20 (1.30) above and karl18 (0.60) below. The spread is far larger than any plausible enlargement (and below 1 in 6 patients): the contralateral lung is a noisy reference (individual right / left ratio, disease, segmentation). Outliers: patient_2 (2.37, cavity 5.3 L against a 2.6 L right lung), karl02 (1.62), karl18 (0.60).
+- **It does not explain the E trend.** log₁₀ E against the collapse % measured on the cavity: r −0.87 (`fitE_nu30`, 12 patients), −0.84 (`fitE`, 11); against the enlargement: −0.51 / −0.21; against the collapse % measured on the expected volume: −0.75 / −0.69, weaker, not stronger. With both in one regression the enlargement coefficient is positive (+0.26 per unit), the opposite of the hypothesis.
+- **E(collapse %) with ν 0.30** (`fitE_nu30`, 12 in bounds, patient_2 included): log₁₀ E = 3.63 − 0.0135 × collapse %, i.e. ≈ 2.0 kPa at 25 %, 0.9 kPa at 50 % (ν 0.40: 1.9 / 0.7). karl10, karl18 at the upper bound, karl23 at the lower bound, as with ν 0.40.
+- **Trachea shift** (x of the top 15 mm of the airways against the middle of the two lateral extents): not usable as a mediastinal-shift proxy (karl19 99 mm, patient_3 −43 mm, karl08 −32 mm towards the pneumothorax).
+- **patient_6** (CT before the pneumothorax 6_1, CT with it 6_3; no cavity segmented in 6_3 yet): left lung before 1972 mL (L / R 0.75), collapsed 1180 mL, i.e. a **true collapse of 40 %**. The right lung is **22 % smaller** in 6_3 (2646 → 2060 mL): different inspiration between the scans and / or compression by the mediastinal shift. The contralateral lung therefore changes a lot with the pneumothorax and the breathing state, which explains why it is a noisy reference above.
+- **Reading:** with this measure the cavity enlargement is not what drives E down; the measure is too noisy to exclude a moderate enlargement. The direct test is patient_6 (CT before the pneumothorax, NEXT.md).
+
+### 5e. Lung density from the CT of the pneumothorax (2026-11-17)
+
+The CTs (`Input_CT/<p>.nii[.gz]`, one per patient, with the pneumothorax) are now available. `scripts/ct_density.py` (Mac env `lungct`; table `analysis/ct_density.csv`) voxelises the cavity, the collapsed lung and the contralateral lobes on the CT grid and converts HU to density, ρ = (HU − HU_air) / (−HU_air) g/mL, HU_air = median of the pleural air eroded by 2 mm. Only air leaves a collapsing lung, so mass = Σ ρ over the collapsed lung and **ρ̄ of the inflated lung = mass / V_cavity**.
+
+- **Alignment of CT and surfaces is right** on all 16: pleural-air core −974 to −1038 HU, mask volumes equal to the surface volumes, no collapsed voxel outside the cavity. Mean HU of the whole pleural-air region is higher (−746 to −796) on karl17, karl18, karl24: something denser than air between lung and cavity (effusion, or a collapsed segmentation tighter than the lung): to look at in Slicer.
+- **ρ̄ (inflated) median 163 kg/m³, range 85–294** (assumed 250). Collapsed lung 0.18–0.87 g/mL (patient_2 −130 HU: almost airless).
+- **Mass check on patient_6** (two scans): left lung 446 g before the pneumothorax, 332 g collapsed (−26 %); right lung 548 → 598 g (+9 %). So the mass is reliable to ~±25 % only (partial volume at the border of a tight segmentation, blood leaving the collapsed lung by hypoxic vasoconstriction, different scans). Right-lung density 0.207 → 0.290 g/mL between the scans.
+- **The density does not explain the E trend; it makes it steeper.** ρ̄ is lower where the collapse is larger (r −0.60, 12 patients with E in bounds) and goes with the fitted E (Spearman +0.81). Since only ρ̄ / E is identified, E = E_fit · ρ̄ / 250: the spread grows (sd log E 0.29 → 0.39) and log₁₀ E = 3.60 − 0.0181 × collapse % (r −0.86), ≈ 1.4 kPa at 25 %, 0.5 kPa at 50 %. Large-collapse lungs are lighter per cavity volume, yet the fit wants a stronger gravity load: the gradient stands in for something other than the weight.
+- **Cavity enlargement from the mass** (V_expected = mass / ρ_contralateral, contralateral lung of the same CT): 0.49–3.79, r +0.47 with the volume-ratio measure of 5d; not reliable either, because the contralateral lung is itself denser during the pneumothorax (patient_6: +40 %) and differs between patients (karl19, patient_2 ~0.38 g/mL).
+- **Density by AP thirds** of the collapsed lung (posterior / anterior): 1.1–2.4 in 12 of 16 (dependent lung denser), < 1 on karl04, karl20, patient_10 and **karl10 (0.43, anterior third 0.94 g/mL)**: karl10 is one of the two patients that want no gravity gradient. To look at in Slicer.
+- **Does the measured ρ̄ help predict the load?** Prediction setting (user, 2026-11-17): inputs = inflated lung, collapse %, ρ̄; q0 from the volume, the gravity slope s_g = ρ̄ g L / E from a rule. Leave-one-out on the 12 `fitE_nu30` patients with E in bounds, error of the predicted log₁₀ s_g: rule E(collapse %) with ρ̄ = 250 for all rms 0.18 (×1.5); s_g(collapse %) 0.20; s_g(collapse %, ρ̄) 0.20 (coefficient of log ρ̄ −0.5, physics says +1); E(collapse %) with the measured ρ̄ 0.27 (×1.8), worse; no rule (constant s_g) 0.34 (×2.2). **The measured density makes the prediction worse**: the needed slope depends on the collapse %, not on the weight. log₁₀ s_g = −0.96 + 0.0141 × collapse % (0.25 at 25 %, 0.55 at 50 %).
+- **Use:** the shape fits do not change (only ρ̄ / E matters); the measured ρ̄ rescales the reported E and p0 = q0 E per patient, with ~±25 % uncertainty.
+
 ## 6. Wall and tangential support
 
 **Medians over 14 patients** (patient_2 excluded from the wall runs):
