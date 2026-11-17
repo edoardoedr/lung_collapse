@@ -1,7 +1,7 @@
 {
   "patient": "patient_1",
   "data_dir": "/home/jovyan/Dataset_Lungs/CZ_dataset/vtk_surfaces_CZ/patient_1",
-  "output_dir": "/home/jovyan/Dataset_Lungs/CZ_dataset/FEM_fit_CZ/patient_1_noreg_hilum_wall",
+  "output_dir": "/home/jovyan/Dataset_Lungs/CZ_dataset/FEM_v2_CZ/patient_1",
   "steps": [
     "check_inputs",
     "geometry",

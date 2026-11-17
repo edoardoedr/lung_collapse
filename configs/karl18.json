@@ -1,7 +1,7 @@
 {
   "patient": "karl18",
   "data_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/vtk_surfaces_HD/karl18",
-  "output_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD/karl18_noreg_hilum_wall",
+  "output_dir": "/home/jovyan/Dataset_Lungs/HD_dataset/FEM_v2_HD/karl18",
   "steps": [
     "check_inputs",
     "geometry",

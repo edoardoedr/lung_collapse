@@ -142,6 +142,63 @@ Fixed ap slope = ρ̄ g L / E (ρ̄ 250 kg/m³), only the mean p/E fitted, wall 
 - **Reading:** one E of ~1.7 kPa (ρ̄ / E = 0.15 s²/m², the quantity really fixed) describes the gravity gradient of most patients at almost no cost in shape; the transferable model is then p0 (from the collapse %) + this fixed slope. The remaining spread (karl10 / karl18 none, karl20 / karl23 much more) is patient-specific: stiffness, density, inflation level, or something the gradient stands in for (mediastinum / heart). E < 1.5 kPa is blocked by the wall solver, not shown to be unphysical.
 - The relative slope θ_ap / mean p/E (= ρ g L / p0) is not constant either (0.07–0.59).
 
+### 5c. Common-E scan with the rewritten code and the smooth-field wall (`runs/gE700` … `gE3000`, 2026-11-17)
+
+14 patients (all but karl19 and patient_2), gravity supine, only q0 fitted, smooth-field wall, cold start, `newton_maxit` 30 (the configs were changed to 50 afterwards), `scripts/fit_cohort.py --jobs 4`. Table: `analysis/runs_v2.csv` (`scripts/summarize_runs.py`). ASSD in mm.
+
+| Patient | E 0.7 | E 1.0 | E 1.3 | E 1.7 | E 3.0 | best E | target collapse | collapse at best | p0 at best |
+|---|---|---|---|---|---|---|---|---|---|
+| karl01 | 5.93 | 5.67 | 5.60 | **5.58** | **5.58** | 1.7–3.0 | 25 % | 28 % | 817 Pa |
+| karl02 | 5.94 | 5.23 | **5.10** | 5.40 | 6.63 | 1.3 | 53 % | 49 % | 1049 Pa |
+| karl04 | **8.36** | 8.45 | 8.65 | 9.00 | 10.17 | ≤ 0.7 | 51 % | 44 % | 491 Pa |
+| karl06 | 6.15 | 5.50 | 5.11 | 4.95 | **4.88** | ≥ 3.0 | 23 % | 22 % | 1104 Pa |
+| karl08 | 7.20 | 6.54 | **6.48** | 6.51 | 6.50 | 1.3–3.0 | 28 % | 25 % | 541 Pa |
+| karl10 | 12.95 | 12.26 | 11.86 | 11.51 | **10.28** | ≥ 3.0 | 56 % | 54 % | 2778 Pa |
+| karl17 | 6.22 | 6.15 | 6.00 | **5.99** | 6.29 | 1.7 | 24 % | 25 % | 683 Pa |
+| karl18 | 9.29 | 8.87 | 8.49 | 8.06 | **6.41** | ≥ 3.0 | 31 % | 38 % | 1979 Pa |
+| karl20 | **9.57** | 10.86 | 11.97 | 13.18 | 15.11 | ≤ 0.7 | 58 % | 60 % | 711 Pa |
+| karl23 | **12.85** | 14.81 | 15.47 | 16.03 | 17.97 | ≤ 0.7 | 51 % | 46 % | 548 Pa |
+| karl24 | 7.91 | 6.91 | 6.39 | 6.03 | **5.60** | ≥ 3.0 | 24 % | 25 % | 1259 Pa |
+| patient_1 | **12.13** | 12.26 | 12.46 | 12.81 | 13.77 | ≤ 0.7 | 59 % | 57 % | 673 Pa |
+| patient_10 | **6.40** | 6.62 | 6.87 | 7.24 | 8.27 | ≤ 0.7 | 47 % | 44 % | 468 Pa |
+| patient_3 | 7.77 | 7.72 | 7.66 | **7.64** | 7.65 | flat | 37 % | 40 % | 1172 Pa |
+| **median** | 7.84 | 7.32 | 7.26 | 7.44 | 7.14 | best per patient: 6.45 | | | |
+| **mean** | 8.48 | 8.42 | 8.44 | 8.56 | 8.94 | best per patient: 7.66 | | | |
+
+- **Solver:** 556 solves in 70 fits, **none failed**; 0.3–1.4 min per fit. Newton reached 30 iterations inside 12–42 solves per E value (more at low E), always recovered by smaller steps. Against the exact wall the points go up to 3.4–3.7 mm beyond the margin (smoothed field: within tolerance).
+- **No E is common to the patients.** The cohort mean is flat between 0.7 and 1.7 kPa (8.42–8.56 mm) and the median between 1.0 and 3.0 (7.1–7.4): a common value of ~1–1.3 kPa costs ~0.8 mm against the best E per patient (median 6.45, mean 7.66). But 9 of 14 patients have their best at an end of the scanned range, in opposite directions: karl04, karl20, karl23, patient_1, patient_10 want E ≤ 0.7 kPa (a stronger gradient), karl06, karl10, karl18, karl24 want E ≥ 3 kPa (a weaker one).
+- **The preferred E goes with the collapse:** the five that want a low E have collapsed by 47–59 %, three of the four that want a high E by 23–31 % (karl10, 56 %, is the exception; karl02, 53 %, sits at 1.3). A lung that has collapsed more behaves as softer against its weight. Possible readings: the tissue softens in compression more than the Neo-Hookean law does; the dependent lung is denser (ρ̄ / E is what is fitted); or the gradient stands in for something else (mediastinum, heart). To quantify it: fit E per patient (now possible) and plot E against the collapse %.
+- **Sensitivity:** for 8 patients the ASSD changes by less than 1 mm over the whole range; the choice of E matters for karl20 (9.6 → 15.1), karl23 (12.9 → 18.0), karl18 (9.3 → 6.4), karl10, karl24, karl04.
+- The fitted collapse is within 7 points of the target on all patients (karl04 44 vs 51 %, karl18 38 vs 31 %).
+
+**E fitted per patient (`runs/fitE`, 2026-11-17).** q0 and E both fitted (E start 1.3 kPa, bounds 0.2–20 kPa), same settings as the scan, `newton_maxit` 50. 14 patients (patient_2 missing from the output), 151 solves, **none failed**, 0.2–1.7 min per fit.
+
+| Patient | E fitted | q0 | p0 | collapse fit / target | ASSD fitE | best of the scan |
+|---|---|---|---|---|---|---|
+| karl01 | 1.29 kPa | 0.461 | 593 Pa | 27 / 26 % | 5.60 | 5.58 |
+| karl02 | 1.02 kPa | 0.795 | 809 Pa | 49 / 53 % | 5.22 | 5.10 |
+| karl04 | 0.61 kPa | 0.731 | 447 Pa | 47 / 51 % | 8.51 | 8.36 |
+| karl06 | 1.76 kPa | 0.363 | 640 Pa | 22 / 23 % | 4.93 | 4.88 |
+| karl08 | 1.72 kPa | 0.429 | 738 Pa | 25 / 28 % | 6.48 | 6.48 |
+| karl10 | **19.3 kPa (upper bound)** | 0.931 | (18 kPa, not meaningful) | 54 / 56 % | 9.80 | 10.28 |
+| karl17 | 1.31 kPa | 0.371 | 486 Pa | 24 / 24 % | 5.99 | 5.99 |
+| karl18 | **20 kPa (upper bound)** | 0.586 | (12 kPa, not meaningful) | 34 / 31 % | 5.64 | 6.41 |
+| karl20 | 0.31 kPa | 0.904 | 281 Pa | 58 / 58 % | 7.95 | 9.57 |
+| karl23 | **0.20 kPa (lower bound)** | 0.519 | 104 Pa | **40 / 51 %** | 7.61 | 12.85 |
+| karl24 | 3.59 kPa | 0.421 | 1511 Pa | 25 / 25 % | 5.55 | 5.60 |
+| patient_1 | 0.64 kPa | 0.991 | 630 Pa | 59 / 59 % | 12.10 | 12.13 |
+| patient_10 | 0.58 kPa | 0.653 | 377 Pa | 44 / 47 % | 6.35 | 6.40 |
+| patient_3 | 1.63 kPa | 0.704 | 1148 Pa | 41 / 37 % | 7.66 | 7.64 |
+| **median / mean** | 1.29 kPa (11 in bounds) | | | | **6.41 / 7.10** | 6.45 / 7.66 |
+
+- **Shape:** median 6.41, mean 7.10 mm, better than any common E (mean 8.42–8.94) and than the best scanned value per patient (mean 7.66): the gain is on the patients whose optimum was outside 0.7–3 kPa (karl23 12.85 → 7.61, karl20 9.57 → 7.95, karl18 6.41 → 5.64).
+- **Three at a bound.** karl10 and karl18 go to the upper bound: they want no gravity gradient at all, so E (and p0 = q0 E) is not identified there; only q0 means something. karl23 goes to the lower bound and still collapses 11 points less than its target (40 vs 51 %): to match the shape it gives up volume, so the model is missing something on this lung.
+- **E decreases with the collapse.** On the 11 patients inside the bounds: log₁₀ E = 3.69 − 0.0168 × collapse % (r = −0.83, p = 0.001), i.e. E ≈ 1.8 kPa at 25 % collapse and ≈ 0.7 kPa at 50 % (Spearman −0.77, p = 0.005; with karl10 / karl18 / karl23 included −0.48, p = 0.09). The more a lung has collapsed, the stronger the effect of its weight needed to reproduce its shape.
+- **Reading, not settled.** What is fitted is ρ̄ / E. The Neo-Hookean law has no stiffening in compression, and a real lung does stiffen, which would predict the opposite trend; so the trend is more likely a load the model lacks (mediastinum / heart pushing on the medial surface, diaphragm) that grows with the collapse and that the gravity gradient stands in for, or a dependent lung denser than the mean. karl10 (56 % collapse, no gradient wanted) does not fit the trend.
+- **Use:** a prediction from the collapse % alone is now possible: q0 from the volume (forward `volume_ratio`) and E from the regression above. To test it: leave-one-out (NEXT.md).
+
+**Forward runs (karl04, E 1.7 kPa, `volume_ratio` 0.55).** Supine (`v2_forward`): the first guess q0 = 0.75 from the hydrostatic response gave 55.2 % at once (1 solve, 21 s); ASSD vs the real collapsed lung 8.97 mm, the same as the fit. Supine CT → left lateral decubitus (`v2_lateral`, body force): converged in 1 solve (60 s), volume 54.7 %, rigid part 13° / 25.6 mm, 3.1 mm beyond the wall margin; ASSD 24.1 mm against the supine collapsed lung, as expected for another position (there is no lateral scan to compare with).
+
 ## 6. Wall and tangential support
 
 **Medians over 14 patients** (patient_2 excluded from the wall runs):

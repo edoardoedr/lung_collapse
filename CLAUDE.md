@@ -40,7 +40,8 @@ Lung-collapse pipeline for a GNN surrogate of lung collapse in VATS surgery. CT 
   - `tests/numpy_core.py`: a numpy Neo-Hookean core on `NodalSolver` (same physics, complex-step tangent). Use it as `"core": "numpy_core:NumpySolver"`. Slow (seconds per solve): give it `max_solve_s`.
   - `tests/sdf_numpy.py`, `tests/fakes.py`: numpy closest point / signed distance, patched over the VTK helpers of `collapse/geometry.py`, so that `fit.run` / `forward.run` work end to end.
   - They run on the local `results/karl04_noreg_hilum_wall/fem/setup/problem.npz` (skipped without it); the wall grid (4 mm) is cached in `tests/.cache/`.
-- `results/` on the Mac is a downloaded copy of the server outputs (`/home/jovyan/Dataset_Lungs/{HD_dataset/FEM_fit_HD, CZ_dataset/FEM_fit_CZ}/<p>_noreg_hilum[_wall]`). Old layout: `fem/<run>/result_summary.json`, `best_state.npz`; new layout: `runs/<run_name>/summary.json`, `state.npz`. Check the file dates against the git log before saying which code a run used.
+- **Server output folders.** Current code: `/home/jovyan/Dataset_Lungs/{HD_dataset/FEM_v2_HD, CZ_dataset/FEM_v2_CZ}/<p>/` (the configs' `output_dir`; filled by `scripts/init_output_dir.py` from the old folders: setup + the v2 runs). Old code (frozen, not written any more): `.../FEM_fit_{HD,CZ}/<p>_noreg_hilum[_wall]`.
+- `results/` on the Mac is a downloaded copy of the old server folders. Old layout: `fem/<run>/result_summary.json`, `best_state.npz`; new layout: `runs/<run_name>/summary.json`, `state.npz`. Check the file dates against the git log before saying which code a run used.
 
 ## Commands
 
@@ -52,6 +53,7 @@ JOBS=4 bash scripts/run_all.sh [case ...] [-- main.py args]    # configs/<case>.
 python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000 [--jobs 4] [--collect]
 python scripts/summarize_runs.py <results folder> [--runs fit E1000] [--out analysis/runs_v2.csv]   # Mac or server
 python scripts/add_wall_field.py --config configs/<p>.json [--grid 1.5] [--smoothing 3]   # wall field into an existing problem.npz
+python scripts/init_output_dir.py --configs configs/*.json [--apply]   # new output_dir <- setup + v2 runs of the old one (dry run without --apply)
 python scripts/check_jacobian.py --config configs/<p>.json [--set ...] [--solver getfem] [--options '{...}']
 python scripts/compare_warp_getfem.py --config configs/<p>.json [--core torch] [--timing] [--fit] [--wall-only]
 python scripts/wall_diagnose.py --config configs/<p>.json [--q 0.3] [--from-fit RUN] [--perturb r ...] [--set ...]
@@ -66,7 +68,7 @@ Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output. Man
 
 ## Configs
 
-- **One file per patient**, `configs/<p>.json` (16), made by `scripts/migrate_config.py` from the old `<p>_wall_torch.json`: gravity supine → supine, E 1.7 kPa, q0 fitted (start 0.5), ν 0.40, wall = the inflated surface with 5 mm margin, smooth-field wall (`solver.wall_update: "potential"`, grid 1.5 mm, σ 3 mm), torch core, steps `check_inputs` → `fit`. They keep the **old `output_dir`** (`<p>_noreg_hilum_wall`), so the geometry, hilum and `fem/setup/problem.npz` already on the server are reused: run `--steps fit` (after `add_wall_field.py` where the setup has no wall field yet: only karl01, karl04, karl20, karl23 have it).
+- **One file per patient**, `configs/<p>.json` (16), made by `scripts/migrate_config.py` from the old `<p>_wall_torch.json`: gravity supine → supine, E 1.7 kPa, q0 fitted (start 0.5), ν 0.40, wall = the inflated surface with 5 mm margin, smooth-field wall (`solver.wall_update: "potential"`, grid 1.5 mm, σ 3 mm), torch core, steps `check_inputs` → `fit`. `output_dir` = `FEM_v2_{HD,CZ}/<p>` (2026-11-17): the geometry, hilum and `fem/setup/problem.npz` (with wall field) are copied there from the old `<p>_noreg_hilum_wall` by `init_output_dir.py`, so run `--steps fit` / `collapse` only; a patient whose old setup has no wall field needs `add_wall_field.py` first (patient_2 at least).
 - **Patients:** left lung karl01, karl10, karl17, karl18, karl20, karl23, karl24, patient_1, patient_2, patient_3, patient_10; right lung karl02, karl04, karl06, karl08, karl19. karl = HD dataset, patient_* = CZ dataset. karl19 stops on its input (NEXT.md). patient_2 is included again (user, 2026-11-17; it had been left out of the old wall runs).
 - The old runs are reproduced with overrides: regions fit = `physics.gravity=null 'physics.perturbation={"regions":[1,4,8,14,25,40]}' fit.best_by=mean` (the existing `problem.npz` has those regions); free ap slope = `physics.gravity=null 'physics.perturbation={"gradient":["ap"]}'`; outer wall = `solver.wall_update=outer`.
 - Unknown keys raise an error; `_`-prefixed keys are comments; `data_dir` / `output_dir` relative to the JSON, inputs to `data_dir`, outputs to `output_dir`.

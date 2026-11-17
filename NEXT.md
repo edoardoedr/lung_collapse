@@ -78,8 +78,12 @@ Accuracy on real patients stays limited by the pressure rule. Reaching the 2–3
 
 **Now**
 
-- [ ] Run the rewritten code on the server (REWRITE_PLAN.md, "Status"). Done 2026-11-16: wall field in the setups, `fit` on karl04 identical to the previous code, `check_jacobian.py` OK. To do: a forward run with `volume_ratio`, the lateral position, the regions fit, `geometry` + `fem_setup` in a fresh `output_dir` against the existing files.
-- [ ] Redo the common-E scan on all patients with the smooth-field wall (`scripts/fit_cohort.py`, E 700 / 1000 / 1300 / 1700 / 3000): the preference for 1.7 kPa was partly an artefact of the outer wall. Then decide the common E, or fit E per patient (`physics.E_Pa` with `fit`).
+- [ ] New output folders for the current code (2026-11-17): configs point to `FEM_v2_{HD,CZ}/<p>`; fill them on the server with `scripts/init_output_dir.py --configs configs/*.json --apply` (setup + the gE scan and fitE runs; the old `FEM_fit_*` folders stay untouched, archive them by hand). Every new experiment goes there.
+- [ ] Run the rewritten code on the server (REWRITE_PLAN.md, "Status"). Done 2026-11-16: wall field in the setups, `fit` on karl04 identical to the previous code, `check_jacobian.py` OK. Forward run with `volume_ratio` and the lateral position: done 2026-11-17 (results 5c). To do: the regions fit, `geometry` + `fem_setup` in a fresh `output_dir` against the existing files.
+- [x] Common-E scan with the smooth-field wall (2026-11-17, analysis/results.md 5c): no failed solve; no common E (9 of 14 patients best at an end of 0.7–3 kPa, in opposite directions; the preferred E goes down with the collapse %); a common ~1–1.3 kPa costs ~0.8 mm.
+- [x] E fitted per patient (`fitE`, 2026-11-17, analysis/results.md 5c): ASSD median 6.41 / mean 7.10 mm, no failed solve; E falls with the collapse (log₁₀ E = 3.69 − 0.0168 × collapse %, r −0.83 on 11 patients); karl10 / karl18 at the upper bound (no gradient wanted), karl23 at the lower bound with 11 points too little collapse. patient_2 missing from the output: check its wall field and log.
+- [ ] Leave-one-out of the transferable model: for each patient, E from the E(collapse %) regression of the other patients, q0 from its collapse % (forward `volume_ratio`), one forward run; ASSD vs its own fitE. Needs a small script (`scripts/leave_one_out.py`).
+- [ ] Look for the missing load on karl10, karl18, karl23 (collapse sequences in Slicer: where the fit misses, medial / diaphragmatic / dorsal).
 - [x] Decided (user, 2026-11-17): `newton_maxit` 50, wall smoothing 3 mm kept, patient_2 included with the wall. Still open: `fit.best_by` default (`rms` now).
 
 - [ ] karl19: the pipeline stops in `registration` (method none) at `surface_mesh.clean_surface` of the inflated `lung_right.vtk`, "triangulation left non-triangle cells". Check the input file (cell types) on the server.

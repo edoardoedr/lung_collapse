@@ -106,6 +106,8 @@ Writes `fem/setup/problem.npz`, read by the `collapse` and `fit` steps. Rerun it
 
 For a `fem_setup` output made before the wall field existed: `python scripts/add_wall_field.py --config ...` adds it without touching the mesh.
 
+The configs' `output_dir` is `.../FEM_v2_{HD,CZ}/<p>` (the current code's folders). `python scripts/init_output_dir.py --configs configs/*.json --apply` fills them from the old `.../FEM_fit_{HD,CZ}/<p>_noreg_hilum_wall` (setup and the runs in the new layout), so the setup steps need not be rerun.
+
 ## `physics` – the collapse model
 
 Pressure on the free surface, relative to E (METHODOLOGY.md):
