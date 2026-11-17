@@ -17,7 +17,7 @@ The lung is modelled as a compressible hyperelastic body, fixed at the hilum, lo
 
 ## 2. Geometry
 
-**Input.** Closed surfaces segmented in 3D Slicer from the same CT scan: the inflated lung, the airway, pulmonary-artery and pulmonary-vein trees and, for the inverse problem, the collapsed lung. All coordinates are in the LPS patient frame ($x$ to the patient's left, $y$ posterior, $z$ superior), in millimetres.
+**Input.** Closed surfaces segmented in 3D Slicer from the same CT scan: the inflated lung, the airway, pulmonary-artery and pulmonary-vein trees and, for the inverse problem, the collapsed lung. There is **one CT per patient, taken with the pneumothorax**: the collapsed lung is the lung as segmented in it, and the "inflated lung" is the **pleural cavity** of the same scan (the lung plus the pleural air), i.e. the shape the lung would have if it filled its cavity. No scan before the pneumothorax exists. Both surfaces are therefore in the same frame and the same patient position, with no registration. All coordinates are in the LPS patient frame ($x$ to the patient's left, $y$ posterior, $z$ superior), in millimetres.
 
 **Surface meshes.** Each lung surface is cleaned (duplicate points welded, largest component kept, Taubin smoothing, holes filled) and remeshed uniformly by approximated centroidal Voronoi diagrams (ACVD) to about 480 nodes and 956 triangles, then checked to be a watertight manifold. The inflated and the collapsed mesh have their own nodes: there is no point correspondence between them.
 
@@ -300,8 +300,9 @@ These terms are not part of the physical model and are never used in prediction.
 7. *Rigid, frictionless wall equal to the inflated lung.* The diaphragm, the mediastinum and the heart move in a pneumothorax and are softer than the ribs; adhesions and friction are absent. The wall is smoothed over ~3 mm.
 8. *One body.* The lobes are not separated: no sliding along the fissures, no self-contact of the lung surface, no folding.
 9. *Mean density assumed* ($\bar\rho$ = 250 kg/m³). Since only $\bar\rho / E$ matters for the shape, an error in $\bar\rho$ is an error of the same relative size in the calibrated $E$.
-10. *Patient position.* The reference scan is assumed supine; the buoyancy of the pleural air (~1/200 of the lung's weight) and the small motion of the lung while the patient is turned with the chest closed are neglected.
+10. *Patient position.* The scan is assumed supine (the pleural air is anterior in 15 / 15 patients); the buoyancy of the pleural air (~1/200 of the lung's weight) and the small motion of the lung while the patient is turned with the chest closed are neglected.
 11. *No surgical action.* Instruments, retraction, one-lung ventilation settings and residual airway pressure are outside the model; a residual pressure is absorbed in $p_0$.
+12. *The cavity as the inflated lung.* The reference is the pleural cavity of the pneumothorax scan, not the lung before the pneumothorax. With the pleural pressure lost the chest wall springs outward, the mediastinum shifts to the other side and the hemidiaphragm flattens, so the cavity is larger than the lung that filled it, and shaped differently on its medial and diaphragmatic faces. The collapse % measured against it is an overestimate, and the model must also "collapse away" volume the lung never occupied. The size of this error is unknown and probably grows with the size of the pneumothorax.
 
 **Approaches tried and abandoned** (evidence in analysis/results.md; the code is in git on `main`).
 
