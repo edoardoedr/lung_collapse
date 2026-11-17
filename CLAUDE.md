@@ -10,10 +10,10 @@ Guidance for Claude Code in this repository. What lives where:
 | `*.svg` (root), `scripts/figures/` | the three figures (workflow, physical model, forward / inverse) and the Python that draws them: `cd scripts/figures && python3 workflow.py && python3 model.py && python3 fit.py`, then copy the `.svg` to the root |
 | [analysis/results.md](analysis/results.md) | results, evidence behind the design choices, problems found |
 | [NEXT.md](NEXT.md) | plan and to-do list |
-| [REWRITE_PLAN.md](REWRITE_PLAN.md) | the plan of the rewrite on branch `refactoring_to_v2` (2026-11-16) and its status |
+| [REWRITE_PLAN.md](REWRITE_PLAN.md) | the plan of the rewrite on branch `refactoring_to_v2` (merged into `main`) (2026-11-16) and its status |
 | this file | how to work here, environments, commands, configs, code architecture, implementation notes |
 
-Read them instead of re-deriving, and keep them current: a new result goes in `analysis/results.md`, a method change in METHODOLOGY.md, a decision or task in NEXT.md. The code before the rewrite (regions fit, registration, the earlier versions of every doc including the long step descriptions of this file) is on `main`: `git show main:CLAUDE.md`, `git show main:pipeline/collapse/fit.py`.
+Read them instead of re-deriving, and keep them current: a new result goes in `analysis/results.md`, a method change in METHODOLOGY.md, a decision or task in NEXT.md. The code before the rewrite (regions fit, registration, the earlier versions of every doc including the long step descriptions of this file) is on `v1_version`: `git show v1_version:CLAUDE.md`, `git show v1_version:pipeline/collapse/fit.py`.
 
 ## Project
 
@@ -26,7 +26,7 @@ Lung-collapse pipeline for a GNN surrogate of lung collapse in VATS surgery. CT 
 - **No commits unless asked.** The user commits themself.
 - Before changing physics or defaults, explain the trade-off and let the user decide; implementation details can be decided directly.
 - A new or changed config key goes in `pipeline/config.py`, `configs/README.md` and, if user-visible, `README.md`.
-- Only what worked is in this code. The experiments that led nowhere (registration, alignment, still points, point loss, Nelder-Mead, finite-difference fit Jacobian, `wall_update: "newton"`, face wall quadrature, `support_k`, the gravity continuation) were left on `main` on purpose: do not bring them back without asking.
+- Only what worked is in this code. The experiments that led nowhere (registration, alignment, still points, point loss, Nelder-Mead, finite-difference fit Jacobian, `wall_update: "newton"`, face wall quadrature, `support_k`, the gravity continuation) were left on `v1_version` on purpose: do not bring them back without asking.
 
 ## Environments
 
@@ -66,7 +66,7 @@ python scripts/check_jacobian.py --config configs/<p>.json [--set ...] [--solver
 python scripts/compare_warp_getfem.py --config configs/<p>.json [--core torch] [--timing] [--fit] [--wall-only]
 python scripts/wall_diagnose.py --config configs/<p>.json [--q 0.3] [--from-fit RUN] [--perturb r ...] [--set ...]
 python scripts/collapse_sequence.py --config configs/<p>.json [--frames 30] [--mode fem|linear] [--set run_name=...]
-python scripts/migrate_config.py OLD_wall_torch.json --out configs/      # old schema (main) -> new
+python scripts/migrate_config.py OLD_wall_torch.json --out configs/      # old schema (v1_version) -> new
 python scripts/summarize_fits.py <results folder> [--out analysis]       # OLD layout only (fem/<run>/)
 python -m py_compile pipeline/*.py pipeline/collapse/*.py pipeline/collapse/solvers/*.py scripts/*.py
 python3 tests/test_wall_field.py; python3 tests/test_wall_potential.py; python3 tests/test_steps.py   # Mac

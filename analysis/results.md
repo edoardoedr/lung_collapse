@@ -438,7 +438,7 @@ Not a server result: karl04 (`_wall` setup, 1355 nodes, 6777 tets) on the Mac wi
 - Wall field (4 patients): built in 23–37 s; smoothed distance of the reference points median 0.3, range −1.5 .. +3.3 mm (the smoothed wall lies up to ~3 mm inside the true one at pointed parts, covered by the per-point margin); |∇φ̃| at the reference points 0.37–1.00 (below 1 at sharp corners, where the gap is under-measured); no target point beyond its margin.
 - Cost of the smoothing: against the exact wall the points go up to ~2.4 mm beyond the 5 mm margin (0.3 mm with the outer rounds on karl04).
 
-### 7c. Rewritten code (branch `refactoring_to_v2`), local checks only (2026-11-16)
+### 7c. Rewritten code (branch `refactoring_to_v2`, now `main`), local checks only (2026-11-16)
 
 karl04 on the Mac with the numpy test core and a 4 mm wall grid (`tests/test_steps.py`); the server runs of the new steps are still to do (REWRITE_PLAN.md, "Status").
 

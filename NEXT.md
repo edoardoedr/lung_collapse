@@ -4,9 +4,9 @@ Plan agreed on 2026-10-15: from the patient fits to collapsing any inflated lung
 
 ## Where we are (2026-11-16)
 
-- **The code is now the physical model** (branch `refactoring_to_v2`, [REWRITE_PLAN.md](REWRITE_PLAN.md)): one config per patient, every physical parameter (E, ν, density, patient position, uniform pressure / collapse %) given or fitted; forward run (`collapse`) and inverse run (`fit`); wall as a smooth field inside Newton; body force for a collapse position different from the CT's. Tested on the Mac with a numpy core; **the new steps still have to run on the server** (first item of the to-do).
+- **The code is now the physical model** (now `main`, formerly branch `refactoring_to_v2`, [REWRITE_PLAN.md](REWRITE_PLAN.md)): one config per patient, every physical parameter (E, ν, density, patient position, uniform pressure / collapse %) given or fitted; forward run (`collapse`) and inverse run (`fit`); wall as a smooth field inside Newton; body force for a collapse position different from the CT's. Tested on the Mac with a numpy core; **the new steps still have to run on the server** (first item of the to-do).
 - **Smooth-field wall (server, 4 patients):** fits from rest at E 1.7 and 1 kPa with no failed solve, < 1 min, ASSD equal or better than with the outer rounds; E 1 kPa, not reachable before, is now better than 1.7 on 3 of 4 (analysis/results.md 7b).
-- **Before the rewrite** (old code, on `main`): regions fit without wall reliable on 15 of 16 patients (median ASSD 2.9 mm); gradient fits ~7–8 mm; common E 1.7 kPa within 0.5 mm of the free slope on 8 / 12 with the outer wall (analysis/results.md sections 2, 4, 5).
+- **Before the rewrite** (old code, on `v1_version`): regions fit without wall reliable on 15 of 16 patients (median ASSD 2.9 mm); gradient fits ~7–8 mm; common E 1.7 kPa within 0.5 mm of the free slope on 8 / 12 with the outer wall (analysis/results.md sections 2, 4, 5).
 - **Nothing yet towards the GNN** (steps 3–4 below), but the forward mode it needs now exists.
 
 ## The pipeline

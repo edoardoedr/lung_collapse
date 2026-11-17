@@ -1,6 +1,6 @@
 # Context: parameter-estimation experiments (handoff, 2026-11-17)
 
-For a new chat that designs and analyses experiments to estimate the model's parameters. Repo: `lung_collapse`, branch `refactoring_to_v2`. Read first: `CLAUDE.md` (how to work here, commands, architecture), `METHODOLOGY.md` (model and equations), `analysis/results.md` section 5c (the latest results), `NEXT.md` (to-do).
+For a new chat that designs and analyses experiments to estimate the model's parameters. Repo: `lung_collapse`, branch `main` (formerly `refactoring_to_v2`). Read first: `CLAUDE.md` (how to work here, commands, architecture), `METHODOLOGY.md` (model and equations), `analysis/results.md` section 5c (the latest results), `NEXT.md` (to-do).
 
 ## Rules of the project
 

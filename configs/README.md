@@ -1,6 +1,6 @@
 # Configuration reference
 
-One JSON file per patient (`configs/<patient>.json`) describes the whole model and what to run. This page lists every key. The defaults are those in [`pipeline/config.py`](../pipeline/config.py); a key left out of the JSON takes its default. The configs of the earlier schema (regions fit, registration) are in git on `main`; `scripts/migrate_config.py` converts them.
+One JSON file per patient (`configs/<patient>.json`) describes the whole model and what to run. This page lists every key. The defaults are those in [`pipeline/config.py`](../pipeline/config.py); a key left out of the JSON takes its default. The configs of the earlier schema (regions fit, registration) are in git on `v1_version`; `scripts/migrate_config.py` converts them.
 
 ## General rules
 

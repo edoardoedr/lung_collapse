@@ -1,6 +1,6 @@
 # Methodology
 
-A finite-element model of the collapse of a lung in thoracic surgery, written as the methods section of a paper: what is modelled, the equations, how they are solved, how the parameters are fitted, and what is left out. Results and the evidence behind the choices are in [analysis/results.md](analysis/results.md); the plan in [NEXT.md](NEXT.md); every config key in [configs/README.md](configs/README.md). The methodology of the earlier regions fit is in git (`git show main:METHODOLOGY.md`).
+A finite-element model of the collapse of a lung in thoracic surgery, written as the methods section of a paper: what is modelled, the equations, how they are solved, how the parameters are fitted, and what is left out. Results and the evidence behind the choices are in [analysis/results.md](analysis/results.md); the plan in [NEXT.md](NEXT.md); every config key in [configs/README.md](configs/README.md). The methodology of the earlier regions fit is in git (`git show v1_version:METHODOLOGY.md`).
 
 Figures: [workflow](collapsed_lung_project_workflow.svg), [physical model](collapse_model.svg), [forward and inverse problem](inverse_fem_pressure_fit_detail.svg).
 
@@ -312,7 +312,7 @@ These terms are not part of the physical model and are never used in prediction.
 11. *No surgical action.* Instruments, retraction, one-lung ventilation settings and residual airway pressure are outside the model; a residual pressure is absorbed in $p_0$.
 12. *The cavity as the inflated lung.* The reference is the pleural cavity of the pneumothorax scan, not the lung before the pneumothorax. With the pleural pressure lost the chest wall springs outward, the mediastinum shifts to the other side and the hemidiaphragm flattens, so the cavity is larger than the lung that filled it, and shaped differently on its medial and diaphragmatic faces. The collapse % measured against it is an overestimate, and the model must also "collapse away" volume the lung never occupied. The size of this error is unknown and probably grows with the size of the pneumothorax.
 
-**Approaches tried and abandoned** (evidence in analysis/results.md; the code is in git on `main`).
+**Approaches tried and abandoned** (evidence in analysis/results.md; the code is in git on `v1_version`).
 
 | Approach | Why it was left |
 |---|---|

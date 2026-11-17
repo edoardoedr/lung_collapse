@@ -4,7 +4,7 @@ Plan for a new branch (`refactoring_to_v2`; called `physical-model` below) that 
 
 ## Status (2026-11-16)
 
-Done on branch `refactoring_to_v2`, tested on the Mac (`tests/`, numpy core on karl04); on the server only Phase 1 has run.
+Done on branch `refactoring_to_v2` (now `main`), tested on the Mac (`tests/`, numpy core on karl04); on the server only Phase 1 has run.
 
 | Phase | State |
 |---|---|
@@ -17,7 +17,7 @@ Done on branch `refactoring_to_v2`, tested on the Mac (`tests/`, numpy core on k
 
 Differences from the plan: the step names are `geometry`, `collapse`, `fit`; runs go to `output_dir/runs/<run_name>/`; the gravity parameter fitted is the slope s_g = γL (reported as E); the migrated configs keep the old `output_dir`, so the existing setups are reused; `summarize_fits.py` still reads only the old layout (`summarize_runs.py` for the new one); `fit.best_by` defaults to `rms` (to confirm).
 
-Server checks, in this order (from the repository root, branch `refactoring_to_v2`):
+Server checks, in this order (from the repository root, branch `main`):
 
 ```bash
 # 1. wall field into the existing setups (the 4 of Phase 1 have it already; harmless to redo)
@@ -37,7 +37,7 @@ python main.py --config configs/karl04.json --steps collapse \
   --set 'physics.collapse={"volume_ratio": 0.55}' 'physics.gravity={"reference":"supine","collapse":"left_lateral"}' \
         run_name=v2_lateral 2>&1 | tee v2_lateral_karl04.txt
 
-# 5. old regions fit with the new code (no wall setup of main: fit_torch there had ASSD ~2.9 mm median)
+# 5. old regions fit with the new code (no wall setup of v1_version: fit_torch there had ASSD ~2.9 mm median)
 python main.py --config configs/karl04.json --steps fit --set output_dir=/home/jovyan/Dataset_Lungs/HD_dataset/FEM_fit_HD/karl04_noreg_hilum \
   physics.gravity=null 'physics.perturbation={"regions":[1,4,8,14,25,40]}' fit.best_by=mean run_name=v2_regions 2>&1 | tee v2_regions_karl04.txt
 
@@ -73,7 +73,7 @@ Goal of the rewrite: **one config per patient where every physical quantity is a
 - The wall becomes a smooth potential inside Newton (Phase 1 below, first).
 - E common to all patients ≈ 1.7 kPa from the scan (analysis/results.md 5b): the default value, but E must stay fittable.
 - Cores: **torch** (production), **Warp** (kept, maintained alongside torch), **GetFEM** (validation only: what it cannot do, e.g. the potential wall or new materials, it simply refuses; no effort to port features to it).
-- **Only what worked is carried over** to the new code; the experiments that led nowhere or were wrong stay on `main` (list in section 0b).
+- **Only what worked is carried over** to the new code; the experiments that led nowhere or were wrong stay on `v1_version` (list in section 0b).
 - The patient position is an option, and it can differ between the reference CT and the collapse (section 0c).
 
 ## 0b. What to carry over, what not
@@ -138,7 +138,7 @@ volume:   b = γ (e_B − e_A)                    (non-dimensional body force, d
 
 **Rules (from CLAUDE.md):** code, comments and docs in English. Nothing is installed on the Mac; the Mac only has numpy / scipy, so heavy runs happen on the server and you give the user the commands to run there. No commits unless the user asks. Physics or default changes are explained and left to the user. A config key goes in `pipeline/config.py`, `configs/README.md` and, if user-visible, `README.md`.
 
-**Prerequisite:** the current work on `main` (gravity offset, `gravity_prefit`, `gravity_bisect`, `best_by`, docs) is uncommitted. Ask the user to commit it on `main`, then create `physical-model` from it. `main` stays as it is: it is the reference for the regression checks.
+**Prerequisite:** the current work on `v1_version` (gravity offset, `gravity_prefit`, `gravity_bisect`, `best_by`, docs) is uncommitted. Ask the user to commit it on `v1_version`, then create `physical-model` from it. `v1_version` stays as it is: it is the reference for the regression checks.
 
 ## Phase 1: wall as a smooth potential
 
@@ -285,7 +285,7 @@ Target layout (adapt names if needed; keep files small and the solver interface 
 | `pipeline/collapse/run_control.py`, `loss` part of `fit.py` | as now |
 | `pipeline/collapse/solvers/` | unchanged interface (`ForwardSolver`); `potential` wall from Phase 1 |
 
-**Remove on the branch** (they stay in git and on `main`): everything in the "do not carry over" list of section 0b, `registration.py` (elastix), `configs/elastix/`, `configs/archive/`, and `PressureModel` / `gravity_offset` (replaced by `load.py`). `summarize_fits.py` must still read the old `results/` summaries.
+**Remove on the branch** (they stay in git and on `v1_version`): everything in the "do not carry over" list of section 0b, `registration.py` (elastix), `configs/elastix/`, `configs/archive/`, and `PressureModel` / `gravity_offset` (replaced by `load.py`). `summarize_fits.py` must still read the old `results/` summaries.
 
 **Cores:** torch and Warp both get every new feature that lives in `nodal.py` (potential wall, body force). A new material is torch only, unless the user asks for it in Warp too (hand-derived stress and tangent). GetFEM stays as the validation core for what it already does (no wall, outer wall, Jacobian); it refuses the rest with a clear message, and `compare_warp_getfem.py` / `check_jacobian.py` keep working on those cases.
 
@@ -319,14 +319,14 @@ Leave-one-out check (NEXT.md, the first use of this mode): for each patient, q0 
 
 ## Phase 6: regression, configs, docs
 
-**Regression on the server** (old = `main`, new = branch), one patient (karl04), then 3–4 more:
+**Regression on the server** (old = `v1_version`, new = branch), one patient (karl04), then 3–4 more:
 
 | Old run | New config | Must match |
 |---|---|---|
 | `fem_setup` of `karl04_torch.json` | `fem_setup` with gravity null, no wall | `problem.npz` arrays identical (surface, clamp, tets if Gmsh is deterministic; otherwise surface and clamp identical) |
 | `fit_torch` (regions, no wall) | gravity null, q0 fit, `regions` perturbation, no wall | ASSD and errors to 1e-3 mm, same evaluations |
 | `fit_grad_ap_sym` (gradient ap, wall, outer) | gravity null, `gradient: ["ap"]`, wall outer | same |
-| `fit_gE1700` rerun on `main` with `--set fem_fit.gravity_prefit=[] fem_fit.gravity_bisect=0` (no continuation, as the new code) | gravity supine → supine, E 1700, q0 fit, wall outer | same |
+| `fit_gE1700` rerun on `v1_version` with `--set fem_fit.gravity_prefit=[] fem_fit.gravity_bisect=0` (no continuation, as the new code) | gravity supine → supine, E 1700, q0 fit, wall outer | same |
 
 Only after these match, switch the wall to `potential` and compare as in Phase 1.
 

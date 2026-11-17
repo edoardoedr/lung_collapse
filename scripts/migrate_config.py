@@ -1,4 +1,4 @@
-"""Convert a config of the old schema (configs/<p>_wall_torch.json on main: surface_mesh /
+"""Convert a config of the old schema (configs/<p>_wall_torch.json on v1_version: surface_mesh /
 registration / fem_setup / fem_fit sections) to the current one (inputs / geometry / fem_setup /
 physics / solver / fit).
 
@@ -9,7 +9,7 @@ The output keeps output_dir and the file names of the old config, so the geometr
 fem_setup outputs already there are found again (run only the collapse / fit step). The physics
 is the physical model: gravity supine, E from --E, q0 fitted from the old start value, the wall of
 the old config. Numerical settings (solver options, fit stops) are copied; options that no longer
-exist are dropped. Old configs: git show main:configs/<name>.
+exist are dropped. Old configs: git show v1_version:configs/<name>.
 """
 
 import argparse
