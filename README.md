@@ -12,7 +12,8 @@ pressure on the surface / E  =  q0  +  γ (h − h_mean),      γ = density · g
 |---|---|---|
 | E | `physics.E_Pa` | effective stiffness of the lung tissue [Pa] |
 | ν | `physics.material.nu` | compressibility (the lung loses air) |
-| density | `physics.tissue_density` | mean density of the inflated lung [kg/m³] |
+| density | `physics.tissue_density` | mean density of the inflated lung in the model [kg/m³] (nominal 250) |
+| CT density | `physics.ct_density` | the same measured on the CT, report only: E and p0 also given rescaled to it |
 | position | `physics.gravity` | patient position in the inflated CT and during the collapse (sets "up": h) |
 | q0 | `physics.collapse` | uniform pressure / E: it sets how much the lung collapses. Given as `q0`, as `p0_Pa`, or as the `volume_ratio` to reach |
 | wall | `fem_setup.wall`, `physics.wall` | the chest cavity the lung may not leave |
@@ -69,6 +70,8 @@ python main.py --config configs/karl04.json --steps collapse \
     --set 'physics.collapse={"volume_ratio": 0.5}' 'physics.gravity={"reference": "supine", "collapse": "left_lateral"}' \
           collapse.sequence_frames=30 run_name=half_lateral
 ```
+
+Prediction from the collapse % alone (E from the cohort rule, q0 from the volume): `python main.py --config configs/karl04.json --steps collapse --set 'physics.collapse={"volume_ratio": 0.5}' 'physics.E_Pa={"rule": "collapse"}' run_name=pred`; for every patient at its own collapse %: `python scripts/predict_cohort.py --configs configs/*.json`.
 
 Several patients: `JOBS=4 bash scripts/run_all.sh [case ...] [-- main.py arguments]` (logs in `logs_run_all/`). One parameter shared by all patients, scanned over values: `python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000`. A table of all runs: `python scripts/summarize_runs.py <results folder>`.
 

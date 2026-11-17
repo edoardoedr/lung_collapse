@@ -15,7 +15,8 @@ import statistics
 import sys
 from pathlib import Path
 
-COLS = ("patient", "case", "run", "kind", "E_Pa", "p0_Pa", "q0", "nu", "gravity_slope", "fitted", "collapse_percent",
+COLS = ("patient", "case", "run", "kind", "E_Pa", "p0_Pa", "q0", "nu", "gravity_slope", "fitted", "E_rule",
+        "ct_density_kg_m3", "E_Pa_ct", "p0_Pa_ct", "collapse_percent",
         "target_collapse_percent", "assd_mm", "baseline_assd_mm", "mean_err_mm", "target_to_fitted_mm", "max_err_mm",
         "rigid_rotation_deg", "wall_max_penetration_mm", "wall_field_max_penetration_mm", "evals", "failed_solves",
         "elapsed_min", "stop_reason", "fail_maxit", "fail_time", "fail_unsettled")
@@ -29,6 +30,8 @@ def row(path):
     r = dict(patient=s.get("patient"), case=path.parents[2].name, run=path.parent.name, kind=s.get("kind"),
              E_Pa=ph["E_Pa"], p0_Pa=ph["p0_Pa"], q0=ph["q0"], nu=ph["nu"], gravity_slope=g.get("slope_pE"),
              fitted="+".join(ph.get("fitted", [])), evals=s.get("evals", s.get("solves")),
+             E_rule="collapse" if ph.get("E_rule") else None, ct_density_kg_m3=ph.get("ct_density_kg_m3"),
+             E_Pa_ct=ph.get("E_Pa_ct"), p0_Pa_ct=ph.get("p0_Pa_ct"),
              target_collapse_percent=100 * (1 - s["target_volume_ratio"]) if "target_volume_ratio" in s else None)
     for k in COLS:
         if k not in r:
@@ -54,7 +57,8 @@ def main():
     if not rows:
         sys.exit("no runs/<run_name>/summary.json found")
     rows.sort(key=lambda r: (r["run"], r["patient"] or ""))
-    show = ("patient", "run", "E_Pa", "p0_Pa", "q0", "collapse_percent", "target_collapse_percent", "assd_mm",
+    show = ("patient", "run", "E_Pa", "p0_Pa", "q0", "ct_density_kg_m3", "E_Pa_ct", "p0_Pa_ct", "collapse_percent",
+            "target_collapse_percent", "assd_mm",
             "evals", "failed_solves", "elapsed_min", "wall_max_penetration_mm", "fitted")
     fmt = lambda v: "-" if v is None else ("%.3g" % v if isinstance(v, float) else str(v))   # noqa: E731
     print(" | ".join(show))

@@ -75,7 +75,7 @@ def test_load_model():
     d = m.describe(lv, x)
     assert abs(d["E_Pa"] - E) < 1e-9 and abs(d["p0_Pa"] - 0.4 * E) < 1e-9 and d["gravity"]["body_force"]
     x0 = lv.x0_from(m.start_q_tri(), 0.4, m.area)
-    assert np.allclose(x0, [0.5, m.slope_of_E(1700.0)])
+    assert np.allclose(x0, [0.3, m.slope_of_E(1700.0)])   # default q0 start 0.3
     return "E of slope 0.3: %.0f Pa; resultant = weight along the collapse position" % E
 
 
@@ -95,6 +95,23 @@ def test_forward_volume_ratio():
     assert s["assd_mm"] > 0 and s["wall_field_max_penetration_mm"] < 0.5
     return ("volume 80 %% at q0 %.4f in %d solves (p0 %.0f Pa at E %.0f), ASSD vs the real collapsed lung %.2f mm"
             % (q0, s["solves"], s["physics"]["p0_Pa"], s["physics"]["E_Pa"], s["assd_mm"]))
+
+
+def test_forward_E_rule():
+    """E from the collapse % (physics.E_Pa {"rule": "collapse"}) and the CT density in the summary."""
+    cfg = config(['physics.collapse={"volume_ratio":0.8}', 'physics.E_Pa={"rule":"collapse"}',
+                  "physics.ct_density=125", "run_name=rule"])
+    if cfg is None:
+        return "skipped"
+    from pipeline.config import E_RULE_A, E_RULE_B
+    E = 10 ** (E_RULE_A + E_RULE_B * 20.0)
+    assert abs(cfg.physics.E_Pa.value - E) < 1e-6 * E
+    forward.run(cfg)
+    ph = summary(cfg)["physics"]
+    assert abs(ph["E_Pa"] - E) < 1e-6 * E and abs(ph["E_rule"]["collapse_percent"] - 20.0) < 1e-9
+    assert abs(ph["E_Pa_ct"] - E * 125 / 250) < 1e-6 * E and abs(ph["p0_Pa_ct"] - ph["q0"] * ph["E_Pa_ct"]) < 1e-6
+    return "E %.0f Pa at 20 %% collapse; with the CT density 125 kg/m3: E %.0f, p0 %.0f Pa" % (
+        E, ph["E_Pa_ct"], ph["p0_Pa_ct"])
 
 
 def test_fit_recovers_parameters():

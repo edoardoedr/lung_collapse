@@ -255,6 +255,21 @@ The CTs (`Input_CT/<p>.nii[.gz]`, one per patient, with the pneumothorax) are no
 - **Does the measured ρ̄ help predict the load?** Prediction setting (user, 2026-11-17): inputs = inflated lung, collapse %, ρ̄; q0 from the volume, the gravity slope s_g = ρ̄ g L / E from a rule. Leave-one-out on the 12 `fitE_nu30` patients with E in bounds, error of the predicted log₁₀ s_g: rule E(collapse %) with ρ̄ = 250 for all rms 0.18 (×1.5); s_g(collapse %) 0.20; s_g(collapse %, ρ̄) 0.20 (coefficient of log ρ̄ −0.5, physics says +1); E(collapse %) with the measured ρ̄ 0.27 (×1.8), worse; no rule (constant s_g) 0.34 (×2.2). **The measured density makes the prediction worse**: the needed slope depends on the collapse %, not on the weight. log₁₀ s_g = −0.96 + 0.0141 × collapse % (0.25 at 25 %, 0.55 at 50 %).
 - **Use:** the shape fits do not change (only ρ̄ / E matters); the measured ρ̄ rescales the reported E and p0 = q0 E per patient, with ~±25 % uncertainty.
 
+### 5f. Leave-one-out prediction from the collapse % (± the CT density) (2026-11-17)
+
+`scripts/leave_one_out.py --fit-run fitE_nu30 --rule E | E_rho | sg_rho` (runs `loo`, `loo_rho`, `loo_sgrho`). Prediction setting: inputs = inflated lung, collapse %, optionally ρ̄ from the CT (5e); ν 0.30; q0 from the volume (forward `volume_ratio`, collapse reached within 0.5 points everywhere); the gravity slope from a rule fitted on the other patients (12 with E in bounds). ASSD of the prediction minus ASSD of the patient's own `fitE_nu30`, mm:
+
+| Rule | inputs | slope error | median | mean | max | failed |
+|---|---|---|---|---|---|---|
+| `E`: E(collapse %), ρ̄ = 250 | collapse % | ×1.52 | +0.20 | +0.26 | +0.90 (karl02) | 0 |
+| `E_rho`: material E(collapse %), weight from the measured ρ̄ | collapse %, ρ̄ | ×1.84 | +0.10 | +0.43 (11) | +1.99 (karl02) | patient_2 (E 59 Pa, slope 4.6) |
+| `sg_rho`: slope(collapse %, log ρ̄) | collapse %, ρ̄ | ×1.60 | +0.09 | +0.19 | +0.66 (karl24) | 0 |
+
+- **The prediction from the collapse % alone costs ~0.2 mm** against the patient's own fit (median 6.42 vs 6.22 mm, mean 7.32 vs 7.06): the error is the model's (5–12 mm), not the rule's. A ×1.5–2 error in the slope moves the shape by less than 1 mm on these 12.
+- **The measured density does not help.** As a physical weight (`E_rho`) it is the worst (mean +0.43, karl02 +2.0 mm, patient_2 does not converge); as a free predictor (`sg_rho`) it gains 0.07 mm on the mean over `E`, not significant on 12 patients, with an unphysical sign (denser → smaller slope).
+- **The three patients with E at a bound** (not in the rule) cost +1.8 to +5.6 mm with every rule: karl10 and karl18 (fit with no gradient) and karl23 (fit with the strongest gradient). That is where the model needs something else (5c, 5e).
+- Decision proposed: the rule `E` (collapse % only, ν 0.30, ρ̄ 250 as a nominal value), log₁₀ E = a + b × collapse % on all 12; ρ̄ from the CT only to report E and p0 in physical units.
+
 ## 6. Wall and tangential support
 
 **Medians over 14 patients** (patient_2 excluded from the wall runs):

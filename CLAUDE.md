@@ -56,6 +56,7 @@ python scripts/summarize_runs.py <results folder> [--runs fit E1000] [--out anal
 python scripts/leave_one_out.py --configs configs/*.json [--fit-run fitE] [--run loo] [--jobs 4] [--frames 30] [--collect]   # E from the others' E(collapse %), forward to the own collapse %
 python scripts/cavity_volumes.py --configs configs/*.json [--fit-run fitE_nu30] [--out analysis/cavity.csv]   # cavity vs contralateral lung volume, trachea shift, vs fitted E (server)
 python scripts/ct_density.py [--fit-run fitE_nu30] [--out analysis/ct_density.csv]   # lung mass / density from the CT (Input_CT/), Mac env lungct
+python scripts/predict_cohort.py --configs configs/*.json [--run pred] [--frames 30] [--jobs 4]   # prediction from the collapse % (E rule) for every patient
 python scripts/add_wall_field.py --config configs/<p>.json [--grid 1.5] [--smoothing 3]   # wall field into an existing problem.npz
 python scripts/init_output_dir.py --configs configs/*.json [--apply]   # new output_dir <- setup + v2 runs of the old one (dry run without --apply)
 python scripts/check_jacobian.py --config configs/<p>.json [--set ...] [--solver getfem] [--options '{...}']
@@ -127,6 +128,7 @@ Not obvious from the code; the reasons and numbers are in analysis/results.md.
 - **Wall `potential`:** `problem.npz` holds `wall_grid` / `wall_origin` / `wall_spacing` / `wall_smoothing_mm` / `wall_field_allow`. A Newton trial with a surface point outside the grid is rejected like an inverted element (`fail_inverted`). The cores' own (linearised) wall term is skipped (`_assemble(..., wall=False)`). The margin is measured with the smoothed field, so against the exact wall the points go ~2.5 mm beyond it (summary: `wall_max_penetration_mm` exact, `wall_field_max_penetration_mm` smoothed).
 - **Wall `outer`:** unsettled after `wall_max_updates` = failure; a settled state keeps the linearisation it was solved with (Jacobian too, Gauss-Newton); states loaded from a file have none and re-linearise.
 - `Loss`: the forward plane term is only Gauss-Newton on a triangulated target (interpolated vertex normal ≠ distance gradient); the symmetric term's gradient is exact.
+- **E rule** (`physics.E_Pa {"rule": "collapse"}`): resolved in `config._physics` into a fixed E from `collapse.volume_ratio` (`E_RULE_A`, `E_RULE_B`), recorded as `physics.E_rule`; `describe` reports it. `physics.ct_density` is report only (`E_Pa_ct`, `p0_Pa_ct` in the summary).
 - `forward.find_q0`: first guess `(1 − ratio) · K/E`, extrapolation at most ×2 until bracketed, then secant kept 10 % away from the bracket ends; a failed solve halves the step from the last good q0.
 - Summary keys (`runs/<run>/summary.json`): `physics` (E_Pa, q0, p0_Pa, nu, gravity {positions, extent_mm, slope_pE, gamma_pE_per_mm, body_force}, fitted), `volume_ratio`, `collapse_percent`, `assd_mm`, `mean_err_mm`, `mean_normal_err_mm`, `target_to_fitted_mm`, `target_volume_ratio`, `rigid_rotation_deg`, wall penetrations, `solver_stats`; fit: `stop_reason`, `levels`, `evals`, `failed_solves`, `parameters`; forward: `solves`, `volume_search`.
 

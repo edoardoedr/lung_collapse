@@ -35,6 +35,8 @@ def as_triangles(mesh):
     f.PassLinesOff()
     f.Update()
     tri = pv.wrap(f.GetOutput())
+    if tri.n_lines or tri.n_verts:      # PassLinesOff still lets through the lines that clean() made of
+        tri = pv.PolyData(tri.points, faces=tri.faces)   # degenerate triangles (karl19): keep the polygons
     if not tri.is_all_triangles:
         raise ValueError("triangulation left non-triangle cells")
     return tri

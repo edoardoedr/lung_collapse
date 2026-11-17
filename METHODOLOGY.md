@@ -218,6 +218,14 @@ $$
 
 $V$ decreases monotonically with $q_0$, so $q_0(r)$ is found by a one-dimensional search: first guess from the hydrostatic response, $q_0 = (1 - r)\,K/E$; extrapolation by at most a factor 2 until the target is bracketed; then secant steps kept inside the bracket; each solve starts from the previous state. Three to six solves give $r$ within 0.5 %.
 
+**Prediction rule.** For a new lung the only input is the collapse % (the volume ratio $r$). $\nu$ = 0.30 is fixed; $q_0$ follows from $r$ as above; the gravity slope, i.e. $E$ at the nominal $\bar\rho$ = 250 kg/m³, from a rule fitted on the patients' inverse fits (E and $q_0$ fitted, 12 patients with $E$ inside its bounds):
+
+$$
+\log_{10} E\,[\text{Pa}] = 3.630 - 0.01346 \times \text{collapse \%} ,
+$$
+
+about 2.0 kPa at 25 % and 0.9 kPa at 50 % ($r$ = −0.87, residual 0.16 in $\log_{10} E$). In leave-one-out the predicted shape is 0.2 mm (median) worse than the patient's own fit; the density measured on the CT does not improve it (analysis/results.md 5e–5f), so it is used only to report $E$ and $p_0$ in physical units.
+
 A collapse sequence is obtained by solving at $\lambda = 0 \ldots 1$ of the final load: the intermediate shapes are equilibria of the proportional load, not a linear morph.
 
 ## 6. Inverse problem

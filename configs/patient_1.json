@@ -84,6 +84,7 @@
     },
     "E_Pa": 1700.0,
     "tissue_density": 250.0,
+    "ct_density": 113.8,
     "gravity": {
       "reference": "supine",
       "collapse": "supine"

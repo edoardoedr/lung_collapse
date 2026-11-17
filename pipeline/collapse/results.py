@@ -113,6 +113,13 @@ def write_run(cfg, problem, solver, state, kind, extra=None):
     log.info("physics: E %.0f Pa, p0 %.0f Pa (q0 %.3f), nu %.3f%s; fitted: %s", E, ph["p0_Pa"], ph["q0"], ph["nu"],
              ", gravity %s -> %s: slope %.3f p/E over %.0f mm" % (*g["positions"], g["slope_pE"], g["extent_mm"])
              if g else ", no gravity", ", ".join(ph["fitted"]) or "nothing")
+    if ph.get("E_rule"):
+        r = ph["E_rule"]
+        log.info("E from the collapse %%: log10 E = %.4f %+.6f x %.1f %% -> %.0f Pa", r["a"], r["b"],
+                 r["collapse_percent"], E)
+    if ph.get("ct_density_kg_m3"):
+        log.info("with the CT density %.0f kg/m3 (model %.0f): E %.0f Pa, p0 %.0f Pa", ph["ct_density_kg_m3"],
+                 ph["tissue_density_kg_m3"], ph["E_Pa_ct"], ph["p0_Pa_ct"])
     log.info("collapsed to %.1f %% of the inflated volume (collapse %.1f %%); rigid part %.1f deg / %.1f mm",
              100 * res["volume_ratio"], res["collapse_percent"], res["rigid_rotation_deg"], res["rigid_shift_mm"])
     if problem.has_target:

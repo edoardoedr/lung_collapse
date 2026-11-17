@@ -11,7 +11,9 @@ import numpy as np
 import stubs
 from pipeline.collapse.problem import CollapseProblem
 
-SETUP = stubs.ROOT / "results/karl04_noreg_hilum_wall/fem/setup/problem.npz"
+SETUP = next((f for f in (stubs.ROOT / "results/karl04_noreg_hilum_wall/fem/setup/problem.npz",   # old layout
+                          stubs.ROOT / "results/karl04/fem/setup/problem.npz") if f.is_file()),
+             stubs.ROOT / "results/karl04/fem/setup/problem.npz")
 CACHE = stubs.ROOT / "tests/.cache/karl04_wall_grid.npz"
 SPACING, MARGIN, SMOOTH, TOL = 4.0, 16.0, 3.0, 5.0
 OPTS = dict(wall_update="potential", adaptive_steps=True, warm_substeps=True, newton_tol=1e-9)

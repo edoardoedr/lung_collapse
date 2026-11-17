@@ -281,6 +281,11 @@ class LoadModel:
         out = dict(E_Pa=float(E), q0=q0, p0_Pa=q0 * E, nu=level.nu(x), tissue_density_kg_m3=ph.tissue_density,
                    fitted=[n for n in level.names if not n.startswith("region")] + (["regions"] if level.kind == "regions" else []),
                    pE_min=float(q.min()), pE_max=float(q.max()), material=ph.material)
+        if ph.E_rule is not None:
+            out["E_rule"] = dict(ph.E_rule)
+        if ph.ct_density is not None:                            # only density / E is identified: rescale
+            out.update(ct_density_kg_m3=ph.ct_density, E_Pa_ct=float(E) * ph.ct_density / ph.tissue_density)
+            out["p0_Pa_ct"] = q0 * out["E_Pa_ct"]
         if ph.gravity is not None:
             s = vals.get("gravity_slope", self.slope_of_E(ph.E_Pa.value))
             out["gravity"] = dict(reference=list(ph.gravity["reference"]), collapse=list(ph.gravity["collapse"]),

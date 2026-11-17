@@ -169,7 +169,10 @@ class PhysicsConfig:
     material_params: dict = field(default_factory=dict)
     nu: Param = None                   # Poisson's ratio
     E_Pa: Param = None                 # effective Young's modulus of the parenchyma [Pa]
-    tissue_density: float = 250.0      # mean density of the inflated lung [kg/m3] (assumed: no CT HU)
+    tissue_density: float = 250.0      # mean density of the inflated lung in the model [kg/m3] (nominal)
+    ct_density: float | None = None    # the same measured on the patient's CT [kg/m3] (scripts/ct_density.py):
+                                       # report only, E and p0 rescaled to it (only density / E is identified)
+    E_rule: dict | None = None         # E from the collapse % (E_Pa {"rule": "collapse"}): {a, b, collapse_percent}
     gravity: dict | None = None        # None = no gravity term, else {"reference": e_A, "collapse": e_B,
                                        # "names": (..)}: unit vectors of gravity in LPS
     q0: Param | None = None            # uniform p/E (the released recoil pressure / E)
@@ -216,16 +219,39 @@ def _clean(raw, name, known):
     return raw
 
 
+# E from the collapse % (prediction rule, analysis/results.md 5f): log10 E = a + b * collapse %, fitted on
+# the fitE_nu30 runs of the 12 patients with E inside its bounds (2026-11-17; nu 0.30, tissue_density 250,
+# r -0.87, residual sd 0.16 in log10 E, collapse 23-86 %).
+E_RULE_A, E_RULE_B = 3.6301, -0.013455
+
+
+def _E_rule(raw, volume_ratio):
+    """physics.E_Pa {"rule": "collapse", "a": .., "b": ..} -> (E, record); needs collapse.volume_ratio."""
+    r = _clean(raw, "physics.E_Pa", ("rule", "a", "b"))
+    if r.get("rule") != "collapse":
+        raise ValueError('physics.E_Pa: {"rule": "collapse"} is the only rule')
+    if volume_ratio is None:
+        raise ValueError('physics.E_Pa {"rule": "collapse"} needs physics.collapse.volume_ratio (the collapse %)')
+    a, b = float(r.get("a", E_RULE_A)), float(r.get("b", E_RULE_B))
+    c = 100.0 * (1.0 - volume_ratio)
+    return 10.0 ** (a + b * c), dict(rule="collapse", a=a, b=b, collapse_percent=c)
+
+
 def _physics(raw):
-    raw = _clean(raw, "physics", ("material", "E_Pa", "tissue_density", "gravity", "collapse", "wall", "perturbation"))
+    raw = _clean(raw, "physics", ("material", "E_Pa", "tissue_density", "ct_density", "gravity", "collapse", "wall",
+                                  "perturbation"))
     p = PhysicsConfig()
     mat = _clean(raw.get("material", {}), "physics.material", ("name", "nu", "params"))
     p.material, p.material_params = mat.get("name", "neo_hookean"), dict(mat.get("params", {}))
     p.nu = Param.parse("physics.material.nu", mat.get("nu", 0.30), (0.05, 0.45))
-    p.E_Pa = Param.parse("physics.E_Pa", raw.get("E_Pa", 1700.0), (300.0, 10000.0))
+    E_raw = raw.get("E_Pa", 1700.0)
+    if not (isinstance(E_raw, dict) and "rule" in E_raw):
+        p.E_Pa = Param.parse("physics.E_Pa", E_raw, (300.0, 10000.0))
     p.tissue_density = float(raw.get("tissue_density", 250.0))
-    if p.E_Pa.value <= 0 or p.tissue_density <= 0 or not 0.0 < p.nu.value < 0.5:
-        raise ValueError("physics: E_Pa and tissue_density must be > 0, nu in (0, 0.5)")
+    if raw.get("ct_density") is not None:
+        p.ct_density = float(raw["ct_density"])
+        if p.ct_density <= 0:
+            raise ValueError("physics.ct_density must be > 0 [kg/m3]")
     g = raw.get("gravity", "supine")
     if g is not None:
         if not isinstance(g, dict):
@@ -248,6 +274,11 @@ def _physics(raw):
         p.volume_ratio = float(c["volume_ratio"])
         if not 0.0 < p.volume_ratio <= 1.0:
             raise ValueError("physics.collapse.volume_ratio: V_collapsed / V_inflated in (0, 1]")
+    if p.E_Pa is None:                                          # E from the collapse % (needs volume_ratio)
+        E, p.E_rule = _E_rule(E_raw, p.volume_ratio)
+        p.E_Pa = Param("physics.E_Pa", E, False, (300.0, 10000.0))
+    if p.E_Pa.value <= 0 or p.tissue_density <= 0 or not 0.0 < p.nu.value < 0.5:
+        raise ValueError("physics: E_Pa and tissue_density must be > 0, nu in (0, 0.5)")
     w = _clean(raw.get("wall", {}), "physics.wall", ("stiffness", "eps"))
     p.wall_stiffness, p.wall_eps = float(w.get("stiffness", 20.0)), float(w.get("eps", 0.5))
     pert = raw.get("perturbation")
