@@ -56,6 +56,7 @@ python scripts/summarize_runs.py <results folder> [--runs fit E1000] [--out anal
 python scripts/leave_one_out.py --configs configs/*.json [--fit-run fitE] [--run loo] [--jobs 4] [--frames 30] [--collect]   # E from the others' E(collapse %), forward to the own collapse %
 python scripts/cavity_volumes.py --configs configs/*.json [--fit-run fitE_nu30] [--out analysis/cavity.csv]   # cavity vs contralateral lung volume, trachea shift, vs fitted E (server)
 python scripts/ct_density.py [--fit-run fitE_nu30] [--out analysis/ct_density.csv]   # lung mass / density from the CT (Input_CT/), Mac env lungct
+python scripts/ct_density.py --config configs/<p>.json --ct <file> [--write-config]   # one patient; without a collapsed lung: mean density of the inflated lung (air from the trachea)
 python scripts/predict_cohort.py --configs configs/*.json [--run pred] [--frames 30] [--jobs 4]   # prediction from the collapse % (E rule) for every patient
 python scripts/add_wall_field.py --config configs/<p>.json [--grid 1.5] [--smoothing 3]   # wall field into an existing problem.npz
 python scripts/init_output_dir.py --configs configs/*.json [--apply]   # new output_dir <- setup + v2 runs of the old one (dry run without --apply)

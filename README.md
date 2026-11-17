@@ -71,6 +71,8 @@ python main.py --config configs/karl04.json --steps collapse \
           collapse.sequence_frames=30 run_name=half_lateral
 ```
 
+**A new patient (prediction, no collapsed lung):** export from 3D Slicer the inflated lung and the airway, artery and vein trees as `.vtk`; copy `configs/templates/new_patient.json` to `configs/<patient>.json`, set `patient`, `data_dir`, `output_dir`, the file names and `physics.collapse.volume_ratio`; optionally the density from the CT, `python scripts/ct_density.py --config configs/<patient>.json --ct <ct.nii.gz> --write-config` (report only: E and p0 also at that density); run `python main.py --config configs/<patient>.json` (geometry → hilum → fem_setup → collapse, with the Slicer sequence in `output_dir/runs/pred/sequence/`). Another collapse % on the same setup: `--steps collapse --set 'physics.collapse={"volume_ratio": 0.6}' run_name=pred40`.
+
 Prediction from the collapse % alone (E from the cohort rule, q0 from the volume): `python main.py --config configs/karl04.json --steps collapse --set 'physics.collapse={"volume_ratio": 0.5}' 'physics.E_Pa={"rule": "collapse"}' run_name=pred`; for every patient at its own collapse %: `python scripts/predict_cohort.py --configs configs/*.json`.
 
 Several patients: `JOBS=4 bash scripts/run_all.sh [case ...] [-- main.py arguments]` (logs in `logs_run_all/`). One parameter shared by all patients, scanned over values: `python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000`. A table of all runs: `python scripts/summarize_runs.py <results folder>`.

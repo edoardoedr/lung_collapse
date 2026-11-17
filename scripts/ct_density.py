@@ -20,6 +20,15 @@ Also the density of the collapsed lung by thirds of height (anterior,
 middle, posterior: the gravity axis of a supine patient), and, with --fit-run, E rescaled to the
 measured density: E_rho = E_fit * rho_bar / tissue_density of the fit (only rho_bar / E is fitted).
 
+One patient from its config (also a new patient, CT of the INFLATED lung, no collapsed lung):
+
+    python scripts/ct_density.py --config configs/<p>.json --ct <ct file> [--write-config]
+
+With a collapsed lung in the config: as above. Without: rho_bar = the mean density inside the
+inflated lung, rho(HU) calibrated on the air in the trachea (top 30 mm of the airway tree, eroded
+by 2 mm; -1000 HU if there is no airway surface). --write-config sets physics.ct_density
+[kg/m3] in the config (report only: E and p0 are then also given at this density).
+
 Needs SimpleITK and VTK (Mac env `lungct`, or the server). Images: <ct-dir>/<patient>.nii[.gz] (or
 .nrrd / .mha), read in LPS like the surfaces.
 """
@@ -119,6 +128,73 @@ def analyse(p, ct, surf_dir):
                 rho_ant=thirds[0], rho_mid=thirds[1], rho_post=thirds[2]), None
 
 
+def analyse_inflated(p, ct, inflated, airways=None):
+    """rho_bar of an inflated lung = its mean density on the CT (no pneumothorax)."""
+    import SimpleITK as sitk
+    from scipy.ndimage import binary_erosion
+    img = sitk.ReadImage(str(ct))
+    a = sitk.GetArrayViewFromImage(img)
+    vox = float(np.prod(img.GetSpacing())) / 1000.0
+    lung = mask_from_surface(read_surface(inflated), img)
+    if not lung.any():
+        return None, "surface outside the image"
+    hu_air, air_src = -1000.0, "nominal"
+    if airways is not None and Path(airways).is_file():
+        aw = mask_from_surface(read_surface(airways), img)
+        if aw.any():
+            D = np.array(img.GetDirection()).reshape(3, 3)
+            zz, yy, xx = np.nonzero(aw)
+            z_lps = (np.array([xx, yy, zz]).T * np.array(img.GetSpacing())) @ D.T[:, 2] + img.GetOrigin()[2]
+            top = np.zeros_like(aw)
+            sel = z_lps > z_lps.max() - 30.0                           # trachea
+            top[zz[sel], yy[sel], xx[sel]] = True
+            core = binary_erosion(top, iterations=max(1, int(round(2.0 / min(img.GetSpacing())))))
+            if core.sum() > 200:
+                hu_air, air_src = float(np.median(a[core])), "trachea"
+    h = a[lung].astype(np.float32)
+    rho = np.clip((h - hu_air) / (0.0 - hu_air), 0.0, 1.1)
+    V = lung.sum() * vox
+    return dict(patient=p, mode="inflated", V_inflated_mL=V, hu_air=hu_air, hu_air_source=air_src,
+                hu_lung_mean=float(h.mean()), hu_lung_median=float(np.median(h)), mass_g=float(rho.sum() * vox),
+                rho_bar_inflated=float(rho.mean())), None
+
+
+def one_config(args):
+    """--config mode: one patient, from its config; optionally writes physics.ct_density."""
+    from pipeline.config import load_config
+    cfg = load_config(args.config)
+    ct = Path(args.ct) if args.ct else find_ct(Path(args.ct_dir), cfg.patient)
+    if ct is None or not ct.is_file():
+        sys.exit("no CT: give --ct <file>")
+    if cfg.collapsed is not None and cfg.collapsed.is_file():
+        r, why = analyse(cfg.patient, ct, cfg.data_dir)
+    else:
+        r, why = analyse_inflated(cfg.patient, ct, cfg.inflated, cfg.structures.get("airways"))
+    if r is None:
+        sys.exit("%s: %s" % (cfg.patient, why))
+    rho = 1000.0 * r["rho_bar_inflated"]
+    if r.get("mode") == "inflated":
+        print("%s (inflated lung): volume %.0f mL, lung %.0f HU (median %.0f), air %.0f HU (%s), mass %.0f g -> "
+              "rho_bar %.1f kg/m3" % (cfg.patient, r["V_inflated_mL"], r["hu_lung_mean"], r["hu_lung_median"],
+                                      r["hu_air"], r["hu_air_source"], r["mass_g"], rho))
+    else:
+        print("%s (cavity + collapsed lung): mass %.0f g / cavity %.0f mL -> rho_bar %.1f kg/m3" % (
+            cfg.patient, r["mass_g"], r["V_cavity_mL"], rho))
+    if args.write_config:
+        raw = json.loads(Path(args.config).read_text())
+        ph = {}
+        for k, v in raw["physics"].items():
+            if k == "ct_density":
+                continue
+            ph[k] = v
+            if k == "tissue_density":
+                ph["ct_density"] = round(rho, 1)
+        ph.setdefault("ct_density", round(rho, 1))
+        raw["physics"] = ph
+        Path(args.config).write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
+        print("physics.ct_density = %.1f written to %s" % (rho, args.config))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ct-dir", default=str(ROOT / "Input_CT"))
@@ -127,7 +203,12 @@ def main():
     ap.add_argument("--fit-run", default=None)
     ap.add_argument("--patients", nargs="*")
     ap.add_argument("--out")
+    ap.add_argument("--config", help="one patient from its config (also without a collapsed lung)")
+    ap.add_argument("--ct", help="--config mode: the CT file (default <ct-dir>/<patient>.nii[.gz])")
+    ap.add_argument("--write-config", action="store_true", help="--config mode: set physics.ct_density in it")
     args = ap.parse_args()
+    if args.config:
+        return one_config(args)
     ct_dir, data_dir = Path(args.ct_dir), Path(args.data_dir)
     pats = args.patients or sorted(d.name for d in data_dir.iterdir() if d.is_dir())
     rows = []
