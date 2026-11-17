@@ -1,7 +1,7 @@
 import math
 from common import *
 
-W, H = 760, 836
+W, H = 760, 876
 LUNG, LUNG_S = "#f6ddd5", "#993c1d"
 BL = "#185fa5"
 o = [header(W, H, "Physical model of the lung collapse",
@@ -52,7 +52,8 @@ o.append(text(cx + 22, cy, sub("stress-free reference Ω_0"), "s", LUNG_S))
 o.append(text(cx + 22, cy + 16, "density ρ̄, stiffness E, ν", "s", LUNG_S))
 o.append(text(30, 62, "pleural under-pressure, larger at the top:", "l", BL))
 o.append(text(30, 77, sub("p_{atm} − p_{pl} = p_0 + ρ̄g (h − h̄)"), "m", BL))
-o.append(text(30, 330, "its gradient ρ̄g carries the weight of the lung (Archimedes)", "l"))
+o.append(text(30, 314, "its gradient ρ̄g ≈ 2 Pa/mm carries the weight (Archimedes):", "l"))
+o.append(text(30, 333, sub("−∮ p_{pl} n dA = ρ̄ g V e_h,   e_h = −e_A"), "m"))
 # gravity and height axis
 gx = 350
 o.append(arrow(gx, 150, gx, 250, "ag", "a", ' style="stroke:#993c1d;stroke-width:2"'))
@@ -72,6 +73,8 @@ ccx, ccy, crx, cry = cx2 - 34, cy + 27, 76, 56
 o.append('<ellipse cx="%g" cy="%g" rx="%g" ry="%g" fill="%s" stroke="%s" stroke-width="1.2"/>' % (ccx, ccy, crx, cry, LUNG, LUNG_S))
 o.append('<path d="%s" fill="none" stroke="#444441" stroke-width="5" stroke-linecap="round"/>' % arc(cx2, cy, RX, RY, 158, 202))
 o.append(text(ccx + 4, ccy - 8, "collapsed lung", "s", LUNG_S))
+o.append(text(398, 252, "hilum", "l", "#444441"))
+o.append(text(398, 267, "u = 0", "m", "#444441"))
 o.append(text(ccx + 4, ccy + 9, "x = X + u", "m", LUNG_S, "middle"))
 for deg in range(-54, 136, 27):                                  # inward load, larger at the top
     x, y = ellipse_pt(cx2, cy, RX, RY, deg)
@@ -87,7 +90,8 @@ for deg in (-122, -110, -98):
 o.append(text(400, 62, "load = the pleural pressure that is lost, on the free surface:", "l", BL))
 o.append(text(400, 77, sub("Δp(X) = p_0 + ρ̄g (h(X) − h̄)"), "m", BL))
 o.append(text(400, 315, "chest wall (dashed): margin A, rigid, frictionless;", "l", "#854f0b"))
-o.append(text(400, 330, "it now carries the weight", "l", "#854f0b"))
+o.append(text(400, 330, "solid brown: contact, the wall now carries the weight", "l", "#854f0b"))
+o.append(text(562, 296, "contact", "l", "#854f0b"))
 o.append(text(cx2 + 62, cy - 34, "air at p_atm".replace("p_atm", sub("p_{atm}")), "s", "#5f5e5a"))
 
 # ---------------- equation ----------------
@@ -128,16 +132,17 @@ o.append(text(532, 564, sub("b = ρ̄ g (e_B − e_A)"), "m", "#993c1d"))
 o.append(text(532, 582, sub("resultant = weight along e_B"), "l"))
 
 # ---------------- D: parameters ----------------
-o.append('<rect x="20" y="620" width="720" height="202" rx="12" class="grp"/>')
+o.append('<rect x="20" y="620" width="720" height="242" rx="12" class="grp"/>')
 o.append(text(34, 638, "Parameters: each one given (a number) or fitted to the collapsed CT", "h", "#444441"))
-cols = (34, 122, 430, 612)
+cols = (34, 110, 392, 566)
 for x, t in zip(cols, ("symbol", "meaning", "config key", "default")):
     o.append(text(x, 660, t, "l", "#444441", None, ' style="font-weight:600"'))
 o.append('<line x1="34" y1="670" x2="726" y2="670" stroke="#b4b2ab" stroke-width="0.8"/>')
-rows = [(sub("q_0 = p_0 / E"), "uniform pressure released: sets the collapse %", "physics.collapse", "q0 fitted"),
-        ("E", "effective stiffness of the lung tissue", "physics.E_Pa", "1700 Pa"),
-        ("ν", "compressibility (the lung loses air)", "physics.material.nu", "0.40"),
-        ("ρ̄", "mean density of the inflated lung", "physics.tissue_density", "250 kg/m³"),
+rows = [(sub("q_0 = p_0 / E"), "uniform pressure released: sets the collapse %", "physics.collapse", "fitted, start 0.3"),
+        ("E", "effective stiffness of the lung tissue", "physics.E_Pa", "1360 Pa, or E(collapse %)"),
+        ("ν", "compressibility (the lung loses air)", "physics.material.nu", "0.30"),
+        ("ρ̄", "mean density of the inflated lung (model)", "physics.tissue_density", "200 kg/m³ (ρ̄g 1.96 Pa/mm)"),
+        (sub("ρ̄_{CT}"), "the same measured on the CT (report only)", "physics.ct_density", "per patient, median 163 kg/m³"),
         (sub("e_A, e_B"), "patient position: reference CT, collapse", "physics.gravity", "supine, supine"),
         ("A, σ", "chest wall: margin, smoothing of the field", "fem_setup.wall", "5 mm, 3 mm"),
         ("k", "chest wall: penalty stiffness", "physics.wall", "20 E/mm")]
@@ -147,5 +152,7 @@ for i, (sym, meaning, key, default) in enumerate(rows):
     o.append(text(cols[1], y, meaning, "l"))
     o.append(text(cols[2], y, key, "k"))
     o.append(text(cols[3], y, default, "l"))
+o.append(text(34, 846, sub("E rule (12 fitted patients, ν 0.30, ρ̄ 200 kg/m³):  log_{10} E [Pa] = 3.53 − 0.0135 × collapse %"
+                           "   →  ≈ 1.6 kPa at 25 %, 0.73 kPa at 50 %"), "l", "#3c3489"))
 o.append("</svg>\n")
 open("collapse_model.svg", "w").write("\n".join(o))

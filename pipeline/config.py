@@ -169,7 +169,8 @@ class PhysicsConfig:
     material_params: dict = field(default_factory=dict)
     nu: Param = None                   # Poisson's ratio
     E_Pa: Param = None                 # effective Young's modulus of the parenchyma [Pa]
-    tissue_density: float = 250.0      # mean density of the inflated lung in the model [kg/m3] (nominal)
+    tissue_density: float = 200.0      # mean density of the inflated lung in the model [kg/m3]: the pleural gradient
+                                       # 0.2 cmH2O/cm (Milic-Emili 1966) / g; 250 until 2026-11-17
     ct_density: float | None = None    # the same measured on the patient's CT [kg/m3] (scripts/ct_density.py):
                                        # report only, E and p0 rescaled to it (only density / E is identified)
     E_rule: dict | None = None         # E from the collapse % (E_Pa {"rule": "collapse"}): {a, b, collapse_percent}
@@ -221,8 +222,9 @@ def _clean(raw, name, known):
 
 # E from the collapse % (prediction rule, analysis/results.md 5f): log10 E = a + b * collapse %, fitted on
 # the fitE_nu30 runs of the 12 patients with E inside its bounds (2026-11-17; nu 0.30, tissue_density 250,
-# r -0.87, residual sd 0.16 in log10 E, collapse 23-86 %).
-E_RULE_A, E_RULE_B = 3.6301, -0.013455
+# r -0.87, residual sd 0.16 in log10 E, collapse 23-86 %). Only density / E is identified, so for
+# tissue_density 200 (2026-11-17) the fitted E scale by 0.8: a = 3.6301 + log10(0.8).
+E_RULE_A, E_RULE_B = 3.5332, -0.013455
 
 
 def _E_rule(raw, volume_ratio):
@@ -244,10 +246,10 @@ def _physics(raw):
     mat = _clean(raw.get("material", {}), "physics.material", ("name", "nu", "params"))
     p.material, p.material_params = mat.get("name", "neo_hookean"), dict(mat.get("params", {}))
     p.nu = Param.parse("physics.material.nu", mat.get("nu", 0.30), (0.05, 0.45))
-    E_raw = raw.get("E_Pa", 1700.0)
+    E_raw = raw.get("E_Pa", 1360.0)
     if not (isinstance(E_raw, dict) and "rule" in E_raw):
         p.E_Pa = Param.parse("physics.E_Pa", E_raw, (300.0, 10000.0))
-    p.tissue_density = float(raw.get("tissue_density", 250.0))
+    p.tissue_density = float(raw.get("tissue_density", 200.0))
     if raw.get("ct_density") is not None:
         p.ct_density = float(raw["ct_density"])
         if p.ct_density <= 0:

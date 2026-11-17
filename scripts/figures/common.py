@@ -57,7 +57,7 @@ def path(d, cls="a", marker="arrow"):
 
 def text(x, y, s, cls="l", fill=None, anchor=None, extra=""):
     return '<text x="%g" y="%g" class="%s"%s%s%s>%s</text>' % (
-        x, y, cls, ' fill="%s"' % fill if fill else "", ' text-anchor="%s"' % anchor if anchor else "", extra, s)
+        x, y, cls, ' style="fill:%s"' % fill if fill else "", ' text-anchor="%s"' % anchor if anchor else "", extra, s)
 
 
 def sub(expr):

@@ -75,7 +75,7 @@
     "E_Pa": {
       "rule": "collapse"
     },
-    "tissue_density": 250.0,
+    "tissue_density": 200.0,
     "gravity": {
       "reference": "supine",
       "collapse": "supine"

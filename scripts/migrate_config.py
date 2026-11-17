@@ -3,7 +3,7 @@ registration / fem_setup / fem_fit sections) to the current one (inputs / geomet
 physics / solver / fit).
 
     python scripts/migrate_config.py OLD.json [OLD.json ...] --out configs/
-    python scripts/migrate_config.py OLD.json --out configs/ --E 1700 --wall-update potential
+    python scripts/migrate_config.py OLD.json --out configs/ --E 1360 --wall-update potential
 
 The output keeps output_dir and the file names of the old config, so the geometry, hilum and
 fem_setup outputs already there are found again (run only the collapse / fit step). The physics
@@ -27,7 +27,7 @@ def clean(d):
     return {k: v for k, v in d.items() if not k.startswith("_")}
 
 
-def migrate(old, E=1700.0, wall_update="potential", run_name=None):
+def migrate(old, E=1360.0, wall_update="potential", run_name=None):
     sm, reg, hil = clean(old["surface_mesh"]), clean(old["registration"]), clean(old["hilum"])
     fs, ff = clean(old["fem_setup"]), clean(old["fem_fit"])
     if reg.get("method") != "none":
@@ -66,7 +66,7 @@ def migrate(old, E=1700.0, wall_update="potential", run_name=None):
                         "perturbation (fit only): null | {gradient: [ap, si, ml]} | {regions: [K, ...]}",
             "material": {"name": so.get("material", "neo_hookean"), "nu": ff.get("nu", 0.30),
                          "params": so.get("material_params", {})},
-            "E_Pa": E, "tissue_density": ff.get("tissue_density", 250.0),
+            "E_Pa": E, "tissue_density": ff.get("tissue_density", 200.0),
             "gravity": {"reference": "supine", "collapse": "supine"},
             "collapse": {"q0": {"fit": True, "init": ff.get("q0", 0.5), "bounds": ff.get("q_bounds", [-1.0, 3.0])}},
             "wall": {"stiffness": so.get("wall_stiffness", 20.0), "eps": so.get("wall_eps", 0.5)},
@@ -89,7 +89,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("configs", nargs="+")
     ap.add_argument("--out", required=True, help="folder for the new configs (<patient>.json)")
-    ap.add_argument("--E", type=float, default=1700.0, help="physics.E_Pa")
+    ap.add_argument("--E", type=float, default=1360.0, help="physics.E_Pa")
     ap.add_argument("--wall-update", default="potential", choices=["potential", "outer"])
     args = ap.parse_args()
     out = Path(args.out)

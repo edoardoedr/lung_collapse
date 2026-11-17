@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 760 836" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 760 876" role="img">
 <title>Physical model of the lung collapse</title>
 <desc>Left: in vivo the inflated lung fills the chest cavity, held open by the pleural pressure, which is lower at the top; its gradient carries the weight of the lung. Right: in the pneumothorax that pressure is lost; the load is an inward pressure, uniform part plus gradient, the lung shrinks towards the clamped hilum and rests on the dependent chest wall. Below: patient positions and the direction of gravity in the reference CT and during the collapse, and the table of the parameters.</desc>
 <style>
@@ -19,14 +19,14 @@
 <marker id="ag" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#993c1d" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
 <marker id="ak" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#444441" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
 </defs>
-<rect width="760" height="836" fill="#ffffff"/>
+<rect width="760" height="876" fill="#ffffff"/>
 
 <rect x="20" y="20" width="350" height="330" rx="12" class="grp"/>
-<text x="34" y="38" class="h" fill="#444441">In vivo: the inflated lung (reference)</text>
+<text x="34" y="38" class="h" style="fill:#444441">In vivo: the inflated lung (reference)</text>
 <ellipse cx="185" cy="200" rx="112" ry="84" fill="#f6ddd5" stroke="#993c1d" stroke-width="1.2"/>
 <path d="M81.2 168.5 L79.9 171.0 L78.7 173.6 L77.6 176.1 L76.6 178.7 L75.8 181.3 L75.1 184.0 L74.4 186.6 L73.9 189.3 L73.5 191.9 L73.2 194.6 L73.1 197.3 L73.0 200.0 L73.1 202.7 L73.2 205.4 L73.5 208.1 L73.9 210.7 L74.4 213.4 L75.1 216.0 L75.8 218.7 L76.6 221.3 L77.6 223.9 L78.7 226.4 L79.9 229.0 L81.2 231.5" fill="none" stroke="#444441" stroke-width="5" stroke-linecap="round"/>
-<text x="89" y="200" class="l" fill="#444441">hilum</text>
-<text x="89" y="214" class="m" fill="#444441">u = 0</text>
+<text x="89" y="200" class="l" style="fill:#444441">hilum</text>
+<text x="89" y="214" class="m" style="fill:#444441">u = 0</text>
 <line x1="104.004" y1="261.797" x2="97.4467" y2="270.54" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
 <line x1="149.68" y1="282.803" x2="147.67" y2="291.052" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
 <line x1="202.875" y1="285.945" x2="203.833" y2="294.011" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
@@ -38,26 +38,29 @@
 <line x1="202.875" y1="114.055" x2="206.163" y2="86.3729" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
 <line x1="149.68" y1="117.197" x2="143.166" y2="90.4682" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
 <line x1="104.004" y1="138.203" x2="88.9614" y2="118.146" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
-<text x="207" y="184" class="s" fill="#993c1d">inflated lung</text>
-<text x="207" y="200" class="s" fill="#993c1d">stress-free reference Ω<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan></text>
-<text x="207" y="216" class="s" fill="#993c1d">density ρ̄, stiffness E, ν</text>
-<text x="30" y="62" class="l" fill="#185fa5">pleural under-pressure, larger at the top:</text>
-<text x="30" y="77" class="m" fill="#185fa5">p<tspan dy="4" font-size="72%">atm</tspan><tspan dy="-4" font-size="1">​</tspan> − p<tspan dy="4" font-size="72%">pl</tspan><tspan dy="-4" font-size="1">​</tspan> = p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> + ρ̄g (h − h̄)</text>
-<text x="30" y="330" class="l">its gradient ρ̄g carries the weight of the lung (Archimedes)</text>
+<text x="207" y="184" class="s" style="fill:#993c1d">inflated lung</text>
+<text x="207" y="200" class="s" style="fill:#993c1d">stress-free reference Ω<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan></text>
+<text x="207" y="216" class="s" style="fill:#993c1d">density ρ̄, stiffness E, ν</text>
+<text x="30" y="62" class="l" style="fill:#185fa5">pleural under-pressure, larger at the top:</text>
+<text x="30" y="77" class="m" style="fill:#185fa5">p<tspan dy="4" font-size="72%">atm</tspan><tspan dy="-4" font-size="1">​</tspan> − p<tspan dy="4" font-size="72%">pl</tspan><tspan dy="-4" font-size="1">​</tspan> = p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> + ρ̄g (h − h̄)</text>
+<text x="30" y="314" class="l">its gradient ρ̄g ≈ 2 Pa/mm carries the weight (Archimedes):</text>
+<text x="30" y="333" class="m">−∮ p<tspan dy="4" font-size="72%">pl</tspan><tspan dy="-4" font-size="1">​</tspan> n dA = ρ̄ g V e<tspan dy="4" font-size="72%">h</tspan><tspan dy="-4" font-size="1">​</tspan>,   e<tspan dy="4" font-size="72%">h</tspan><tspan dy="-4" font-size="1">​</tspan> = −e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan></text>
 <line x1="350" y1="150" x2="350" y2="250" class="a" marker-end="url(#ag)" style="stroke:#993c1d;stroke-width:2"/>
-<text x="350" y="262" class="m" fill="#993c1d" text-anchor="middle">g</text>
-<text x="350" y="278" class="m" fill="#993c1d" text-anchor="middle">e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan></text>
+<text x="350" y="262" class="m" style="fill:#993c1d" text-anchor="middle">g</text>
+<text x="350" y="278" class="m" style="fill:#993c1d" text-anchor="middle">e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan></text>
 <line x1="330" y1="250" x2="330" y2="150" class="a" marker-end="url(#ak)" style="stroke:#444441"/>
-<text x="330" y="139" class="m" fill="#444441" text-anchor="middle">h</text>
+<text x="330" y="139" class="m" style="fill:#444441" text-anchor="middle">h</text>
 <text x="332" y="123" class="k" text-anchor="middle">anterior</text>
 <text x="310" y="296" class="k" text-anchor="middle">posterior</text>
 <rect x="390" y="20" width="350" height="330" rx="12" class="grp"/>
-<text x="404" y="38" class="h" fill="#444441">Pneumothorax: load and collapsed lung</text>
+<text x="404" y="38" class="h" style="fill:#444441">Pneumothorax: load and collapsed lung</text>
 <ellipse cx="555" cy="200" rx="112" ry="84" fill="none" stroke="#5f5e5a" stroke-width="1.2" stroke-dasharray="6 4"/>
 <ellipse cx="521" cy="227" rx="76" ry="56" fill="#f6ddd5" stroke="#993c1d" stroke-width="1.2"/>
 <path d="M451.2 168.5 L449.9 171.0 L448.7 173.6 L447.6 176.1 L446.6 178.7 L445.8 181.3 L445.1 184.0 L444.4 186.6 L443.9 189.3 L443.5 191.9 L443.2 194.6 L443.1 197.3 L443.0 200.0 L443.1 202.7 L443.2 205.4 L443.5 208.1 L443.9 210.7 L444.4 213.4 L445.1 216.0 L445.8 218.7 L446.6 221.3 L447.6 223.9 L448.7 226.4 L449.9 229.0 L451.2 231.5" fill="none" stroke="#444441" stroke-width="5" stroke-linecap="round"/>
-<text x="525" y="219" class="s" fill="#993c1d">collapsed lung</text>
-<text x="525" y="236" class="m" fill="#993c1d" text-anchor="middle">x = X + u</text>
+<text x="525" y="219" class="s" style="fill:#993c1d">collapsed lung</text>
+<text x="398" y="252" class="l" style="fill:#444441">hilum</text>
+<text x="398" y="267" class="m" style="fill:#444441">u = 0</text>
+<text x="525" y="236" class="m" style="fill:#993c1d" text-anchor="middle">x = X + u</text>
 <line x1="633.229" y1="290.709" x2="628.488" y2="282.007" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
 <line x1="679.161" y1="254.69" x2="668.027" y2="247.126" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
 <line x1="701" y1="200" x2="683" y2="200" class="a" marker-end="url(#ap)" style="stroke:#185fa5"/>
@@ -70,16 +73,17 @@
 <line x1="489.284" y1="284.818" x2="494.376" y2="273.953" class="a" marker-end="url(#ak)" style="stroke:#854f0b"/>
 <line x1="512.744" y1="293.405" x2="515.904" y2="281.828" class="a" marker-end="url(#ak)" style="stroke:#854f0b"/>
 <line x1="537.84" y1="298.1" x2="539.098" y2="286.166" class="a" marker-end="url(#ak)" style="stroke:#854f0b"/>
-<text x="400" y="62" class="l" fill="#185fa5">load = the pleural pressure that is lost, on the free surface:</text>
-<text x="400" y="77" class="m" fill="#185fa5">Δp(X) = p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> + ρ̄g (h(X) − h̄)</text>
-<text x="400" y="315" class="l" fill="#854f0b">chest wall (dashed): margin A, rigid, frictionless;</text>
-<text x="400" y="330" class="l" fill="#854f0b">it now carries the weight</text>
-<text x="617" y="166" class="s" fill="#5f5e5a">air at p<tspan dy="4" font-size="72%">atm</tspan><tspan dy="-4" font-size="1">​</tspan></text>
+<text x="400" y="62" class="l" style="fill:#185fa5">load = the pleural pressure that is lost, on the free surface:</text>
+<text x="400" y="77" class="m" style="fill:#185fa5">Δp(X) = p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> + ρ̄g (h(X) − h̄)</text>
+<text x="400" y="315" class="l" style="fill:#854f0b">chest wall (dashed): margin A, rigid, frictionless;</text>
+<text x="400" y="330" class="l" style="fill:#854f0b">solid brown: contact, the wall now carries the weight</text>
+<text x="562" y="296" class="l" style="fill:#854f0b">contact</text>
+<text x="617" y="166" class="s" style="fill:#5f5e5a">air at p<tspan dy="4" font-size="72%">atm</tspan><tspan dy="-4" font-size="1">​</tspan></text>
 <rect x="20" y="364" width="720" height="62" rx="8" fill="#eeedfe" stroke="#534ab7" stroke-width="0.8"/>
-<text x="380" y="381" class="t" fill="#3c3489">Non-dimensional load (only ratios to E matter for the shape)</text>
-<text x="380" y="407" class="m" fill="#3c3489" text-anchor="middle" style="font-size:15px">q(X) = Δp / E = q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> + γ (h(X) − h̄),  q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> = p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> / E,  γ = ρ̄ g / E,  h = −e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> · X</text>
+<text x="380" y="381" class="t" style="fill:#3c3489">Non-dimensional load (only ratios to E matter for the shape)</text>
+<text x="380" y="407" class="m" style="fill:#3c3489" text-anchor="middle" style="font-size:15px">q(X) = Δp / E = q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> + γ (h(X) − h̄),  q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> = p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> / E,  γ = ρ̄ g / E,  h = −e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> · X</text>
 <rect x="20" y="440" width="720" height="166" rx="12" class="grp"/>
-<text x="34" y="458" class="h" fill="#444441">Patient position: gravity e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> in the inflated CT, e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan> during the collapse (LPS axes)</text>
+<text x="34" y="458" class="h" style="fill:#444441">Patient position: gravity e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> in the inflated CT, e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan> during the collapse (LPS axes)</text>
 <g transform="translate(100 533) rotate(0)">
 <ellipse cx="0" cy="0" rx="44" ry="27" fill="#f1efe8" stroke="#5f5e5a" stroke-width="1"/>
 <ellipse cx="-19" cy="-2" rx="15" ry="16" fill="#f6ddd5" stroke="#993c1d" stroke-width="0.8"/>
@@ -88,8 +92,8 @@
 </g>
 <line x1="44" y1="562" x2="156" y2="562" stroke="#5f5e5a" stroke-width="2.5" stroke-linecap="round"/>
 <line x1="164" y1="506" x2="164" y2="552" class="a" marker-end="url(#ag)" style="stroke:#993c1d;stroke-width:2"/>
-<text x="173" y="528" class="m" fill="#993c1d">g</text>
-<text x="100" y="577" class="s" fill="#444441">supine</text>
+<text x="173" y="528" class="m" style="fill:#993c1d">g</text>
+<text x="100" y="577" class="s" style="fill:#444441">supine</text>
 <text x="100" y="592" class="k" text-anchor="middle">e = +y (posterior)</text>
 <g transform="translate(270 516) rotate(90)">
 <ellipse cx="0" cy="0" rx="44" ry="27" fill="#f1efe8" stroke="#5f5e5a" stroke-width="1"/>
@@ -99,8 +103,8 @@
 </g>
 <line x1="214" y1="562" x2="326" y2="562" stroke="#5f5e5a" stroke-width="2.5" stroke-linecap="round"/>
 <line x1="334" y1="506" x2="334" y2="552" class="a" marker-end="url(#ag)" style="stroke:#993c1d;stroke-width:2"/>
-<text x="343" y="528" class="m" fill="#993c1d">g</text>
-<text x="270" y="577" class="s" fill="#444441">left lateral decubitus</text>
+<text x="343" y="528" class="m" style="fill:#993c1d">g</text>
+<text x="270" y="577" class="s" style="fill:#444441">left lateral decubitus</text>
 <text x="270" y="592" class="k" text-anchor="middle">e = +x (left)</text>
 <g transform="translate(440 533) rotate(180)">
 <ellipse cx="0" cy="0" rx="44" ry="27" fill="#f1efe8" stroke="#5f5e5a" stroke-width="1"/>
@@ -110,49 +114,54 @@
 </g>
 <line x1="384" y1="562" x2="496" y2="562" stroke="#5f5e5a" stroke-width="2.5" stroke-linecap="round"/>
 <line x1="504" y1="506" x2="504" y2="552" class="a" marker-end="url(#ag)" style="stroke:#993c1d;stroke-width:2"/>
-<text x="513" y="528" class="m" fill="#993c1d">g</text>
-<text x="440" y="577" class="s" fill="#444441">prone</text>
+<text x="513" y="528" class="m" style="fill:#993c1d">g</text>
+<text x="440" y="577" class="s" style="fill:#444441">prone</text>
 <text x="440" y="592" class="k" text-anchor="middle">e = −y (anterior)</text>
 <circle cx="540" cy="482" r="4.5" fill="#5f5e5a"/>
 <text x="550" y="482" class="k">spine (posterior)</text>
-<text x="532" y="506" class="l" fill="#444441">same position (e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> = e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan>):</text>
+<text x="532" y="506" class="l" style="fill:#444441">same position (e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> = e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan>):</text>
 <text x="532" y="522" class="l">surface load only</text>
-<text x="532" y="546" class="l" fill="#444441">different positions: + body force</text>
-<text x="532" y="564" class="m" fill="#993c1d">b = ρ̄ g (e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan> − e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan>)</text>
+<text x="532" y="546" class="l" style="fill:#444441">different positions: + body force</text>
+<text x="532" y="564" class="m" style="fill:#993c1d">b = ρ̄ g (e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan> − e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan>)</text>
 <text x="532" y="582" class="l">resultant = weight along e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan></text>
-<rect x="20" y="620" width="720" height="202" rx="12" class="grp"/>
-<text x="34" y="638" class="h" fill="#444441">Parameters: each one given (a number) or fitted to the collapsed CT</text>
-<text x="34" y="660" class="l" fill="#444441" style="font-weight:600">symbol</text>
-<text x="122" y="660" class="l" fill="#444441" style="font-weight:600">meaning</text>
-<text x="430" y="660" class="l" fill="#444441" style="font-weight:600">config key</text>
-<text x="612" y="660" class="l" fill="#444441" style="font-weight:600">default</text>
+<rect x="20" y="620" width="720" height="242" rx="12" class="grp"/>
+<text x="34" y="638" class="h" style="fill:#444441">Parameters: each one given (a number) or fitted to the collapsed CT</text>
+<text x="34" y="660" class="l" style="fill:#444441" style="font-weight:600">symbol</text>
+<text x="110" y="660" class="l" style="fill:#444441" style="font-weight:600">meaning</text>
+<text x="392" y="660" class="l" style="fill:#444441" style="font-weight:600">config key</text>
+<text x="566" y="660" class="l" style="fill:#444441" style="font-weight:600">default</text>
 <line x1="34" y1="670" x2="726" y2="670" stroke="#b4b2ab" stroke-width="0.8"/>
-<text x="34" y="684" class="m" fill="#3c3489">q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> = p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> / E</text>
-<text x="122" y="684" class="l">uniform pressure released: sets the collapse %</text>
-<text x="430" y="684" class="k">physics.collapse</text>
-<text x="612" y="684" class="l">q0 fitted</text>
-<text x="34" y="704" class="m" fill="#3c3489">E</text>
-<text x="122" y="704" class="l">effective stiffness of the lung tissue</text>
-<text x="430" y="704" class="k">physics.E_Pa</text>
-<text x="612" y="704" class="l">1700 Pa</text>
-<text x="34" y="724" class="m" fill="#3c3489">ν</text>
-<text x="122" y="724" class="l">compressibility (the lung loses air)</text>
-<text x="430" y="724" class="k">physics.material.nu</text>
-<text x="612" y="724" class="l">0.40</text>
-<text x="34" y="744" class="m" fill="#3c3489">ρ̄</text>
-<text x="122" y="744" class="l">mean density of the inflated lung</text>
-<text x="430" y="744" class="k">physics.tissue_density</text>
-<text x="612" y="744" class="l">250 kg/m³</text>
-<text x="34" y="764" class="m" fill="#3c3489">e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan>, e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan></text>
-<text x="122" y="764" class="l">patient position: reference CT, collapse</text>
-<text x="430" y="764" class="k">physics.gravity</text>
-<text x="612" y="764" class="l">supine, supine</text>
-<text x="34" y="784" class="m" fill="#3c3489">A, σ</text>
-<text x="122" y="784" class="l">chest wall: margin, smoothing of the field</text>
-<text x="430" y="784" class="k">fem_setup.wall</text>
-<text x="612" y="784" class="l">5 mm, 3 mm</text>
-<text x="34" y="804" class="m" fill="#3c3489">k</text>
-<text x="122" y="804" class="l">chest wall: penalty stiffness</text>
-<text x="430" y="804" class="k">physics.wall</text>
-<text x="612" y="804" class="l">20 E/mm</text>
+<text x="34" y="684" class="m" style="fill:#3c3489">q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> = p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> / E</text>
+<text x="110" y="684" class="l">uniform pressure released: sets the collapse %</text>
+<text x="392" y="684" class="k">physics.collapse</text>
+<text x="566" y="684" class="l">fitted, start 0.3</text>
+<text x="34" y="704" class="m" style="fill:#3c3489">E</text>
+<text x="110" y="704" class="l">effective stiffness of the lung tissue</text>
+<text x="392" y="704" class="k">physics.E_Pa</text>
+<text x="566" y="704" class="l">1360 Pa, or E(collapse %)</text>
+<text x="34" y="724" class="m" style="fill:#3c3489">ν</text>
+<text x="110" y="724" class="l">compressibility (the lung loses air)</text>
+<text x="392" y="724" class="k">physics.material.nu</text>
+<text x="566" y="724" class="l">0.30</text>
+<text x="34" y="744" class="m" style="fill:#3c3489">ρ̄</text>
+<text x="110" y="744" class="l">mean density of the inflated lung (model)</text>
+<text x="392" y="744" class="k">physics.tissue_density</text>
+<text x="566" y="744" class="l">200 kg/m³ (ρ̄g 1.96 Pa/mm)</text>
+<text x="34" y="764" class="m" style="fill:#3c3489">ρ̄<tspan dy="4" font-size="72%">CT</tspan><tspan dy="-4" font-size="1">​</tspan></text>
+<text x="110" y="764" class="l">the same measured on the CT (report only)</text>
+<text x="392" y="764" class="k">physics.ct_density</text>
+<text x="566" y="764" class="l">per patient, median 163 kg/m³</text>
+<text x="34" y="784" class="m" style="fill:#3c3489">e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan>, e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan></text>
+<text x="110" y="784" class="l">patient position: reference CT, collapse</text>
+<text x="392" y="784" class="k">physics.gravity</text>
+<text x="566" y="784" class="l">supine, supine</text>
+<text x="34" y="804" class="m" style="fill:#3c3489">A, σ</text>
+<text x="110" y="804" class="l">chest wall: margin, smoothing of the field</text>
+<text x="392" y="804" class="k">fem_setup.wall</text>
+<text x="566" y="804" class="l">5 mm, 3 mm</text>
+<text x="34" y="824" class="m" style="fill:#3c3489">k</text>
+<text x="110" y="824" class="l">chest wall: penalty stiffness</text>
+<text x="392" y="824" class="k">physics.wall</text>
+<text x="566" y="824" class="l">20 E/mm</text>
+<text x="34" y="846" class="l" style="fill:#3c3489">E rule (12 fitted patients, ν 0.30, ρ̄ 200 kg/m³):  log<tspan dy="4" font-size="72%">10</tspan><tspan dy="-4" font-size="1">​</tspan> E [Pa] = 3.53 − 0.0135 × collapse %   →  ≈ 1.6 kPa at 25 %, 0.73 kPa at 50 %</text>
 </svg>

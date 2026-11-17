@@ -12,7 +12,7 @@ pressure on the surface / E  =  q0  +  γ (h − h_mean),      γ = density · g
 |---|---|---|
 | E | `physics.E_Pa` | effective stiffness of the lung tissue [Pa] |
 | ν | `physics.material.nu` | compressibility (the lung loses air) |
-| density | `physics.tissue_density` | mean density of the inflated lung in the model [kg/m³] (nominal 250) |
+| density | `physics.tissue_density` | mean density of the inflated lung in the model [kg/m³] (200: the pleural gradient 0.2 cmH₂O/cm / g) |
 | CT density | `physics.ct_density` | the same measured on the CT, report only: E and p0 also given rescaled to it |
 | position | `physics.gravity` | patient position in the inflated CT and during the collapse (sets "up": h) |
 | q0 | `physics.collapse` | uniform pressure / E: it sets how much the lung collapses. Given as `q0`, as `p0_Pa`, or as the `volume_ratio` to reach |
@@ -63,7 +63,7 @@ python main.py --config configs/karl04.json --steps fit --set physics.E_Pa=1000 
 
 # fit the stiffness too
 python main.py --config configs/karl04.json --steps fit \
-    --set 'physics.E_Pa={"fit": true, "init": 1700, "bounds": [300, 10000]}' run_name=fitE
+    --set 'physics.E_Pa={"fit": true, "init": 1360, "bounds": [300, 10000]}' run_name=fitE
 
 # predict: collapse to half the volume, patient on the left side, with a sequence for Slicer
 python main.py --config configs/karl04.json --steps collapse \

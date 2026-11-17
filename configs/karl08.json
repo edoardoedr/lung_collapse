@@ -82,8 +82,8 @@
       "nu": 0.3,
       "params": {}
     },
-    "E_Pa": 1700.0,
-    "tissue_density": 250.0,
+    "E_Pa": 1360.0,
+    "tissue_density": 200.0,
     "ct_density": 182.1,
     "gravity": {
       "reference": "supine",

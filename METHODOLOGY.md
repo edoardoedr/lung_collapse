@@ -35,13 +35,13 @@ The lung is modelled as a compressible hyperelastic body, fixed at the hilum, lo
 
 ### 3.1 The reference state
 
-In vivo the lung is held open by the pleural pressure $p_{pl}$, lower than the alveolar (atmospheric) pressure, against its elastic recoil. $p_{pl}$ is not uniform: it is lower at the top of the lung, and its vertical gradient is what carries the lung's weight. For a pressure linear in height $h$ on a closed surface $\Gamma$ enclosing the volume $V$, the divergence theorem gives exactly Archimedes' force,
+In vivo the lung is held open by the pleural pressure $p_{pl}$, lower than the alveolar (atmospheric) pressure, against its elastic recoil. $p_{pl}$ is not uniform: it decreases with the height $h$, and its vertical gradient carries the lung's weight. For $p_{pl} = c - \bar\rho g\, h$ on a closed surface $\Gamma$ enclosing the volume $V$, the divergence theorem gives exactly Archimedes' force,
 
 $$
-\oint_{\Gamma} \bar\rho g\, h \; n \, dA = \bar\rho g V \, e_h ,
+-\oint_{\Gamma} p_{pl}\, n \, dA = \bar\rho g \oint_{\Gamma} h\, n \, dA = \bar\rho g V \, e_h , \qquad e_h = -e_A ,
 $$
 
-so the lung floats in the pleural pressure field, $\bar\rho$ being its mean density (tissue, blood and air). The measured pleural gradient, about 0.25 cmH₂O per cm of height (2.5 Pa/mm), is $\bar\rho g$ for $\bar\rho \approx 250$ kg/m³. The transpulmonary pressure in the reference state is therefore
+so the lung floats in the pleural pressure field, $\bar\rho$ being its mean density (tissue, blood and air). On the lung only $\Gamma_f$ is loaded; the part of the resultant on the hilum is carried by the clamp. The measured pleural gradient is about 0.2 cmH₂O per cm of descent in seated healthy men (2.0 Pa/mm, from the esophageal balloon and from the regional ventilation; 0.21 cmH₂O/cm in vertical dogs), larger over the upper than over the lower lung, and reversed head-down [Milic-Emili et al., J Appl Physiol 21:749–759, 1966]. This is $\bar\rho g$ for $\bar\rho \approx 200$ kg/m³; the model uses $\bar\rho = 200$ kg/m³ (1.96 Pa/mm; 250 kg/m³ until 2026-11-17), the CT gives a median of 163 kg/m³ for the cohort and 208 kg/m³ for the one real inflated lung (section 5e of the results). That the gradient equals the weight of a fluid of the lung's mean density is a hypothesis (Krueger et al., 1961, in dogs); Mead and Turner attributed it instead to the supporting forces on the lung surface [discussed in Milic-Emili et al., 1966]. In the model it is an assumption. The transpulmonary pressure in the reference state is therefore
 
 $$
 p_{atm} - p_{pl}(X) = p_0 + \bar\rho g \left(h(X) - \bar h\right),
@@ -61,7 +61,7 @@ $$
 evaluated at the reference position $X$ of each material point: the load is the release of the in-vivo state of that point, and it follows the deforming surface (follower pressure). Its two parts have distinct roles:
 
 - $p_0$, uniform, shrinks the lung: it sets how much the lung collapses.
-- the gradient has resultant $\bar\rho g V e_A$, the weight of the lung: once the pleural gradient is gone the weight is no longer carried, and the lung settles on the dependent part of the chest wall.
+- the gradient, applied as an inward pressure, has resultant $-\oint_{\Gamma} \bar\rho g \left(h - \bar h\right) n \, dA = -\bar\rho g V e_h = \bar\rho g V e_A$, the weight of the lung (on $\Gamma_f$ up to the hilum part, carried by the clamp): once the pleural gradient is gone the weight is no longer carried, and the lung settles on the dependent part of the chest wall.
 
 No body force is applied: in the reference the weight was balanced by the pleural gradient, and both are accounted for by removing the gradient. The wall, which now carries the weight, is therefore part of the model and not an option.
 
@@ -155,10 +155,10 @@ $$
 | Symbol | Meaning | Value | Role |
 |---|---|---|---|
 | $q_0 = p_0/E$ | uniform pressure released / stiffness; sets the collapse % | ~0.15–0.55 at $\nu = 0.30$ (0.3–1.1 at 0.40) | per patient: fitted, or found from the collapse % |
-| $E$ | effective Young's modulus of the parenchyma | ~1–1.7 kPa (being calibrated) | common to the patients, or fitted |
+| $E$ | effective Young's modulus of the parenchyma | 1.36 kPa default, or from the collapse % (rule below) | common to the patients, or fitted |
 | $\nu$ | Poisson's ratio | 0.30 | fixed (not identifiable) |
-| $\bar\rho$ | mean density of the inflated lung | 250 kg/m³ | assumed (no CT values available) |
-| $g$ | gravity | 9.81 m/s² ($\bar\rho g$ = 2.45 Pa/mm) | – |
+| $\bar\rho$ | mean density of the inflated lung | 200 kg/m³ | from the pleural gradient, 0.2 cmH₂O/cm (section 3.1); the CT value is report only |
+| $g$ | gravity | 9.81 m/s² ($\bar\rho g$ = 1.96 Pa/mm) | – |
 | $e_A$, $e_B$ | gravity direction in the reference scan and during the collapse | supine, supine | chosen |
 | $A$ | wall margin | 5 mm | fixed |
 | $k$, $e$ | wall penalty stiffness and onset width | 20 $E$/mm, 0.5 mm | fixed (numerical) |
@@ -218,13 +218,13 @@ $$
 
 $V$ decreases monotonically with $q_0$, so $q_0(r)$ is found by a one-dimensional search: first guess from the hydrostatic response, $q_0 = (1 - r)\,K/E$; extrapolation by at most a factor 2 until the target is bracketed; then secant steps kept inside the bracket; each solve starts from the previous state. Three to six solves give $r$ within 0.5 %.
 
-**Prediction rule.** For a new lung the only input is the collapse % (the volume ratio $r$). $\nu$ = 0.30 is fixed; $q_0$ follows from $r$ as above; the gravity slope, i.e. $E$ at the nominal $\bar\rho$ = 250 kg/m³, from a rule fitted on the patients' inverse fits (E and $q_0$ fitted, 12 patients with $E$ inside its bounds):
+**Prediction rule.** For a new lung the only input is the collapse % (the volume ratio $r$). $\nu$ = 0.30 is fixed; $q_0$ follows from $r$ as above; the gravity slope, i.e. $E$ at $\bar\rho$ = 200 kg/m³, from a rule fitted on the patients' inverse fits (E and $q_0$ fitted, 12 patients with $E$ inside its bounds):
 
 $$
-\log_{10} E\,[\text{Pa}] = 3.630 - 0.01346 \times \text{collapse \%} ,
+\log_{10} E\,[\text{Pa}] = 3.533 - 0.01346 \times \text{collapse \%} ,
 $$
 
-about 2.0 kPa at 25 % and 0.9 kPa at 50 % ($r$ = −0.87, residual 0.16 in $\log_{10} E$). In leave-one-out the predicted shape is 0.2 mm (median) worse than the patient's own fit; the density measured on the CT does not improve it (analysis/results.md 5e–5f), so it is used only to report $E$ and $p_0$ in physical units.
+about 1.6 kPa at 25 % and 0.73 kPa at 50 % (fitted at $\bar\rho$ = 250 kg/m³ and rescaled by 0.8, exact since only $\bar\rho / E$ is identified; $r$ = −0.87, residual 0.16 in $\log_{10} E$). In leave-one-out the predicted shape is 0.2 mm (median) worse than the patient's own fit; the density measured on the CT does not improve it (analysis/results.md 5e–5f), so it is used only to report $E$ and $p_0$ in physical units.
 
 A collapse sequence is obtained by solving at $\lambda = 0 \ldots 1$ of the final load: the intermediate shapes are equilibria of the proportional load, not a linear morph.
 

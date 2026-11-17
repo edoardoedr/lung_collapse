@@ -40,7 +40,7 @@
 <text x="380" y="194.5" class="c" fill="#534ab7">collapse/load.py</text>
 <line x1="380" y1="208" x2="380" y2="226" class="a" marker-end="url(#arrow)"/>
 <rect x="20" y="228" width="720" height="186" rx="12" class="grp"/>
-<text x="34" y="244" class="h" fill="#0c447c">Finite-element solve  R(U; θ) = 0   (PyTorch / Warp cores, P1 tetrahedra)</text>
+<text x="34" y="244" class="h" style="fill:#0c447c">Finite-element solve  R(U; θ) = 0   (PyTorch / Warp cores, P1 tetrahedra)</text>
 <rect x="34" y="258" width="220" height="64" rx="8" fill="#e6f1fb" stroke="#185fa5" stroke-width="0.8"/>
 <text x="144" y="273" class="t" fill="#0c447c">Elasticity</text>
 <text x="144" y="290" class="s" fill="#185fa5">compressible Neo-Hookean</text>
@@ -68,7 +68,7 @@
 <path d="M240 459 L130 459 L130 506" class="a" marker-end="url(#arrow)"/>
 <path d="M520 459 L560 459 L560 506" class="a" marker-end="url(#arrow)"/>
 <rect x="20" y="508" width="230" height="200" rx="12" class="grp"/>
-<text x="34" y="524" class="h" fill="#085041">Forward  (collapse)</text>
+<text x="34" y="524" class="h" style="fill:#085041">Forward  (collapse)</text>
 <rect x="34" y="540" width="202" height="64" rx="8" fill="#e1f5ee" stroke="#0f6e56" stroke-width="0.8"/>
 <text x="135" y="555" class="t" fill="#085041">Parameters given</text>
 <text x="135" y="572" class="s" fill="#0f6e56">q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> or p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan>: one solve</text>
@@ -79,7 +79,7 @@
 <text x="135" y="664.5" class="s" fill="#0f6e56">secant steps in a bracket,</text>
 <text x="135" y="681.5" class="s" fill="#0f6e56">3–6 solves</text>
 <rect x="266" y="508" width="474" height="200" rx="12" class="grp"/>
-<text x="280" y="524" class="h" fill="#085041">Inverse  (fit)  with the collapsed CT surface</text>
+<text x="280" y="524" class="h" style="fill:#085041">Inverse  (fit)  with the collapsed CT surface</text>
 <rect x="280" y="540" width="220" height="76" rx="8" fill="#e1f5ee" stroke="#0f6e56" stroke-width="0.8"/>
 <text x="390" y="552.5" class="t" fill="#085041">Distance, both directions</text>
 <text x="390" y="569.5" class="s" fill="#0f6e56">simulated → target, along the</text>
@@ -102,7 +102,7 @@
 <path d="M620 616 L620 622 L390 622 L390 628" class="a" marker-end="url(#arrow)"/>
 <line x1="500" y1="662" x2="512" y2="662" class="a" marker-end="url(#arrow)"/>
 <path d="M740 662 L764 662 L764 59 L742 59" class="a" marker-end="url(#arrow)"/>
-<text x="778" y="360" class="l" fill="#52514e" text-anchor="middle" transform="rotate(-90 778 360)">next θ</text>
+<text x="778" y="360" class="l" style="fill:#52514e" text-anchor="middle" transform="rotate(-90 778 360)">next θ</text>
 <line x1="726" y1="662" x2="740" y2="662" class="a"/>
 <path d="M135 708 L135 724 L330 724 L330 738" class="a" marker-end="url(#arrow)"/>
 <path d="M503 708 L503 724 L430 724 L430 738" class="a" marker-end="url(#arrow)"/>

@@ -310,6 +310,25 @@ Label 1: HU > −100 inside the collapsed lung (2 mm from its border, blobs ≥ 
 - **Tissue between lung and cavity:** none or < 16 mL in 9 patients. **karl17 98 mL (15 HU), karl24 81 mL (84 HU)**: anterior-basal, not dependent, so not an effusion: diaphragm / abdomen / heart inside the cavity segmentation. **karl18 80 mL (27 HU)**, lateral-basal: the same or a small effusion. patient_1 33 mL and patient_2 98 mL, posterior (dependent), water density: pleural effusion (real; the lung cannot occupy it).
 - karl10 and karl18 are two of the three patients the model fails on (5g): their segmentation is the first suspect.
 
+### 5i. Fitted p0 against the physiological recoil pressure (2026-11-17)
+
+p0 = q0 · E is the uniform transpulmonary pressure released by the pneumothorax, i.e. the mean elastic recoil pressure of the lung in the reference state (METHODOLOGY.md 3.1–3.2). Physiological reference, static recoil pressure Pst(l) (esophageal balloon, healthy adults, upright):
+- **Turner, Mead & Wohl, J Appl Physiol 25:664–671, 1968** (doi:10.1152/jappl.1968.25.6.664; 44 subjects aged 13–61, standing, expiratory limb; Table 3 read from the PDF): Pst at 50 % TLC median 4.2 cmH₂O (1.2–8.7), at 60 % TLC 6.4 (2.9–12.4), at TLC 32 (19–69). FRC is 39–64 % of TLC (median 55 %, seated plethysmograph, rising +0.18 % TLC per year). Interpolated at each subject's FRC (our computation): **recoil at FRC median 4.8 cmH₂O (1.7–10.6)**, 4.7 (1.7–6.7) for the 17 subjects ≥ 40 years. Recoil falls with age at every volume, e.g. at 60 % TLC Pst = 9.92 − 0.0957 × age (≈ 4.2 cmH₂O at 60 years).
+- **Milic-Emili et al., J Appl Physiol 21:749–759, 1966** (doi:10.1152/jappl.1966.21.3.749; 9 seated men): transpulmonary pressure at TLC mean 38 cmH₂O (26–68); pleural gradient ≈ 0.2 cmH₂O/cm (METHODOLOGY.md 3.1).
+- "Pulmonary Function Testing", Murray & Nadel's Textbook of Respiratory Medicine (PMC7158317, doi:10.1016/B978-1-4557-3383-5.00025-7): about 12 cmH₂O to hold three fourths of TLC. From `analysis/runs_final.csv` (1 cmH₂O = 98.1 Pa):
+
+| | n | p0 median | p0 range | p0 at ρ̄ CT median (range) |
+|---|---|---|---|---|
+| `fit_final`, E in bounds | 13 | 367 Pa (3.7 cmH₂O) | 202–792 Pa (2.1–8.1 cmH₂O) | 187 Pa (88–606) |
+| `fit_final`, E at a bound | 3 | — | karl23 97, karl18 5943, karl10 8847 Pa | — |
+| `pred` (E rule), all | 16 | 383 Pa (3.9 cmH₂O) | 297–438 Pa (3.0–4.5 cmH₂O) | 245 Pa (116–508) |
+
+- **p0 matches the recoil at FRC**: fitted median 3.7 cmH₂O (2.1–8.1), Turner et al. at FRC median 4.8 (1.7–10.6), 4.7 above 40 years; predictions 3.0–4.5. It is far below the recoil at TLC (32–38 cmH₂O) and below the 12 cmH₂O at three fourths of TLC: the reference lung behaves as a lung at its resting volume. Turner's subjects were standing; supine the FRC, and with it the recoil, is lower, so the agreement holds within this uncertainty. Only the three patients at a bound of E are off (karl10 / karl18 60–90 cmH₂O, karl23 1 cmH₂O), and there p0 is not identified.
+- **p0 hardly depends on the collapse %** (13 in bounds: r −0.31 against the collapse %, while q0 has r +0.96): the collapse % comes from E, not from p0. The E rule therefore amounts to a nearly constant released pressure, p0 ≈ 300–440 Pa in all 16 predictions. A rule "p0 fixed at ~370 Pa, E = p0 / q0" would be its physical restatement.
+- **The pressure scale comes from ρ̄.** Only q0 and ρ̄ / E are identified by the shape, so p0 = q0 ρ̄ g L / s_g is proportional to the assumed density, i.e. to the pleural gradient ρ̄g = 2.45 Pa/mm: p0 / (ρ̄ g) ≈ 150 mm, the mean recoil equals the pleural gradient over ~15 cm of height. With the measured gradient of Milic-Emili et al. (0.2 cmH₂O/cm, ρ̄ ≈ 200 kg/m³) p0 would be 0.8 × these values (median ≈ 3.0 cmH₂O); with the CT density (median 163 kg/m³) a median 187 Pa (1.9 cmH₂O). Both are still the order of the resting recoil.
+- **Change (user, 2026-11-17): ρ̄ = 200 kg/m³ in the model** (the measured gradient), E default 1360 Pa and E rule a = 3.5332: the shapes of every fit and prediction are unchanged, E and p0 of the runs above (all at ρ̄ 250) become × 0.8, i.e. p0 median 294 Pa = 3.0 cmH₂O (fit) and 306 Pa = 3.1 cmH₂O (prediction), still inside Turner's FRC range.
+- Caveats: the reference is taken stress-free (METHODOLOGY.md 7, item 1), so p0 is the released pressure to first order, without the prestress stiffening; surface tension is in E and ν, not separate; the "inflated lung" is the pneumothorax cavity (5d), and the breathing state of the CT is not known.
+
 ## 6. Wall and tangential support
 
 **Medians over 14 patients** (patient_2 excluded from the wall runs):

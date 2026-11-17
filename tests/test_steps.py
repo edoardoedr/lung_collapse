@@ -109,14 +109,15 @@ def test_forward_E_rule():
     forward.run(cfg)
     ph = summary(cfg)["physics"]
     assert abs(ph["E_Pa"] - E) < 1e-6 * E and abs(ph["E_rule"]["collapse_percent"] - 20.0) < 1e-9
-    assert abs(ph["E_Pa_ct"] - E * 125 / 250) < 1e-6 * E and abs(ph["p0_Pa_ct"] - ph["q0"] * ph["E_Pa_ct"]) < 1e-6
+    assert abs(ph["E_Pa_ct"] - E * 125 / cfg.physics.tissue_density) < 1e-6 * E and abs(ph["p0_Pa_ct"] - ph["q0"] * ph["E_Pa_ct"]) < 1e-6
     return "E %.0f Pa at 20 %% collapse; with the CT density 125 kg/m3: E %.0f, p0 %.0f Pa" % (
         E, ph["E_Pa_ct"], ph["p0_Pa_ct"])
 
 
 def test_fit_recovers_parameters():
-    """Synthetic target = a forward run; the fit of q0 and E must find the parameters back."""
-    cfg = config(['physics.collapse={"q0":0.35}', "physics.E_Pa=1200", "run_name=truth"])
+    """Synthetic target = a forward run; the fit of q0 and E must find the parameters back.
+    E 960 / start 2000 at density 200 = the slopes of E 1200 / 2500 at 250 (the test before 2026-11-17)."""
+    cfg = config(['physics.collapse={"q0":0.35}', "physics.E_Pa=960", "run_name=truth"])
     if cfg is None:
         return "skipped"
     forward.run(cfg)
@@ -126,21 +127,21 @@ def test_fit_recovers_parameters():
     synth = dataclasses.replace(p, target_points=p.reference + truth, target_tris=p.tris.copy())
     synth.save(cfg.setup_dir / "problem.npz")
     try:
-        cfg = config(['physics.collapse={"q0":{"fit":true,"init":0.5}}', 'physics.E_Pa={"fit":true,"init":2500}',
+        cfg = config(['physics.collapse={"q0":{"fit":true,"init":0.5}}', 'physics.E_Pa={"fit":true,"init":2000}',
                       "run_name=refit", "fit.target_error_mm=0.001"])
         fit.run(cfg)
         s = summary(cfg)
     finally:
         p.save(cfg.setup_dir / "problem.npz")
     ph = s["physics"]
-    assert abs(ph["q0"] - 0.35) < 2e-3 and abs(ph["E_Pa"] - 1200) < 15, ph
+    assert abs(ph["q0"] - 0.35) < 2e-3 and abs(ph["E_Pa"] - 960) < 12, ph
     assert s["assd_mm"] < 0.05 and set(ph["fitted"]) == {"q0", "gravity_slope"}
-    return "q0 %.4f (0.35), E %.0f Pa (1200), ASSD %.4f mm, %d solves (%d failed)" % (
+    return "q0 %.4f (0.35), E %.0f Pa (960), ASSD %.4f mm, %d solves (%d failed)" % (
         ph["q0"], ph["E_Pa"], s["assd_mm"], s["evals"], s["failed_solves"])
 
 
 def test_fit_real_target():
-    """Fit of q0 on the real collapsed lung, default physics (gravity supine, E 1.7 kPa)."""
+    """Fit of q0 on the real collapsed lung, default physics (gravity supine, E 1.36 kPa, density 200)."""
     cfg = config(["run_name=real"])
     if cfg is None:
         return "skipped"
