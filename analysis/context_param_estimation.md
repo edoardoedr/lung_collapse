@@ -4,7 +4,6 @@ For a new chat that designs and analyses experiments to estimate the model's par
 
 ## Rules of the project
 
-- The user writes in Italian: answer in Italian; code and docs in English.
 - **Do not install anything on the Mac.** All runs happen on the server (conda env `lungfem`, `/home/jovyan/Lung_project/lung_collapse`): give the commands, the user pastes back the logs / tables. Append `2>&1 | tee <name>.txt` to every server command.
 - No commits unless asked. Before changing physics or defaults, explain the trade-off and let the user decide.
 - A new config key goes in `pipeline/config.py`, `configs/README.md` and, if user-visible, `README.md`. A new result goes in `analysis/results.md`, a decision or task in `NEXT.md`.

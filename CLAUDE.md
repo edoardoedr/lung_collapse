@@ -52,6 +52,7 @@ python main.py --config configs/<p>.json --steps collapse --set 'physics.collaps
 JOBS=4 bash scripts/run_all.sh [case ...] [-- main.py args]    # configs/<case>.json in parallel; logs_run_all/<case>[_$LOG].txt
 python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000 [--jobs 4] [--collect]
 python scripts/summarize_runs.py <results folder> [--runs fit E1000] [--out analysis/runs_v2.csv]   # Mac or server
+python scripts/leave_one_out.py --configs configs/*.json [--fit-run fitE] [--run loo] [--jobs 4] [--frames 30] [--collect]   # E from the others' E(collapse %), forward to the own collapse %
 python scripts/add_wall_field.py --config configs/<p>.json [--grid 1.5] [--smoothing 3]   # wall field into an existing problem.npz
 python scripts/init_output_dir.py --configs configs/*.json [--apply]   # new output_dir <- setup + v2 runs of the old one (dry run without --apply)
 python scripts/check_jacobian.py --config configs/<p>.json [--set ...] [--solver getfem] [--options '{...}']
