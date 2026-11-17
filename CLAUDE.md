@@ -58,6 +58,8 @@ python scripts/cavity_volumes.py --configs configs/*.json [--fit-run fitE_nu30] 
 python scripts/ct_density.py [--fit-run fitE_nu30] [--out analysis/ct_density.csv]   # lung mass / density from the CT (Input_CT/), Mac env lungct
 python scripts/ct_density.py --config configs/<p>.json --ct <file> [--write-config]   # one patient; without a collapsed lung: mean density of the inflated lung (air from the trachea)
 python scripts/predict_cohort.py --configs configs/*.json [--run pred] [--frames 30] [--jobs 4]   # prediction from the collapse % (E rule) for every patient
+python scripts/qa_segmentation.py [patient ...]   # Mac env lungct: dense voxels in the collapsed lung, tissue between lung and cavity -> results/<p>/qa_segmentation.nrrd
+# Slicer (Mac): PATIENT = "karl23"; p = r"<repo>/scripts/slicer_compare.py"; exec(open(p).read(), {"__file__": p, "PATIENT": PATIENT})   # CT + cavity + real collapsed + fit_final + pred
 python scripts/add_wall_field.py --config configs/<p>.json [--grid 1.5] [--smoothing 3]   # wall field into an existing problem.npz
 python scripts/init_output_dir.py --configs configs/*.json [--apply]   # new output_dir <- setup + v2 runs of the old one (dry run without --apply)
 python scripts/check_jacobian.py --config configs/<p>.json [--set ...] [--solver getfem] [--options '{...}']

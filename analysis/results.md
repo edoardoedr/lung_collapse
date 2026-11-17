@@ -271,6 +271,45 @@ The CTs (`Input_CT/<p>.nii[.gz]`, one per patient, with the pneumothorax) are no
 - **The three patients with E at a bound** (not in the rule) cost +1.8 to +5.6 mm with every rule: karl10 and karl18 (fit with no gradient) and karl23 (fit with the strongest gradient). That is where the model needs something else (5c, 5e).
 - Decision proposed: the rule `E` (collapse % only, ν 0.30, ρ̄ 250 as a nominal value), log₁₀ E = a + b × collapse % on all 12; ρ̄ from the CT only to report E and p0 in physical units.
 
+### 5g. Final fit and prediction, 16 patients (`runs/fit_final`, `runs/pred`, 2026-11-17)
+
+Settings: ν 0.30, gravity supine, smooth-field wall. `fit_final`: q0 and E fitted (E 0.2–20 kPa), as `fitE_nu30` (identical results on the 15 shared patients) plus karl19, now set up (`as_triangles` fix). `pred`: `scripts/predict_cohort.py`, forward from the patient's collapse % with the E rule (fitted on 12 of these patients, so not a leave-one-out: see 5f for that). Table `analysis/runs_final.csv`. No failed solve (165 in the fits, 44 in the predictions; 1–8 solves per prediction).
+
+| Patient | collapse | E fit | q0 | p0 | ρ̄ CT | E / p0 at ρ̄ CT | ASSD fit | E rule | ASSD pred | diff |
+|---|---|---|---|---|---|---|---|---|---|---|
+| karl01 | 25 % | 1468 | 0.240 | 352 | 294 | 1726 / 413 | 5.53 | 1937 | 5.39 | −0.13 |
+| karl02 | 53 % | 1129 | 0.398 | 449 | 170 | 766 / 305 | 5.16 | 832 | 5.93 | +0.77 |
+| karl04 | 51 % | 685 | 0.377 | 258 | 85 | 234 / 88 | 8.36 | 869 | 8.71 | +0.35 |
+| karl06 | 23 % | 2089 | 0.186 | 389 | 173 | 1445 / 269 | 4.82 | 2084 | 4.84 | +0.01 |
+| karl08 | 28 % | 2599 | 0.236 | 614 | 182 | 1893 / 447 | 6.39 | 1784 | 6.48 | +0.09 |
+| karl10 | 56 % | (bound) | 0.466 | — | 285 | — | 10.31 | 751 | 13.08 | +2.77 |
+| karl17 | 24 % | 1460 | 0.184 | 269 | 157 | 918 / 169 | 5.99 | 2029 | 5.91 | −0.08 |
+| karl18 | 31 % | (bound) | 0.297 | — | 249 | — | 5.84 | 1653 | 8.47 | +2.62 |
+| karl19 | 65 % | 728 | 0.655 | 477 | 98 | 286 / 187 | 8.66 | 564 | 8.59 | −0.07 |
+| karl20 | 58 % | 446 | 0.547 | 244 | 120 | 215 / 118 | 8.02 | 700 | 8.50 | +0.48 |
+| karl23 | 51 % | (bound) | 0.483 | — | 230 | — | 9.17 | 872 | 13.90 | +4.72 |
+| karl24 | 25 % | 3732 | 0.212 | 792 | 191 | 2853 / 606 | 5.49 | 2000 | 5.78 | +0.29 |
+| patient_1 | 59 % | 719 | 0.510 | 367 | 114 | 327 / 167 | 11.82 | 692 | 11.81 | −0.01 |
+| patient_10 | 47 % | 650 | 0.310 | 202 | 118 | 308 / 96 | 6.05 | 992 | 6.32 | +0.27 |
+| patient_2 | 86 % | 403 | 0.903 | 364 | 120 | 193 / 175 | 9.51 | 295 | 9.62 | +0.11 |
+| patient_3 | 37 % | 1450 | 0.354 | 513 | 135 | 782 / 276 | 7.52 | 1365 | 7.49 | −0.03 |
+
+E and p0 in Pa, ASSD in mm; "(bound)": E at the bound of the fit, E and p0 not identified (karl10 19 kPa, karl18 20 kPa, karl23 0.2 kPa).
+
+- **13 patients with E in bounds:** fit median 6.39 / mean 7.18 mm, prediction 6.48 / 7.34; difference median +0.09, mean +0.16, max +0.77 mm (karl02). Predicting from the collapse % alone is as good as fitting, for these.
+- **3 at a bound (karl10, karl18, karl23):** +2.6 to +4.7 mm; prediction 13.1, 8.5, 13.9 mm. All 16: prediction median 7.98, mean 8.18 mm (no deformation: median 14.8 mm).
+- **karl19** (new): E 728 Pa, in line with the rule (564 predicted at 65 %); the fit over-collapses (76 vs 65 %: it trades volume for shape), the prediction at the exact volume has the same ASSD (8.59 vs 8.66) but a larger maximum error (60 vs 40 mm).
+- **Rule with karl19** (13 patients): a 3.617, b −0.0130, within 5 % of the coded rule over 25–80 %: rule kept.
+- The volume of the prediction matches the target within 0.2 points on all 16.
+
+### 5h. Segmentation check from the CT (`scripts/qa_segmentation.py`, 2026-11-17)
+
+Label 1: HU > −100 inside the collapsed lung (2 mm from its border, blobs ≥ 5 mL); label 2: HU > −500 between the collapsed lung and the cavity. Labelmaps `results/<p>/qa_segmentation.nrrd`.
+
+- **Dense inside the collapsed lung:** 3–11 % (73–204 mL) in 13 patients, medial-posterior: the hilar vessels and dependent atelectasis, normal. **karl10: 437 mL (36 %)**, central-medial, anterior third at 0.94 g/mL: heart / mediastinum inside the collapsed segmentation (user, 2026-11-17: karl10 to be re-segmented). patient_2: 494 mL (67 %), posterior: the lung at 86 % collapse is almost airless (−130 HU), probably real; karl19: none.
+- **Tissue between lung and cavity:** none or < 16 mL in 9 patients. **karl17 98 mL (15 HU), karl24 81 mL (84 HU)**: anterior-basal, not dependent, so not an effusion: diaphragm / abdomen / heart inside the cavity segmentation. **karl18 80 mL (27 HU)**, lateral-basal: the same or a small effusion. patient_1 33 mL and patient_2 98 mL, posterior (dependent), water density: pleural effusion (real; the lung cannot occupy it).
+- karl10 and karl18 are two of the three patients the model fails on (5g): their segmentation is the first suspect.
+
 ## 6. Wall and tangential support
 
 **Medians over 14 patients** (patient_2 excluded from the wall runs):
