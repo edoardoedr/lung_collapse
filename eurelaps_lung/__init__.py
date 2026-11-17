@@ -1,1 +1,1 @@
-"""Collapsed-lung pipeline: from Slicer surfaces to inverse-FEM pressure fits."""
+"""eurelaps_lung: FEM model of lung collapse (pneumothorax), from Slicer surfaces to forward runs and inverse fits."""

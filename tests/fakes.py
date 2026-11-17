@@ -1,12 +1,12 @@
-"""numpy stand-ins for the VTK-based helpers of pipeline/collapse/geometry.py and for the surface
+"""numpy stand-ins for the VTK-based helpers of eurelaps_lung/fem/geometry.py and for the surface
 writer, so that the collapse and fit steps run on the Mac. Import after stubs, before the steps."""
 
 import numpy as np
 
 import stubs  # noqa: F401
 import sdf_numpy
-from pipeline import data_io
-from pipeline.collapse import geometry as G
+from eurelaps_lung import data_io
+from eurelaps_lung.fem import geometry as G
 
 written = {}                                                    # path name -> FakeSurface
 

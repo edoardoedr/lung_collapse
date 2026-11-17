@@ -30,8 +30,9 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pipeline.config import load_config                              # noqa: E402
-from pipeline.data_io import as_triangles, read_surface              # noqa: E402
+from eurelaps_lung import calibration as C                               # noqa: E402
+from eurelaps_lung.config import load_config                              # noqa: E402
+from eurelaps_lung.data_io import as_triangles, read_surface              # noqa: E402
 
 
 def volume(mesh):
@@ -98,7 +99,8 @@ def main():
             f = cfg.run_dir / "summary.json"
             if f.is_file():
                 s = json.loads(f.read_text())
-                r["E_Pa"], r["assd_mm"] = s["physics"]["E_Pa"], s["assd_mm"]
+                r["E_Pa"], r["assd_mm"] = C.E_at(s), s["assd_mm"]       # E at the model density 200
+                r["E_in_bounds"] = C.in_bounds(s)
         rows.append(r)
 
     hdr = ("patient", "side", "V_cavity_mL", "V_collapsed_mL", "V_contra_mL", "enlargement", "collapse_vs_cavity",
@@ -116,8 +118,7 @@ def main():
     print("enlargement vs collapse %% (vs cavity): r %.2f, Spearman %.2f" % corr(
         en, [r["collapse_vs_cavity"] for r in rows]))
     if args.fit_run:
-        lo, hi = 200 * 1.05, 20000 * 0.95                            # fitE bounds: drop the patients at a bound
-        ok = [r for r in rows if r["E_Pa"] is not None and lo < r["E_Pa"] < hi]
+        ok = [r for r in rows if r.get("E_in_bounds")]               # drop the patients with E at a bound
         if len(ok) >= 4:
             lE = [math.log10(r["E_Pa"]) for r in ok]
             print("\nlog10 E, %d patients with E inside the bounds:" % len(ok))

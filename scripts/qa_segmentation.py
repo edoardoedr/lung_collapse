@@ -14,7 +14,7 @@ sys.path.insert(0, '.')
 import numpy as np, SimpleITK as sitk
 from scipy import ndimage as ndi
 from scripts.ct_density import mask_from_surface, find_ct
-from pipeline.data_io import read_surface
+from eurelaps_lung.data_io import read_surface
 from pathlib import Path
 pats = sys.argv[1:] or sorted(os.path.basename(d) for d in glob.glob('results/*'))
 for p in pats:

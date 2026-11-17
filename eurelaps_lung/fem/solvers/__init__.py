@@ -6,9 +6,9 @@ A core is chosen by its name below, or as "package.module:ClassName" for one out
 import importlib
 
 SOLVERS = {
-    "getfem": "pipeline.collapse.solvers.getfem_solver:GetFEMSolver",
-    "warp": "pipeline.collapse.solvers.warp_solver:WarpSolver",
-    "torch": "pipeline.collapse.solvers.torch_solver:TorchSolver",
+    "getfem": "eurelaps_lung.fem.solvers.getfem_solver:GetFEMSolver",
+    "warp": "eurelaps_lung.fem.solvers.warp_solver:WarpSolver",
+    "torch": "eurelaps_lung.fem.solvers.torch_solver:TorchSolver",
 }
 
 

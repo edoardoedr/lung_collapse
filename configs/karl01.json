@@ -106,7 +106,7 @@
     "perturbation": null
   },
   "solver": {
-    "_comment": "core: torch | warp | getfem (validation); the rest are the core's options (pipeline/collapse/solvers/nodal.py)",
+    "_comment": "core: torch | warp | getfem (validation); the rest are the core's options (eurelaps_lung/fem/solvers/nodal.py)",
     "core": "torch",
     "wall_update": "potential",
     "order": 1,

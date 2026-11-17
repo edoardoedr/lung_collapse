@@ -1,15 +1,10 @@
 {
-  "_how": "a new patient, prediction only (no collapsed lung): copy to configs/<patient>.json, set patient, data_dir, output_dir, the file names in inputs and physics.collapse.volume_ratio, then: python main.py --config configs/<patient>.json   (steps: geometry, hilum, fem_setup, collapse). Other collapse %: --steps collapse --set 'physics.collapse={\"volume_ratio\": 0.6}' run_name=pred40",
+  "_how": "a new patient, prediction only (no collapsed lung): copy to configs/<patient>.json, set patient, data_dir, output_dir and the file names in inputs, then: python main_predict.py --config configs/<patient>.json --collapse 50 [--params calibration/<rule>.json] [--frames 30] [--run pred50]. The first run builds the geometry (geometry, hilum, fem_setup); without --params, E comes from the built-in rule physics.E_Pa {rule: collapse}",
   "patient": "new_patient",
   "data_dir": "/path/to/the/folder/with/the/vtk/surfaces",
   "output_dir": "/path/to/an/empty/output/folder",
-  "steps": [
-    "geometry",
-    "hilum",
-    "fem_setup",
-    "collapse"
-  ],
-  "run_name": "pred",
+  "steps": [],
+  "run_name": "predict",
   "inputs": {
     "_comment": "surfaces from 3D Slicer (data_dir), LPS: the inflated lung (lung_left.vtk or lung_right.vtk) and the three trees for the hilum. collapsed: null (prediction only)",
     "inflated": "lung_left.vtk",
@@ -92,7 +87,7 @@
     "_collapse": "volume_ratio = V_collapsed / V_inflated to reach: 0.5 = 50 % collapse (rule calibrated on 23-86 %)"
   },
   "solver": {
-    "_comment": "core: torch | warp | getfem (validation); the rest are the core's options (pipeline/collapse/solvers/nodal.py)",
+    "_comment": "core: torch | warp | getfem (validation); the rest are the core's options (eurelaps_lung/fem/solvers/nodal.py)",
     "core": "torch",
     "wall_update": "potential",
     "order": 1,

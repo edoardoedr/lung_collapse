@@ -23,7 +23,7 @@ import numpy as np
 import pyvista as pv
 from scipy.ndimage import distance_transform_edt, map_coordinates
 
-from .collapse.geometry import WallDistance, face_adjacency, faces_of, signed_volume
+from .fem.geometry import WallDistance, face_adjacency, faces_of, signed_volume
 from .data_io import detect_space, read_surface, write_surface
 from .raster import geometry, grid_around, rasterize
 

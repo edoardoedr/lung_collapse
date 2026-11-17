@@ -1,13 +1,13 @@
 # Configuration reference
 
-One JSON file per patient (`configs/<patient>.json`) describes the whole model and what to run. This page lists every key. The defaults are those in [`pipeline/config.py`](../pipeline/config.py); a key left out of the JSON takes its default. The configs of the earlier schema (regions fit, registration) are in git on `v1_version`; `scripts/migrate_config.py` converts them.
+One JSON file per patient (`configs/<patient>.json`) describes the whole model and what to run. This page lists every key. The defaults are those in [`eurelaps_lung/config.py`](../eurelaps_lung/config.py); a key left out of the JSON takes its default. The configs of the earlier schema (regions fit, registration) are in git on `v1_version`; `scripts/migrate_config.py` converts them.
 
 ## General rules
 
 - **Paths:** `data_dir` and `output_dir` are relative to the JSON file; inputs are relative to `data_dir`, outputs to `output_dir`; absolute paths are used as given.
 - **Comments:** keys starting with `_` are ignored.
 - **Typos:** an unknown key is an error.
-- **Overrides:** `python main.py --config ... --set key=value ...`, with the value parsed as JSON, e.g. `physics.E_Pa=1000`, `'physics.collapse={"volume_ratio": 0.5}'`, `solver.newton_maxit=50`, `run_name=test`.
+- **Overrides:** `python main_fit.py --config ... --set key=value ...` (same for `main_predict.py`), with the value parsed as JSON, e.g. `physics.E_Pa=1000`, `'physics.collapse={"volume_ratio": 0.5}'`, `solver.newton_maxit=50`, `run_name=test`.
 - **Physical parameters** (`physics.E_Pa`, `physics.material.nu`, `physics.collapse.q0`) are written in one of two ways:
 
   ```json
@@ -24,7 +24,7 @@ One JSON file per patient (`configs/<patient>.json`) describes the whole model a
 | `patient` | – (required) | Name used in the logs and summaries. | any string |
 | `data_dir` | – (required) | Folder with the input surfaces of this patient. | path |
 | `output_dir` | – (required) | Folder for all the results of this patient. | path |
-| `steps` | `[]` | Steps run by `python main.py --config ...`, always in pipeline order; `--steps` on the command line replaces it. | `check_inputs`, `geometry`, `hilum`, `fem_setup`, `collapse`, `fit` |
+| `steps` | `[]` | Steps run by `python main_fit.py --config ...`, always in order; `--steps` on the command line replaces it. `main_predict.py` ignores it (it builds the geometry when `problem.npz` is missing, then runs `collapse`). | `check_inputs`, `geometry`, `hilum`, `fem_setup`, `fit` |
 | `run_name` | `run` | Folder of the forward or fit run: `output_dir/runs/<run_name>/`. Give each variant its own name. | plain folder name |
 
 ## `inputs` – the segmented surfaces
@@ -120,9 +120,9 @@ with h the height against gravity in the reference position.
 
 | Key | Default | Meaning | Values |
 |---|---|---|---|
-| `E_Pa` | 1360 | Effective Young's modulus of the lung tissue [Pa] (tissue, surfactant and recoil together). It sets the gravity slope and scales the reported pressures; without gravity the shape does not depend on it. **Parameter** (bounds 300–10000); fitting it needs gravity. Third form, forward only: `{"rule": "collapse"}` = E from the collapse % of `collapse.volume_ratio`, log₁₀ E = a + b × collapse % (the prediction rule fitted on the cohort, `a` 3.6301, `b` −0.013455 in `pipeline/config.py`; both can be given: `{"rule": "collapse", "a": .., "b": ..}`). | 500–5000 Pa |
+| `E_Pa` | 1360 | Effective Young's modulus of the lung tissue [Pa] (tissue, surfactant and recoil together). It sets the gravity slope and scales the reported pressures; without gravity the shape does not depend on it. **Parameter** (bounds 300–10000); fitting it needs gravity. Third form, forward only: `{"rule": "collapse"}` = E from the collapse % of `collapse.volume_ratio`, log₁₀ E = a + b × collapse % (the prediction rule fitted on the cohort, `a` 3.5332, `b` −0.013455 in `eurelaps_lung/config.py`; both can be given: `{"rule": "collapse", "a": .., "b": ..}`). | 500–5000 Pa |
 | `material.nu` | 0.30 | Poisson's ratio: how compressible the tissue is (the lung loses air). **Parameter** (bounds 0.05–0.45). | 0.2–0.45 |
-| `material.name` | `neo_hookean` | Strain-energy function, a name in [`solvers/materials.py`](../pipeline/collapse/solvers/materials.py). Other than `neo_hookean`: `torch` core only. | `neo_hookean`, `mooney_rivlin` |
+| `material.name` | `neo_hookean` | Strain-energy function, a name in [`solvers/materials.py`](../eurelaps_lung/fem/solvers/materials.py). Other than `neo_hookean`: `torch` core only. | `neo_hookean`, `mooney_rivlin` |
 | `material.params` | `{}` | The material's fixed extra parameters. | dict |
 | `tissue_density` | 200 | Mean density of the inflated lung in the model [kg/m³]: the measured pleural gradient, 0.2 cmH₂O/cm (Milic-Emili et al. 1966), divided by g (250 until 2026-11-17; E 1360 = 1700 × 0.8 keeps the same load). Only density / E matters for the shape. | 150–400 |
 | `ct_density` | none | The same measured on the patient's CT (`scripts/ct_density.py`: mass of the collapsed lung / cavity volume; for a new patient with the CT of the inflated lung, its mean density, `--config configs/<p>.json --ct <file> --write-config` sets it) [kg/m³]. **Report only**: the summary adds `ct_density_kg_m3`, `E_Pa_ct` = E × ct_density / tissue_density and `p0_Pa_ct`; the shape does not change. Set in every config (2026-11-17). | 85–300 |

@@ -1,4 +1,4 @@
-"""Smooth wall field (pipeline/collapse/wall_field.py): numpy / scipy only.
+"""Smooth wall field (eurelaps_lung/fem/wall_field.py): numpy / scipy only.
 
     python tests/test_wall_field.py        (or pytest tests/)
 """
@@ -6,7 +6,7 @@
 import numpy as np
 
 import stubs  # noqa: F401
-from pipeline.collapse.wall_field import WallField, penalty, penalty_energy
+from eurelaps_lung.fem.wall_field import WallField, penalty, penalty_energy
 
 R = 40.0
 

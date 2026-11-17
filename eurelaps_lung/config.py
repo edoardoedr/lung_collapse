@@ -1,4 +1,4 @@
-"""Pipeline configuration: one JSON file per patient.
+"""eurelaps_lung configuration: one JSON file per patient.
 
     inputs      the segmented surfaces (inflated lung, optional collapsed lung, airways / vessels)
     geometry, hilum, fem_setup    how the model is built from them
@@ -312,7 +312,7 @@ def _physics(raw):
 # ------------------------------------------------------------------------------------------------
 @dataclass
 class SolverConfig:
-    core: str = "torch"                # core in pipeline/collapse/solvers, or "module:Class"
+    core: str = "torch"                # core in eurelaps_lung/fem/solvers, or "module:Class"
     options: dict = field(default_factory=dict)   # passed to the core (see solvers/nodal.py)
 
 
@@ -380,7 +380,7 @@ class PipelineConfig:
         """Options for the core: solver.options plus what physics decides (wall stiffness, material).
         core: another core than solver.core (validation scripts): the options it does not accept
         are dropped (solvers.options_for)."""
-        from .collapse.solvers import get_solver, options_for
+        from .fem.solvers import get_solver, options_for
         o = dict(self.solver.options, wall_stiffness=self.physics.wall_stiffness, wall_eps=self.physics.wall_eps)
         if core is not None and core != self.solver.core:
             o = options_for(core, o, self.solver.core)

@@ -9,7 +9,7 @@ import dataclasses
 import numpy as np
 
 import stubs
-from pipeline.collapse.problem import CollapseProblem
+from eurelaps_lung.fem.problem import CollapseProblem
 
 SETUP = next((f for f in (stubs.ROOT / "results/karl04_noreg_hilum_wall/fem/setup/problem.npz",   # old layout
                           stubs.ROOT / "results/karl04/fem/setup/problem.npz") if f.is_file()),

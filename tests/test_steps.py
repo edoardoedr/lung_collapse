@@ -14,9 +14,9 @@ import numpy as np
 import stubs
 import fakes  # noqa: F401
 import test_wall_potential as W
-from pipeline.collapse import fit, forward
-from pipeline.collapse.load import LoadModel
-from pipeline.config import load_config
+from eurelaps_lung.fem import fit, forward
+from eurelaps_lung.fem.load import LoadModel
+from eurelaps_lung.config import load_config
 
 BASE = {
     "patient": "karl04", "data_dir": ".", "inputs": {"inflated": "lung.vtk", "collapsed": "lung_collapsed.vtk"},
@@ -66,7 +66,7 @@ def test_load_model():
     tri_n = np.cross(p.reference[p.tris[:, 1]] - p.reference[p.tris[:, 0]], p.reference[p.tris[:, 2]] - p.reference[p.tris[:, 0]]) / 2
     hc = -(p.reference[p.tris].mean(1) @ np.array([0.0, 1.0, 0.0]))
     surf = -(0.3 / m.extent * (hc - hc.mean()))[:, None] * tri_n   # the gravity term on the whole closed surface
-    from pipeline.collapse.geometry import signed_volume
+    from eurelaps_lung.fem.geometry import signed_volume
     V = signed_volume(p.reference, p.tris)
     total = surf.sum(0) + 0.3 * m.body_direction * V
     gamma = 0.3 / m.extent
@@ -103,7 +103,7 @@ def test_forward_E_rule():
                   "physics.ct_density=125", "run_name=rule"])
     if cfg is None:
         return "skipped"
-    from pipeline.config import E_RULE_A, E_RULE_B
+    from eurelaps_lung.config import E_RULE_A, E_RULE_B
     E = 10 ** (E_RULE_A + E_RULE_B * 20.0)
     assert abs(cfg.physics.E_Pa.value - E) < 1e-6 * E
     forward.run(cfg)

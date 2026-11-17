@@ -1,17 +1,18 @@
 """The model's prediction for every patient: the collapsed lung from its collapse % alone.
 
-    python scripts/predict_cohort.py --configs configs/*.json [--run pred] [--frames 30] [--jobs 4] [--collect]
-        [--set KEY=VALUE ...]
+    python scripts/predict_cohort.py --configs configs/*.json [--params calibration/E_fitE.json] [--run pred]
+        [--frames 30] [--jobs 4] [--collect] [--set KEY=VALUE ...]
 
 For each config: the collapse % of the patient's collapsed lung (V_collapsed / V_inflated of
-fem/setup/problem.npz), then one forward run with E from the collapse % (prediction rule,
-physics.E_Pa {"rule": "collapse"}, pipeline/config.py) and q0 searched to reach that volume:
+fem/setup/problem.npz), then one forward run with E from the collapse % and q0 searched to reach
+that volume:
 
-    python main.py --config <c> --steps collapse --set 'physics.collapse={"volume_ratio": r}'
-        'physics.E_Pa={"rule": "collapse"}' collapse.sequence_frames=<frames> run_name=<run>
+    python main_predict.py --config <c> --collapse <the patient's %> [--params <rule file>] --frames <frames> --run <run>
 
-Logs in logs_cohort/<patient>_<run>.txt; then the table: collapse target / reached, E, p0 (and with
-the CT density), ASSD against the real collapsed lung, rigid rotation, wall.
+E from --params (rule file of main_calibrate.py), else from the built-in rule (physics.E_Pa
+{"rule": "collapse"}, eurelaps_lung/config.py). Logs in logs_cohort/<patient>_<run>.txt; then the
+table: collapse target / reached, E, p0 (and with the CT density), ASSD against the real collapsed
+lung, rigid rotation, wall.
 """
 
 import argparse
@@ -25,14 +26,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pipeline.collapse.geometry import signed_volume                 # noqa: E402
-from pipeline.collapse.problem import CollapseProblem                 # noqa: E402
-from pipeline.config import load_config                               # noqa: E402
+from eurelaps_lung.fem.geometry import signed_volume                 # noqa: E402
+from eurelaps_lung.fem.problem import CollapseProblem                 # noqa: E402
+from eurelaps_lung.config import load_config                               # noqa: E402
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--configs", nargs="+", required=True)
+    ap.add_argument("--params", help="rule file of main_calibrate.py (default: the built-in rule)")
     ap.add_argument("--run", default="pred")
     ap.add_argument("--frames", type=int, default=30, help="collapse sequence frames (0 = none)")
     ap.add_argument("--jobs", type=int, default=2)
@@ -59,9 +61,14 @@ def main():
 
     def run(job):
         patient, c, ratio, _ = job
-        cmd = [sys.executable, str(ROOT / "main.py"), "--config", c, "--steps", "collapse", "--set",
-               'physics.collapse={"volume_ratio": %.5f}' % ratio, 'physics.E_Pa={"rule": "collapse"}',
-               "collapse.sequence_frames=%d" % args.frames, "run_name=%s" % args.run, *args.set]
+        cmd = [sys.executable, str(ROOT / "main_predict.py"), "--config", c, "--collapse", "%.6f" % (100 * (1 - ratio)),
+               "--frames", str(args.frames), "--run", args.run]
+        sets = list(args.set)
+        if args.params:
+            cmd += ["--params", args.params]
+        else:
+            sets.insert(0, 'physics.E_Pa={"rule": "collapse"}')
+        cmd += ["--set", *sets]
         with open(logs / ("%s_%s.txt" % (patient, args.run)), "w") as f:
             rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=ROOT).returncode
         print("%s %s: exit %d (collapse %.1f %%)" % (patient, args.run, rc, 100 * (1 - ratio)), flush=True)

@@ -307,7 +307,7 @@ These terms are not part of the physical model and are never used in prediction.
 6. *Rigid clamp.* The hilum does not move; the pulmonary ligament and the bronchial and vascular tethering beyond the hilum region are not modelled.
 7. *Rigid, frictionless wall equal to the inflated lung.* The diaphragm, the mediastinum and the heart move in a pneumothorax and are softer than the ribs; adhesions and friction are absent. The wall is smoothed over ~3 mm.
 8. *One body.* The lobes are not separated: no sliding along the fissures, no self-contact of the lung surface, no folding.
-9. *Mean density assumed* ($\bar\rho$ = 250 kg/m³). Since only $\bar\rho / E$ matters for the shape, an error in $\bar\rho$ is an error of the same relative size in the calibrated $E$.
+9. *Mean density assumed* ($\bar\rho$ = 200 kg/m³, the measured pleural gradient; the CT gives 85–294 kg/m³ per patient). Since only $\bar\rho / E$ matters for the shape, an error in $\bar\rho$ is an error of the same relative size in the calibrated $E$.
 10. *Patient position.* The scan is assumed supine (the pleural air is anterior in 15 / 15 patients); the buoyancy of the pleural air (~1/200 of the lung's weight) and the small motion of the lung while the patient is turned with the chest closed are neglected.
 11. *No surgical action.* Instruments, retraction, one-lung ventilation settings and residual airway pressure are outside the model; a residual pressure is absorbed in $p_0$.
 12. *The cavity as the inflated lung.* The reference is the pleural cavity of the pneumothorax scan, not the lung before the pneumothorax. With the pleural pressure lost the chest wall springs outward, the mediastinum shifts to the other side and the hemidiaphragm flattens, so the cavity is larger than the lung that filled it, and shaped differently on its medial and diaphragmatic faces. The collapse % measured against it is an overestimate, and the model must also "collapse away" volume the lung never occupied. The size of this error is unknown and probably grows with the size of the pneumothorax.
@@ -338,13 +338,15 @@ These terms are not part of the physical model and are never used in prediction.
 
 ## 9. Implementation
 
-| File (`pipeline/`) | Content |
+| File (`eurelaps_lung/`) | Content |
 |---|---|
 | `surface_mesh.py`, `hilum.py`, `check_inputs.py` | section 2 |
-| `collapse/setup.py`, `wall_field.py` | clamp, wall field, volume mesh (sections 2, 3.5) |
-| `collapse/load.py` | the load as a function of the parameters, its linear structure and the chain rule (3.7, 6.2, 6.4) |
-| `collapse/solvers/nodal.py` | Newton, load path, wall, body force, sensitivities (section 4) |
-| `collapse/solvers/torch_solver.py`, `warp_solver.py`, `getfem_solver.py`, `materials.py` | the three cores and the strain energies (3.4, 4.4) |
-| `collapse/forward.py` | forward problem (section 5) |
-| `collapse/fit.py` | inverse problem (section 6) |
+| `fem/setup.py`, `wall_field.py` | clamp, wall field, volume mesh (sections 2, 3.5) |
+| `fem/load.py` | the load as a function of the parameters, its linear structure and the chain rule (3.7, 6.2, 6.4) |
+| `fem/solvers/nodal.py` | Newton, load path, wall, body force, sensitivities (section 4) |
+| `fem/solvers/torch_solver.py`, `warp_solver.py`, `getfem_solver.py`, `materials.py` | the three cores and the strain energies (3.4, 4.4) |
+| `fem/forward.py` | forward problem (section 5) |
+| `fem/fit.py` | inverse problem (section 6) |
+| `calibration.py` | the population rule from the per-patient fits (section 6) |
+| `main_fit.py`, `main_calibrate.py`, `main_predict.py` (repository root) | entry points: one fit, cohort calibration + leave-one-out, prediction |
 | `tests/` | the checks of section 8 that run without the FEM libraries |

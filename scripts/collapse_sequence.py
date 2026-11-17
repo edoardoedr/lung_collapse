@@ -1,4 +1,4 @@
-"""Collapse sequence of a run for 3D Slicer / ParaView (pipeline/collapse/sequence.py), after the
+"""Collapse sequence of a run for 3D Slicer / ParaView (eurelaps_lung/fem/sequence.py), after the
 collapse or fit step of the config:
 
     python scripts/collapse_sequence.py --config configs/karl04.json
@@ -17,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pipeline.collapse.sequence import make_sequence              # noqa: E402
-from pipeline.config import load_config                           # noqa: E402
+from eurelaps_lung.fem.sequence import make_sequence              # noqa: E402
+from eurelaps_lung.config import load_config                           # noqa: E402
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
                     help="fem = re-solve along the load ramp (physical); linear = straight morph")
     ap.add_argument("--volume", action="store_true", help="also write volume frames (fem mode)")
     ap.add_argument("--fps", type=float, default=8.0, help="playback speed in Slicer")
-    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main.py")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main_fit.py")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
     make_sequence(load_config(args.config, args.set), args.frames, args.mode, args.volume, args.fps)

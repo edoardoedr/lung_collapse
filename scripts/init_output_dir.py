@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pipeline.config import load_config                              # noqa: E402
+from eurelaps_lung.config import load_config                              # noqa: E402
 
 FILES = ["lung_inflated_mesh.vtp", "lung_collapsed_mesh.vtp", "hilum_anchor.mrk.json", "checks/check_summary.json",
          "fem/setup/problem.npz", "fem/setup/setup_summary.json", "fem/setup/reference.vtp", "fem/setup/volume.vtu",

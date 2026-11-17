@@ -16,9 +16,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pipeline.collapse.problem import CollapseProblem                # noqa: E402
-from pipeline.collapse.setup import wall_field_arrays                # noqa: E402
-from pipeline.config import load_config                              # noqa: E402
+from eurelaps_lung.fem.problem import CollapseProblem                # noqa: E402
+from eurelaps_lung.fem.setup import wall_field_arrays                # noqa: E402
+from eurelaps_lung.config import load_config                              # noqa: E402
 
 
 def main():
@@ -27,7 +27,7 @@ def main():
     ap.add_argument("--grid", type=float, default=None, help="grid spacing [mm] (default: fem_setup.wall_grid_mm, else 1.5)")
     ap.add_argument("--smoothing", type=float, default=None, help="Gaussian sigma [mm] (default: fem_setup.wall_smoothing_mm)")
     ap.add_argument("--margin", type=float, default=None, help="grid margin [mm] (default: fem_setup.wall_grid_margin_mm)")
-    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main.py")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main_fit.py")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
 

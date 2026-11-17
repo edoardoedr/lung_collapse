@@ -121,7 +121,7 @@ def make_sequence(cfg, frames=30, mode="fem", volume=False, fps=8.0, solver=None
     return out
 
 
-SLICER_SCRIPT = r'''"""Lung collapse sequence for 3D Slicer, written by the lung_collapse pipeline.
+SLICER_SCRIPT = r'''"""Lung collapse sequence for 3D Slicer, written by eurelaps_lung.
 
     Slicer --python-script load_collapse_in_slicer.py
 or, in Slicer's Python console:

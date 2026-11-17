@@ -44,7 +44,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pipeline.data_io import read_surface                             # noqa: E402
+from eurelaps_lung.data_io import read_surface                             # noqa: E402
 
 
 def mask_from_surface(surf, img):
@@ -161,7 +161,7 @@ def analyse_inflated(p, ct, inflated, airways=None):
 
 def one_config(args):
     """--config mode: one patient, from its config; optionally writes physics.ct_density."""
-    from pipeline.config import load_config
+    from eurelaps_lung.config import load_config
     cfg = load_config(args.config)
     ct = Path(args.ct) if args.ct else find_ct(Path(args.ct_dir), cfg.patient)
     if ct is None or not ct.is_file():

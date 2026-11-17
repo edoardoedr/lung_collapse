@@ -100,7 +100,7 @@ def write_surface(mesh, path, space):
         w = vtkXMLPolyDataWriter()
     elif suffix == ".vtk":
         w = vtkPolyDataWriter()
-        w.SetHeader("lung_collapse pipeline. SPACE=%s" % space)
+        w.SetHeader("eurelaps_lung. SPACE=%s" % space)
         w.SetFileTypeToBinary()
     else:
         log.warning("%s: format cannot store the coordinate space (%s)", path.name, space)

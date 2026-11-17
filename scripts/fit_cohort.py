@@ -4,7 +4,7 @@
     python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000 \
         [--jobs 4] [--prefix gE] [--set KEY=VALUE ...]
 
-Each run is `python main.py --config <c> --steps fit --set <param>=<value> run_name=<prefix><value>`
+Each run is `python main_fit.py --config <c> --steps fit --set <param>=<value> run_name=<prefix><value>`
 (logs in logs_cohort/); then one table: ASSD per patient and value, the median / mean per value
 over the patients that finished all values, and the failed solves. Keep --jobs small (<= 4): many
 parallel runs share one GPU and slow every solve.
@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pipeline.config import load_config                              # noqa: E402
+from eurelaps_lung.config import load_config                              # noqa: E402
 
 
 def main():
@@ -42,7 +42,7 @@ def main():
     def run(job):
         c, v = job
         name = "%s%s" % (prefix, v)
-        cmd = [sys.executable, str(ROOT / "main.py"), "--config", c, "--steps", "fit", "--set",
+        cmd = [sys.executable, str(ROOT / "main_fit.py"), "--config", c, "--steps", "fit", "--set",
                "%s=%s" % (args.param, v), "run_name=%s" % name, *args.set]
         with open(logs / ("%s_%s.txt" % (Path(c).stem, name)), "w") as f:
             rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=ROOT).returncode

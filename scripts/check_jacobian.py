@@ -32,11 +32,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pipeline.collapse import fit                                    # noqa: E402
-from pipeline.collapse.load import LoadModel                         # noqa: E402
-from pipeline.collapse.problem import CollapseProblem                # noqa: E402
-from pipeline.collapse.solvers import get_solver                     # noqa: E402
-from pipeline.config import load_config                              # noqa: E402
+from eurelaps_lung.fem import fit                                    # noqa: E402
+from eurelaps_lung.fem.load import LoadModel                         # noqa: E402
+from eurelaps_lung.fem.problem import CollapseProblem                # noqa: E402
+from eurelaps_lung.fem.solvers import get_solver                     # noqa: E402
+from eurelaps_lung.config import load_config                              # noqa: E402
 
 
 def compare(names, J, fd_column):
@@ -167,7 +167,7 @@ def check(cfg, core, opts, args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", required=True)
-    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main.py")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main_fit.py")
     ap.add_argument("--bands", type=int, default=4, help="pressure regions of the core check")
     ap.add_argument("--q", type=float, default=0.5, help="mean p/E of the check")
     ap.add_argument("--h", type=float, default=1e-5, help="finite-difference step")

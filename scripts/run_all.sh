@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run cases: configs/<case>.json (the steps of the config), cases in parallel.
-# Logs in logs_run_all/<case>.txt. Extra arguments after "--" go to main.py.
+# Logs in logs_run_all/<case>.txt. Extra arguments after "--" go to main_fit.py.
 #
 #   bash scripts/run_all.sh                                      # every configs/*.json
 #   bash scripts/run_all.sh karl04 karl20                        # only these
@@ -23,7 +23,7 @@ export PYTHONUNBUFFERED=1 CUDA_PYTHON_DISABLE_MAJOR_VERSION_WARNING=1
 
 run_case() {
     local c=$1 rc
-    python main.py --config configs/${c}.json "${EXTRA[@]}" > logs_run_all/$c${LOG:+_$LOG}.txt 2>&1
+    python main_fit.py --config configs/${c}.json "${EXTRA[@]}" > logs_run_all/$c${LOG:+_$LOG}.txt 2>&1
     rc=$?                                                  # before $(date) overwrites it
     echo "$(date +%H:%M) $c: exit $rc"
 }

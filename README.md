@@ -1,6 +1,6 @@
-# Lung collapse pipeline
+# eurelaps_lung: lung collapse model
 
-A finite-element model of the collapse of a lung in VATS surgery, built from CT segmentations. Given the inflated lung, it predicts the collapsed one from a few physical parameters (stiffness, density, patient position, how much the lung collapses); given also the collapsed lung, it fits those parameters to it. The simulations are the training data for a GNN surrogate.
+A finite-element model of the collapse of a lung in VATS surgery, built from CT segmentations, as the Python package `eurelaps_lung` (Eureka + collapse: the load is Archimedes' hydrostatics, the pleural pressure gradient that carried the lung's weight) with three entry points. Given the inflated lung, it predicts the collapsed one from a few physical parameters (stiffness, density, patient position, how much the lung collapses); given also the collapsed lung, it fits those parameters to it. The simulations are the training data for a GNN surrogate.
 
 **The model** (details and equations in [METHODOLOGY.md](METHODOLOGY.md)): the inflated lung is an elastic body, fixed at the hilum. In the pneumothorax it loses the pleural pressure that kept it open, and with it the pressure gradient that carried its weight, so it shrinks and settles on the chest wall:
 
@@ -29,12 +29,12 @@ Each physical parameter is either **given** (a number) or **fitted** to the coll
 | Step | Code | What it does | Main output |
 |---|---|---|---|
 | segmentation | manual, 3D Slicer | surfaces of the lungs, airways and vessels | `<data_dir>/*.vtk` |
-| `check_inputs` | [check_inputs.py](pipeline/check_inputs.py) | finds segmentation problems before they break the meshing (needs the collapsed lung) | `checks/` |
-| `geometry` | [surface_mesh.py](pipeline/surface_mesh.py) | clean, uniform surface meshes (~480 nodes) of the inflated lung and, if given, of the collapsed one | `lung_inflated_mesh.vtp`, `lung_collapsed_mesh.vtp` |
-| `hilum` | [hilum.py](pipeline/hilum.py) | where airways, arteries and veins enter the lung | `hilum_anchor.mrk.json` |
-| `fem_setup` | [collapse/setup.py](pipeline/collapse/setup.py) | clamp at the hilum, chest wall, tetrahedral mesh | `fem/setup/problem.npz` |
-| `collapse` | [collapse/forward.py](pipeline/collapse/forward.py) | **forward:** all parameters given → collapsed lung | `runs/<run_name>/` |
-| `fit` | [collapse/fit.py](pipeline/collapse/fit.py) | **inverse:** fits the parameters marked `fit` to the collapsed lung | `runs/<run_name>/` |
+| `check_inputs` | [check_inputs.py](eurelaps_lung/check_inputs.py) | finds segmentation problems before they break the meshing (needs the collapsed lung) | `checks/` |
+| `geometry` | [surface_mesh.py](eurelaps_lung/surface_mesh.py) | clean, uniform surface meshes (~480 nodes) of the inflated lung and, if given, of the collapsed one | `lung_inflated_mesh.vtp`, `lung_collapsed_mesh.vtp` |
+| `hilum` | [hilum.py](eurelaps_lung/hilum.py) | where airways, arteries and veins enter the lung | `hilum_anchor.mrk.json` |
+| `fem_setup` | [fem/setup.py](eurelaps_lung/fem/setup.py) | clamp at the hilum, chest wall, tetrahedral mesh | `fem/setup/problem.npz` |
+| `collapse` | [fem/forward.py](eurelaps_lung/fem/forward.py) | **forward:** all parameters given → collapsed lung | `runs/<run_name>/` |
+| `fit` | [fem/fit.py](eurelaps_lung/fem/fit.py) | **inverse:** fits the parameters marked `fit` to the collapsed lung | `runs/<run_name>/` |
 
 ## Setup
 
@@ -50,38 +50,61 @@ The `collapse` and `fit` steps also need the library of the FEM core chosen in `
 
 ## Running
 
+Three entry points, all driven by the patient's config:
+
+| Entry point | Input | What it does | Output |
+|---|---|---|---|
+| `main_fit.py` | one config, inflated + collapsed lung | builds the model and fits the parameters marked `fit` to the collapsed lung | `runs/<run_name>/` |
+| `main_calibrate.py` | many configs | fits every patient, then the population rule (E from the collapse %) and its leave-one-out test | rule file `calibration/<rule>_<fit-run>.json` |
+| `main_predict.py` | one config, inflated lung (collapsed optional) + collapse % + parameters | forward run: the collapsed lung | `runs/<run>/` (+ Slicer sequence) |
+
+**Fit one patient** (`main_fit.py`): the steps listed in the config, or `--steps`, always in order check_inputs → geometry → hilum → fem_setup → fit.
+
 ```bash
-python main.py --config configs/karl04.json                       # the steps listed in the config
-python main.py --config configs/karl04.json --steps fit           # only some steps
+python main_fit.py --config configs/karl04.json                   # the steps listed in the config
+python main_fit.py --config configs/karl04.json --steps fit       # only some steps
 ```
 
 One-off changes without editing the config: `--set key=value ...` (value parsed as JSON; a misspelt key is an error). Give each variant its own `run_name`, so it goes to its own folder:
 
 ```bash
 # fit the collapse pressure with another stiffness
-python main.py --config configs/karl04.json --steps fit --set physics.E_Pa=1000 run_name=E1000
+python main_fit.py --config configs/karl04.json --steps fit --set physics.E_Pa=1000 run_name=E1000
 
 # fit the stiffness too
-python main.py --config configs/karl04.json --steps fit \
+python main_fit.py --config configs/karl04.json --steps fit \
     --set 'physics.E_Pa={"fit": true, "init": 1360, "bounds": [300, 10000]}' run_name=fitE
-
-# predict: collapse to half the volume, patient on the left side, with a sequence for Slicer
-python main.py --config configs/karl04.json --steps collapse \
-    --set 'physics.collapse={"volume_ratio": 0.5}' 'physics.gravity={"reference": "supine", "collapse": "left_lateral"}' \
-          collapse.sequence_frames=30 run_name=half_lateral
 ```
 
-**A new patient (prediction, no collapsed lung):** export from 3D Slicer the inflated lung and the airway, artery and vein trees as `.vtk`; copy `configs/templates/new_patient.json` to `configs/<patient>.json`, set `patient`, `data_dir`, `output_dir`, the file names and `physics.collapse.volume_ratio`; optionally the density from the CT, `python scripts/ct_density.py --config configs/<patient>.json --ct <ct.nii.gz> --write-config` (report only: E and p0 also at that density); run `python main.py --config configs/<patient>.json` (geometry → hilum → fem_setup → collapse, with the Slicer sequence in `output_dir/runs/pred/sequence/`). Another collapse % on the same setup: `--steps collapse --set 'physics.collapse={"volume_ratio": 0.6}' run_name=pred40`.
+**Calibrate on the cohort** (`main_calibrate.py`): (1) the fit of every patient with the chosen parameters free (`--fit E [nu]`, q0 always), (2) the rule log10 E = a + b · collapse % on the patients whose E is not at a bound (E bounds 160–16000 Pa at ρ̄ 200, scaled with the config's density; a fit at another density is judged at 200), written to a JSON file, (3) leave-one-out: every patient predicted with the rule of the others. Rules `E_rho` / `sg_rho` also use the CT density (`--density`, csv of `scripts/ct_density.py`).
 
-Prediction from the collapse % alone (E from the cohort rule, q0 from the volume): `python main.py --config configs/karl04.json --steps collapse --set 'physics.collapse={"volume_ratio": 0.5}' 'physics.E_Pa={"rule": "collapse"}' run_name=pred`; for every patient at its own collapse %: `python scripts/predict_cohort.py --configs configs/*.json`.
+```bash
+python main_calibrate.py --configs configs/*.json --fit E --jobs 4                  # fits + rule + leave-one-out
+python main_calibrate.py --configs configs/*.json --fit E --fit-run fitE_nu30 --skip-fit --no-loo   # rule from existing fits
+```
 
-Several patients: `JOBS=4 bash scripts/run_all.sh [case ...] [-- main.py arguments]` (logs in `logs_run_all/`). One parameter shared by all patients, scanned over values: `python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000`. A table of all runs: `python scripts/summarize_runs.py <results folder>`.
+**Predict** (`main_predict.py`): the inflated lung collapsed to a given collapse % (q0 searched to reach that volume), with E from a rule file (`--params`), from a fit of the same patient (`--from-fit RUN`), or from the config. Any other parameter with `--set`.
 
-Steps always run in pipeline order. If a step fails, the error is in `logs/pipeline.log` and the run stops.
+```bash
+python main_predict.py --config configs/karl04.json --collapse 50 --params calibration/E_fitE.json --frames 30
+python main_predict.py --config configs/karl04.json --collapse 50 --from-fit fitE --run half_fitE
+
+# patient on the left side during the collapse
+python main_predict.py --config configs/karl04.json --collapse 50 --params calibration/E_fitE.json \
+    --set 'physics.gravity={"reference": "supine", "collapse": "left_lateral"}' --run half_lateral
+```
+
+**A new patient (no collapsed lung):** export from 3D Slicer the inflated lung and the airway, artery and vein trees as `.vtk`; copy `configs/templates/new_patient.json` to `configs/<patient>.json` and set `patient`, `data_dir`, `output_dir` and the file names; optionally the density from the CT, `python scripts/ct_density.py --config configs/<patient>.json --ct <ct.nii.gz> --write-config`; then `python main_predict.py --config configs/<patient>.json --collapse 50 [--params ...] --frames 30`. The first run builds the geometry (geometry → hilum → fem_setup); the next ones reuse it. Without `--params`, E comes from the built-in rule (`physics.E_Pa {"rule": "collapse"}`).
+
+**Several patients:** `JOBS=4 bash scripts/run_all.sh [case ...] [-- main_fit.py arguments]` (logs in `logs_run_all/`). One parameter shared by all patients, scanned over values: `python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000`. Every patient predicted at its own collapse %: `python scripts/predict_cohort.py --configs configs/*.json [--params ...]`. A table of all runs: `python scripts/summarize_runs.py <results folder>`.
+
+If a step fails, the error is in `logs/fit.log` (or `predict.log`) and the run stops.
+
+**As a library:** `from eurelaps_lung.config import load_config`, `from eurelaps_lung.fem import forward, fit`, `from eurelaps_lung import calibration`.
 
 ## Input data
 
-One folder per patient (`data_dir`), surface models exported from 3D Slicer (`.vtk`), all from the same scan: the inflated lung (`lung_left.vtk`), the airway, artery and vein trees, and optionally the collapsed lung (`lung_left_collapsed.vtk`). Without the collapsed lung set `inputs.collapsed` to `null`, `hilum.lung` to `"inflated"` and use the `collapse` step only.
+One folder per patient (`data_dir`), surface models exported from 3D Slicer (`.vtk`), all from the same scan: the inflated lung (`lung_left.vtk`), the airway, artery and vein trees, and optionally the collapsed lung (`lung_left_collapsed.vtk`). Without the collapsed lung set `inputs.collapsed` to `null` and use `main_predict.py` only.
 
 ## Configuration
 
@@ -109,14 +132,14 @@ One JSON per patient in [`configs/`](configs/); **every key is explained in [`co
 │                        state.npz       the solution, to re-solve it (sequence)
 │                        sequence/       collapse sequence for Slicer / ParaView
 │                        history.csv, best_state.npz, best_params.json    (fit)
-└── logs/                pipeline.log, config used
+└── logs/                fit.log / predict.log, config used
 ```
 
 All surfaces are in LPS, with the space stored in the file.
 
 ## Viewing
 
-**Animated:** `python scripts/collapse_sequence.py --config configs/<p>.json [--set run_name=...]` (or `collapse.sequence_frames` in a forward run) writes `runs/<run_name>/sequence/`. Copy the folder to the machine with Slicer and open it:
+**Animated:** `python scripts/collapse_sequence.py --config configs/<p>.json [--set run_name=...]` (or `--frames` of `main_predict.py`) writes `runs/<run_name>/sequence/`. Copy the folder to the machine with Slicer and open it:
 
 ```bash
 /Applications/Slicer.app/Contents/MacOS/Slicer --python-script <folder>/load_collapse_in_slicer.py

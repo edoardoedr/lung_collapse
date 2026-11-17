@@ -28,13 +28,13 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pipeline.collapse import fit                                    # noqa: E402
-from pipeline.collapse.geometry import WallDistance                  # noqa: E402
-from pipeline.collapse.load import LoadModel                         # noqa: E402
-from pipeline.collapse.problem import CollapseProblem                # noqa: E402
-from pipeline.collapse.solvers import get_solver                     # noqa: E402
-from pipeline.collapse.solvers.nodal import NodalSolver              # noqa: E402
-from pipeline.config import load_config                              # noqa: E402
+from eurelaps_lung.fem import fit                                    # noqa: E402
+from eurelaps_lung.fem.geometry import WallDistance                  # noqa: E402
+from eurelaps_lung.fem.load import LoadModel                         # noqa: E402
+from eurelaps_lung.fem.problem import CollapseProblem                # noqa: E402
+from eurelaps_lung.fem.solvers import get_solver                     # noqa: E402
+from eurelaps_lung.fem.solvers.nodal import NodalSolver              # noqa: E402
+from eurelaps_lung.config import load_config                              # noqa: E402
 
 FAILS = ("fail_inverted", "fail_maxit", "fail_linear", "fail_nonfinite", "fail_time", "fail_unsettled")
 
@@ -79,7 +79,7 @@ def worst_points(problem, trace, top=6):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", required=True)
-    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main.py")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main_fit.py")
     ap.add_argument("--q", type=float, default=0.2, help="uniform p/E (q0) to reach, with the config's gravity term")
     ap.add_argument("--nu", type=float, default=None, help="default: physics.material.nu")
     ap.add_argument("--steps", type=int, default=10, help="load increments")

@@ -72,7 +72,7 @@ def migrate(old, E=1360.0, wall_update="potential", run_name=None):
             "wall": {"stiffness": so.get("wall_stiffness", 20.0), "eps": so.get("wall_eps", 0.5)},
             "perturbation": None},
         "solver": {"_comment": "core: torch | warp | getfem (validation); the rest are the core's options "
-                               "(pipeline/collapse/solvers/nodal.py)",
+                               "(eurelaps_lung/fem/solvers/nodal.py)",
                    "core": ff.get("solver", "torch"), "wall_update": wall_update,
                    **{k: v for k, v in so.items() if k not in DROPPED_SOLVER}, "newton_maxit": 50},
         "collapse": {"sequence_frames": 0},

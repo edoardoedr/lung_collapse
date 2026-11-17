@@ -36,11 +36,11 @@ from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pipeline.collapse import fit                                    # noqa: E402
-from pipeline.collapse.geometry import WallDistance                  # noqa: E402
-from pipeline.collapse.problem import CollapseProblem                # noqa: E402
-from pipeline.collapse.solvers import get_solver, options_for        # noqa: E402
-from pipeline.config import SolverConfig, load_config                # noqa: E402
+from eurelaps_lung.fem import fit                                    # noqa: E402
+from eurelaps_lung.fem.geometry import WallDistance                  # noqa: E402
+from eurelaps_lung.fem.problem import CollapseProblem                # noqa: E402
+from eurelaps_lung.fem.solvers import get_solver, options_for        # noqa: E402
+from eurelaps_lung.config import SolverConfig, load_config                # noqa: E402
 
 CORE = "warp"                                    # core compared with GetFEM (--core)
 C = {"it": "it Warp", "pen": "pen Warp"}
@@ -223,7 +223,7 @@ def compare_fit(cfg):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", required=True)
-    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main.py")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="config overrides as in main_fit.py")
     ap.add_argument("--level", type=int, default=1, help="index of the fem_setup regions level (default 1 = second)")
     ap.add_argument("--bands", type=int, default=4, help="pressure regions when the fem_setup has none")
     ap.add_argument("--h", type=float, default=1e-5, help="finite-difference step for (c)")

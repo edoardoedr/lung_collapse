@@ -6,8 +6,8 @@ potential, Jacobian) can be run locally on a real problem.npz."""
 import numpy as np
 
 import stubs  # noqa: F401
-from pipeline.collapse.solvers.common import dmat_params_dnu, mat_params
-from pipeline.collapse.solvers.nodal import LinearSolver, NodalSolver
+from eurelaps_lung.fem.solvers.common import dmat_params_dnu, mat_params
+from eurelaps_lung.fem.solvers.nodal import LinearSolver, NodalSolver
 
 
 def _skew(v):
