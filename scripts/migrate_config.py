@@ -64,7 +64,7 @@ def migrate(old, E=1700.0, wall_update="potential", run_name=None):
                         "gravity: position of the inflated CT and of the collapse (supine | prone | left_lateral | "
                         "right_lateral | [x, y, z] LPS), null = no gravity. collapse: q0 (p/E) | p0_Pa | volume_ratio. "
                         "perturbation (fit only): null | {gradient: [ap, si, ml]} | {regions: [K, ...]}",
-            "material": {"name": so.get("material", "neo_hookean"), "nu": ff.get("nu", 0.40),
+            "material": {"name": so.get("material", "neo_hookean"), "nu": ff.get("nu", 0.30),
                          "params": so.get("material_params", {})},
             "E_Pa": E, "tissue_density": ff.get("tissue_density", 250.0),
             "gravity": {"reference": "supine", "collapse": "supine"},
@@ -80,7 +80,7 @@ def migrate(old, E=1700.0, wall_update="potential", run_name=None):
                 **{k: ff[k] for k in FIT_KEYS if k in ff}},
     }
     if ff.get("free_nu"):
-        new["physics"]["material"]["nu"] = {"fit": True, "init": ff.get("nu", 0.40),
+        new["physics"]["material"]["nu"] = {"fit": True, "init": ff.get("nu", 0.30),
                                             "bounds": ff.get("nu_bounds", [0.05, 0.45])}
     return new
 

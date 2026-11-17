@@ -221,7 +221,7 @@ def _physics(raw):
     p = PhysicsConfig()
     mat = _clean(raw.get("material", {}), "physics.material", ("name", "nu", "params"))
     p.material, p.material_params = mat.get("name", "neo_hookean"), dict(mat.get("params", {}))
-    p.nu = Param.parse("physics.material.nu", mat.get("nu", 0.40), (0.05, 0.45))
+    p.nu = Param.parse("physics.material.nu", mat.get("nu", 0.30), (0.05, 0.45))
     p.E_Pa = Param.parse("physics.E_Pa", raw.get("E_Pa", 1700.0), (300.0, 10000.0))
     p.tissue_density = float(raw.get("tissue_density", 250.0))
     if p.E_Pa.value <= 0 or p.tissue_density <= 0 or not 0.0 < p.nu.value < 0.5:
@@ -236,7 +236,7 @@ def _physics(raw):
         eA, nA = _position("physics.gravity.reference", g["reference"])
         eB, nB = _position("physics.gravity.collapse", g.get("collapse", g["reference"]))
         p.gravity = dict(reference=eA, collapse=eB, names=(nA, nB))
-    c = _clean(raw.get("collapse", {"q0": {"fit": True, "init": 0.5}}), "physics.collapse",
+    c = _clean(raw.get("collapse", {"q0": {"fit": True, "init": 0.3}}), "physics.collapse",
                ("q0", "p0_Pa", "volume_ratio"))
     if len(c) != 1:
         raise ValueError("physics.collapse: exactly one of q0, p0_Pa, volume_ratio")

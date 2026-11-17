@@ -79,7 +79,7 @@
     "_comment": "a parameter is a number (fixed) or {fit: true, init, bounds} (fitted by the fit step). gravity: position of the inflated CT and of the collapse (supine | prone | left_lateral | right_lateral | [x, y, z] LPS), null = no gravity. collapse: q0 (p/E) | p0_Pa | volume_ratio. perturbation (fit only): null | {gradient: [ap, si, ml]} | {regions: [K, ...]}",
     "material": {
       "name": "neo_hookean",
-      "nu": 0.4,
+      "nu": 0.3,
       "params": {}
     },
     "E_Pa": 1700.0,
@@ -91,7 +91,7 @@
     "collapse": {
       "q0": {
         "fit": true,
-        "init": 0.5,
+        "init": 0.3,
         "bounds": [
           -1.0,
           3.0

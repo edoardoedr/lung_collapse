@@ -20,7 +20,7 @@ q = q0 + γ (h − h̄),     q0 = p0 / E,     γ = ρ̄ g / E,     h = −e_A ·
 | Parameter | Config key | Notes |
 |---|---|---|
 | E | `physics.E_Pa` | default 1700 Pa; with gravity, only ρ̄ / E is identified |
-| ν | `physics.material.nu` | 0.40 fixed (K/E = 1.67, collapse ≈ q0 / 1.67 if hydrostatic) |
+| ν | `physics.material.nu` | 0.30 fixed since 2026-11-17, 0.40 before (K/E = 0.83, collapse ≈ q0 / 0.83 if hydrostatic); not identifiable from the shape (results 5c, `fitEnu`) |
 | ρ̄ | `physics.tissue_density` | 250 kg/m³ |
 | positions | `physics.gravity` | `{reference, collapse}` ∈ supine / prone / left_lateral / right_lateral / [x,y,z] LPS; different positions add a body force γ(e_B − e_A) |
 | q0 | `physics.collapse` | `q0` or `p0_Pa` or `volume_ratio` (forward only: q0 searched to reach that volume) |

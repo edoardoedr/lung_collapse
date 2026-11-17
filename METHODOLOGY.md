@@ -96,7 +96,7 @@ P = \frac{\partial W}{\partial F}
 = c_1 J^{-2/3}\left(2F - \tfrac{2}{3} I_1 F^{-T}\right) + 2 d_1 (J - 1)\, J\, F^{-T} .
 $$
 
-The first term is isochoric (shape change), the second volumetric. The lung loses air as it collapses, so it is compressible: $\nu = 0.40$, i.e. $K = 1.67\,E$. Under a uniform pressure the response is $p = K (1 - J)$ at any strain. $E$ is an **effective** modulus of the parenchyma as a continuum: tissue elasticity, surface tension of the alveoli and the recoil they produce are lumped in it.
+The first term is isochoric (shape change), the second volumetric. The lung loses air as it collapses, so it is compressible: $\nu = 0.30$, i.e. $K = 0.83\,E$ (0.40 until 2026-11-17; $\nu$ is not identifiable from the collapsed shape, it trades off against $q_0$: analysis/results.md 5c). Under a uniform pressure the response is $p = K (1 - J)$ at any strain. $E$ is an **effective** modulus of the parenchyma as a continuum: tissue elasticity, surface tension of the alveoli and the recoil they produce are lumped in it.
 
 ### 3.5 Chest wall
 
@@ -154,9 +154,9 @@ $$
 
 | Symbol | Meaning | Value | Role |
 |---|---|---|---|
-| $q_0 = p_0/E$ | uniform pressure released / stiffness; sets the collapse % | 0.3–1.1 ($p_0$ 0.4–1.8 kPa) | per patient: fitted, or found from the collapse % |
+| $q_0 = p_0/E$ | uniform pressure released / stiffness; sets the collapse % | ~0.15–0.55 at $\nu = 0.30$ (0.3–1.1 at 0.40) | per patient: fitted, or found from the collapse % |
 | $E$ | effective Young's modulus of the parenchyma | ~1–1.7 kPa (being calibrated) | common to the patients, or fitted |
-| $\nu$ | Poisson's ratio | 0.40 | fixed |
+| $\nu$ | Poisson's ratio | 0.30 | fixed (not identifiable) |
 | $\bar\rho$ | mean density of the inflated lung | 250 kg/m³ | assumed (no CT values available) |
 | $g$ | gravity | 9.81 m/s² ($\bar\rho g$ = 2.45 Pa/mm) | – |
 | $e_A$, $e_B$ | gravity direction in the reference scan and during the collapse | supine, supine | chosen |
@@ -293,7 +293,7 @@ These terms are not part of the physical model and are never used in prediction.
 
 1. *Stress-free reference.* The inflated lung is taken as unstressed. In vivo it is prestressed by the recoil and by its weight. A rigorous treatment needs the unloaded geometry (a further inverse problem); to first order in the load the two coincide, the difference being the stiffening due to the prestress.
 2. *Homogeneous, isotropic material.* One $E$, $\nu$ and $\bar\rho$ for the whole lung. No CT values of the inflated lung are available, so there is no per-element density or air fraction, although the dependent lung is denser.
-3. *No limit to compression.* The volumetric term $(J-1)^2$ stays finite as $J \to 0$: an element can lose more volume than the air it contains, and a uniform $q$ above $K/E = 1.67$ has no equilibrium. A barrier at the tissue fraction ($J \ge \phi_t$) would remove this; it needs the air fraction.
+3. *No limit to compression.* The volumetric term $(J-1)^2$ stays finite as $J \to 0$: an element can lose more volume than the air it contains, and a uniform $q$ above $K/E$ (0.83 at $\nu = 0.30$) has no equilibrium. A barrier at the tissue fraction ($J \ge \phi_t$) would remove this; it needs the air fraction.
 4. *Effective elasticity.* Surface tension, airway closure and the recruitment / derecruitment of alveoli are not modelled; their net effect is in $E$ and $\nu$.
 5. *Quasi-static.* No inertia, viscoelasticity or time: the model gives the final equilibrium, not how fast the lung deflates, nor the absorption atelectasis that continues over minutes.
 6. *Rigid clamp.* The hilum does not move; the pulmonary ligament and the bronchial and vascular tethering beyond the hilum region are not modelled.

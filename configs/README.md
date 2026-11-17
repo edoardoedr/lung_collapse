@@ -121,12 +121,12 @@ with h the height against gravity in the reference position.
 | Key | Default | Meaning | Values |
 |---|---|---|---|
 | `E_Pa` | 1700 | Effective Young's modulus of the lung tissue [Pa] (tissue, surfactant and recoil together). It sets the gravity slope and scales the reported pressures; without gravity the shape does not depend on it. **Parameter** (bounds 300–10000); fitting it needs gravity. | 500–5000 Pa |
-| `material.nu` | 0.40 | Poisson's ratio: how compressible the tissue is (the lung loses air). **Parameter** (bounds 0.05–0.45). | 0.2–0.45 |
+| `material.nu` | 0.30 | Poisson's ratio: how compressible the tissue is (the lung loses air). **Parameter** (bounds 0.05–0.45). | 0.2–0.45 |
 | `material.name` | `neo_hookean` | Strain-energy function, a name in [`solvers/materials.py`](../pipeline/collapse/solvers/materials.py). Other than `neo_hookean`: `torch` core only. | `neo_hookean`, `mooney_rivlin` |
 | `material.params` | `{}` | The material's fixed extra parameters. | dict |
 | `tissue_density` | 250 | Mean density of the inflated lung [kg/m³] (assumed: there are no CT values). Only density / E matters for the shape. | 150–400 |
 | `gravity` | `supine` | Patient position: `{"reference": ..., "collapse": ...}` = position in the inflated CT and during the collapse; one name = the same for both; `null` = no gravity term. When they differ, the change of the weight's direction is added as a body force (not available with GetFEM). | `supine`, `prone`, `left_lateral`, `right_lateral`, or a vector `[x, y, z]` in LPS (direction of gravity) |
-| `collapse` | `{"q0": {"fit": true, "init": 0.5}}` | The uniform part of the pressure, exactly one of: `q0` = p/E (**parameter**, bounds −1–3); `p0_Pa` = the same in Pa (forward only); `volume_ratio` = V_collapsed / V_inflated to reach (forward only: q0 is searched, 3–6 solves). | `q0` 0.1–1.5 |
+| `collapse` | `{"q0": {"fit": true, "init": 0.3}}` | The uniform part of the pressure, exactly one of: `q0` = p/E (**parameter**, bounds −1–3); `p0_Pa` = the same in Pa (forward only); `volume_ratio` = V_collapsed / V_inflated to reach (forward only: q0 is searched, 3–6 solves). | `q0` 0.1–1.5 |
 | `wall.stiffness` | 20.0 | Wall penalty [E per mm of penetration]. Higher = less penetration, harder Newton. | 5–100 |
 | `wall.eps` | 0.5 | Width [mm] of the smooth start of the penalty. | 0.1–2 |
 | `perturbation` | `null` | Diagnostic term added to the load, **fit step only**: `{"gradient": ["si", "ml"]}` = free linear slopes along anatomical axes (`ap` + = anterior, `si` + = superior, `ml` + = lateral; `ap` only with `gravity: null`, since it is the gravity axis of a supine patient); `{"regions": [1, 4, 8], "reg": 1.0}` = one p/E per Ward region, levels coarse → fine (it replaces q0; `reg` = smoothness between adjacent regions). | `null`, gradient, regions |
@@ -135,7 +135,7 @@ Examples:
 
 | Goal | `physics` |
 |---|---|
-| fit the collapse pressure, E given (default) | `"E_Pa": 1700, "collapse": {"q0": {"fit": true, "init": 0.5}}` |
+| fit the collapse pressure, E given (default) | `"E_Pa": 1700, "collapse": {"q0": {"fit": true, "init": 0.3}}` |
 | fit E too | `"E_Pa": {"fit": true, "init": 1700}` |
 | predict a collapse to 45 % of the volume | `"collapse": {"volume_ratio": 0.45}` (step `collapse`) |
 | predict in lateral decubitus from a supine CT | `"gravity": {"reference": "supine", "collapse": "left_lateral"}` |

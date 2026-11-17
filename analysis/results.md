@@ -199,6 +199,19 @@ Fixed ap slope = ρ̄ g L / E (ρ̄ 250 kg/m³), only the mean p/E fitted, wall 
 
 **Forward runs (karl04, E 1.7 kPa, `volume_ratio` 0.55).** Supine (`v2_forward`): the first guess q0 = 0.75 from the hydrostatic response gave 55.2 % at once (1 solve, 21 s); ASSD vs the real collapsed lung 8.97 mm, the same as the fit. Supine CT → left lateral decubitus (`v2_lateral`, body force): converged in 1 solve (60 s), volume 54.7 %, rigid part 13° / 25.6 mm, 3.1 mm beyond the wall margin; ASSD 24.1 mm against the supine collapsed lung, as expected for another position (there is no lateral scan to compare with).
 
+**ν fitted with q0 and E (`runs/fitEnu`, 2026-11-17).** karl04, karl06, karl20; E start 1.3 kPa, bounds 0.2–20 kPa; ν start 0.40, bounds 0.25–0.48; otherwise as `fitE`. 45 solves, none failed, ~0.5 min per fit.
+
+| Patient | ν | E [kPa] fitEnu / fitE | q0 fitEnu / fitE | p0 [Pa] fitEnu / fitE | ASSD fitEnu / fitE | collapse fit / target |
+|---|---|---|---|---|---|---|
+| karl04 | 0.250 (lower bound) | 0.67 / 0.61 | 0.301 / 0.731 | 201 / 447 | 8.23 / 8.51 | 48 / 51 % |
+| karl06 | 0.250 (lower bound) | 2.18 / 1.76 | 0.151 / 0.363 | 328 / 640 | 4.79 / 4.93 | 22 / 23 % |
+| karl20 | 0.266 | 0.41 / 0.31 | 0.467 / 0.904 | 190 / 281 | 7.84 / 7.95 | 59 / 58 % |
+
+- ν falls monotonically from 0.40 at every evaluation and stops at or near the lower bound; the shape gains only 0.1–0.3 mm ASSD, far below the residual error.
+- ν trades off against q0: the volume is set by ~q0 / (K/E) (K/E 1.67 at ν 0.40, 0.67 at 0.25), and q0·E/K stays nearly constant (karl06 0.218 → 0.226, karl04 0.439 → 0.452). So **p0 alone is not identified, only p0 / K**: p0 changes by ×~2 with ν.
+- E moves by only +10–30 %: the gravity gradient, and the E(collapse %) trend, do not depend on ν.
+- Conclusion: ν is not identifiable from the collapsed shape; keep it fixed (from the literature) and always report p0 with the ν used.
+
 ## 6. Wall and tangential support
 
 **Medians over 14 patients** (patient_2 excluded from the wall runs):
