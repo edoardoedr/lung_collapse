@@ -31,11 +31,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from pipeline.config import load_config                              # noqa: E402
-from pipeline.data_io import read_surface                            # noqa: E402
+from pipeline.data_io import as_triangles, read_surface              # noqa: E402
 
 
 def volume(mesh):
-    m = mesh.clean().triangulate()
+    m = as_triangles(mesh.clean())             # clean() turns degenerate triangles into lines: drop them
     open_edges = m.extract_feature_edges(boundary_edges=True, feature_edges=False, manifold_edges=False,
                                          non_manifold_edges=False).n_cells
     return abs(m.volume) / 1000.0, open_edges                       # mL
