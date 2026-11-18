@@ -1,0 +1,26 @@
+{
+  "_how": "The prediction rules of eurelaps_lung (the default; analysis/results.md 7d, 7f): written by main_calibrate.py (--make-default), read by config.py ({\"rule\": \"collapse\"}) and predict.estimate(). Another rule file: main_predict.py --params FILE, or the environment variable EURELAPS_RULES=FILE for a whole process.",
+  "rule": "E",
+  "coef": [3.538, -0.012883],
+  "a": 3.538,
+  "b": -0.012883,
+  "tissue_density": 200.0,
+  "nu": 0.3,
+  "patients": ["karl01", "karl02", "karl04", "karl06", "karl08", "karl17", "karl19", "karl20", "karl24",
+               "patient_1", "patient_10", "patient_2", "patient_3"],
+  "n": 13,
+  "residual_sd": 0.158,
+  "collapse_range": [23.1, 86.3],
+  "fit_run": "fitE_netgen",
+  "mesher": "netgen",
+  "positions": ["supine", "supine"],
+  "created": "2026-11-18",
+  "q0": {
+    "_how": "log10 q0 = a + b * collapse %, q0 = p0 / E of the same fits (fitE_netgen, server 2026-11-18: q0 from the table of analysis/results.md 7d, collapse % from each patient's collapsed lung); an estimate shown before a run, the run itself searches q0 (collapse % given) or takes p0",
+    "a": -0.9351,
+    "b": 0.010662,
+    "residual_sd": 0.053,
+    "r": 0.964,
+    "n": 13
+  }
+}

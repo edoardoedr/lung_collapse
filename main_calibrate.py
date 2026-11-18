@@ -3,7 +3,8 @@ from its collapse % alone.
 
     python main_calibrate.py --configs configs/*.json --fit E [nu] [--rule E|E_rho|sg_rho]
         [--density analysis/ct_density.csv] [--fit-run fitE] [--jobs 4] [--skip-fit] [--no-loo]
-        [--loo-run loo] [--frames 0] [--out calibration/E_fitE.json] [--collect] [--set KEY=VALUE ...]
+        [--loo-run loo] [--frames 0] [--out calibration/E_fitE.json] [--make-default] [--collect]
+        [--set KEY=VALUE ...]
 
 Three phases (eurelaps_lung/calibration.py has the rules):
 
@@ -14,7 +15,11 @@ Three phases (eurelaps_lung/calibration.py has the rules):
              a bound (--E-bounds, --bound-tol), E at the model density --tissue-density (200; fits at
              250 rescaled by 0.8, bounds compared at that density); the other fitted parameters (nu)
              get their median.
-             Written to --out: the --params file of main_predict.py.
+             Written to --out: the --params file of main_predict.py. It also has the q0 rule
+             (log10 q0 = a + b * collapse %, the same patients): the estimates shown before a run
+             (predict.estimate). --make-default: the rule also becomes the package's default
+             (eurelaps_lung/data/rules.json: {"rule": "collapse"} of every config, the Slicer extension);
+             then raise the package version.
   3. loo     leave-one-out: every patient predicted (`main_predict.py`, its own collapse %) with the rule
              fitted on the OTHER patients; table of the predicted against the fitted slope and of the
              ASSD of the prediction against the patient's fit. --no-loo: skip.
@@ -78,6 +83,8 @@ def main():
     ap.add_argument("--loo-run", help="run name of the leave-one-out predictions (default loo / loo_rho / loo_sgrho)")
     ap.add_argument("--frames", type=int, default=0, help="> 0: the leave-one-out runs also write the sequence")
     ap.add_argument("--out", help="rule file (default calibration/<rule>_<fit-run>.json)")
+    ap.add_argument("--make-default", action="store_true",
+                    help="also write the rule as the package default (eurelaps_lung/data/rules.json; rule E only)")
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--collect", action="store_true", help="no runs: rule and tables from the existing runs")
     ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", default=[], help="more overrides for every run")
@@ -139,7 +146,15 @@ def main():
     print("coefficients %s, residual sd %.3f (log10), tissue_density %.0f, nu %.3f, collapse %.0f-%.0f %%" % (
         ", ".join("%.5g" % c for c in rule["coef"]), rule["residual_sd"], rule["tissue_density"], rule["nu"],
         *rule["collapse_range"]))
+    q = rule.get("q0")
+    if q:
+        print("q0 rule: log10 q0 = %.4f %+.6f x collapse %%, r %.3f, residual sd %.3f (log10), %d patients" % (
+            q["a"], q["b"], q["r"], q["residual_sd"], q["n"]))
     print("rule file: %s  (main_predict.py --params %s)" % (out, out))
+    if args.make_default:
+        if args.rule != "E":
+            sys.exit("--make-default: only an E rule can be the default (the others need the CT density)")
+        print("package default rules: %s (raise the package version)" % C.write_default_rules(rule))
     if args.no_loo:
         return
 

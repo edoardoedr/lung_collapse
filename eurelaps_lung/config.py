@@ -223,15 +223,27 @@ def _clean(raw, name, known):
     return raw
 
 
-# E from the collapse % (prediction rule, analysis/results.md 5f, 7d): log10 E = a + b * collapse %, fitted
-# on the Netgen-mesh fits fitE_netgen of the 13 patients with E inside its bounds (2026-11-18, calibration/
-# E_netgen.json; nu 0.30, tissue_density 200, residual sd 0.158 in log10 E, collapse 23-86 %). Until
-# 2026-11-18: 3.5332, -0.013455 (gmsh meshes, fitE_nu30 at density 250 rescaled by 0.8).
-E_RULE_A, E_RULE_B = 3.5380, -0.012883
-# what the rule was fitted on (shown by the Slicer extension: outside the range it is an extrapolation)
-E_RULE_INFO = dict(patients=13, collapse_percent_range=(23.0, 86.0), residual_sd_log10=0.158, nu=0.30,
-                   tissue_density=200.0, positions=("supine", "supine"), mesher="netgen", fits="fitE_netgen",
-                   date="2026-11-18")
+# E from the collapse % (prediction rule, analysis/results.md 5f, 7d): log10 E = a + b * collapse %. The rule
+# is a file, not code: eurelaps_lung/data/rules.json (written by main_calibrate.py --make-default; until
+# 2026-11-18 these were constants here), or the file of $EURELAPS_RULES. The names below are that file's
+# values when the package is imported (for the tests and the Slicer extension); {"rule": "collapse"} reads
+# the file in use each time a config is loaded.
+def _rules_in_use():
+    from .calibration import load_rules
+    return load_rules()
+
+
+def _rule_info(r):
+    """What the rule was fitted on (shown by the Slicer extension: outside the range it is an extrapolation)."""
+    return dict(patients=r.get("n"), collapse_percent_range=tuple(r.get("collapse_range", (None, None))),
+                residual_sd_log10=r.get("residual_sd"), nu=r.get("nu"), tissue_density=r.get("tissue_density"),
+                positions=tuple(r.get("positions", ("supine", "supine"))), mesher=r.get("mesher"),
+                fits=r.get("fit_run"), date=r.get("created"), source=r.get("source"))
+
+
+_RULES = _rules_in_use()
+E_RULE_A, E_RULE_B = float(_RULES["a"]), float(_RULES["b"])
+E_RULE_INFO = _rule_info(_RULES)
 
 
 def _E_rule(raw, volume_ratio):
@@ -240,8 +252,17 @@ def _E_rule(raw, volume_ratio):
     if r.get("rule") != "collapse":
         raise ValueError('physics.E_Pa: {"rule": "collapse"} is the only rule')
     if volume_ratio is None:
-        raise ValueError('physics.E_Pa {"rule": "collapse"} needs physics.collapse.volume_ratio (the collapse %)')
-    a, b = float(r.get("a", E_RULE_A)), float(r.get("b", E_RULE_B))
+        raise ValueError('physics.E_Pa {"rule": "collapse"} gives E from the collapse %, but the collapse is given '
+                         'as a pressure (physics.collapse p0_Pa / q0): give E as a number (predict --E, '
+                         'predict.run(E=...))')
+    if "a" in r and "b" in r:
+        a, b = float(r["a"]), float(r["b"])
+    else:
+        rules = _rules_in_use()
+        if rules["rule"] != "E":
+            raise ValueError('physics.E_Pa {"rule": "collapse"}: the rule file %s is a %s rule (needs the CT '
+                             'density): use main_predict.py --params' % (rules.get("source"), rules["rule"]))
+        a, b = float(rules["a"]), float(rules["b"])
     c = 100.0 * (1.0 - volume_ratio)
     return 10.0 ** (a + b * c), dict(rule="collapse", a=a, b=b, collapse_percent=c)
 

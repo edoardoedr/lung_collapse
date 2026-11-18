@@ -14,3 +14,4 @@ Input_CT/*
 logs_*
 .vscode/build/
 *.egg-info/
+build/

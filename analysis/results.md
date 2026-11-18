@@ -539,6 +539,22 @@ karl04 on the Mac with the numpy test core and a 4 mm wall grid (`tests/test_ste
 - Single rings move more (airways 7.7 mm on karl04 and karl18, veins 8.7 mm on patient_1): the trees cross the inflated surface at another place than the collapsed one.
 - The calibration (fits, rule, leave-one-out) used the collapsed-lung hilum, the prediction uses the inflated one: to be refitted on the server with `hilum.lung: "inflated"` (NEXT.md). The ring choice on the inflated lung needs a look on karl17 / karl20 (the Slicer extension shows the rings and the warning).
 
+### 7f. The pressure from the collapse % (q0 rule), for the estimates before a run (Mac, 2026-11-18)
+
+For the 3D Slicer extension (the user can drive a run by the collapse % or by the pressure p0, and sees the other one as an estimate before running), a second rule on the same 13 Netgen fits as the E rule (`fitE_netgen`, E inside its bounds; q0 from the table of 7d, the collapse % of each patient's collapsed lung from the local summaries):
+
+| | value |
+|---|---|
+| log₁₀ q0 = a + b × collapse % | a −0.9351, b 0.010662 |
+| r (log₁₀ q0 against the collapse %) | 0.964 |
+| residual sd | 0.053 log₁₀ (× 1.13) |
+| linear q0 = a + b × c (for comparison) | −0.0632 + 0.010169 c, r 0.964, sd 0.058 |
+| p0 = q0 × E with both rules | 258–356 Pa over the 13 patients (fitted median 314 Pa) |
+
+- As in section 5: q0 follows the collapse %, p0 hardly does (with both rules p0 goes from ~400 Pa at 0 % to ~250 Pa at 95 %). So with E tied to the collapse % by its rule, p0 cannot drive the collapse; driven by p0, E must be given and the collapse % is estimated from q0 = p0 / E.
+- In the package (0.1.1): the q0 rule is part of every rule file (`calibration.fit_q0_rule`, written by `main_calibrate.py`), the default in `eurelaps_lung/data/rules.json`; `predict.estimate()` gives the estimates; the run itself still searches q0 (collapse % given) or takes p0.
+- Checks: karl01 in Slicer, p0 330 Pa and E 1300 Pa: estimate 31.9 %, run 29.1 %; karl04 (`tests/test_predict.py`, numpy core), p0 300 Pa and E 1300 Pa: estimate 28.0 %, run 29.6 %.
+
 ## 8. Evidence behind the design choices
 
 - **No alignment, `plane` loss** (2026-10-05, registered setup): with `hilum_rigid` alignment karl04 was 14.6 mm from the real collapsed surface, against 3.1–3.3 mm unaligned with the plane loss; the alignment rotated the target ~16° and put up to 22 target points beyond the wall (20.6 mm).

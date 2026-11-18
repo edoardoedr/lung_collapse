@@ -106,5 +106,45 @@ def test_run_from_dict():
         s["collapse_percent"], s["physics"]["E_Pa"], s["solves"])
 
 
+def test_drive_by_pressure():
+    """p0 instead of the collapse %: the E rule cannot apply (clear error), E given works; collapse and p0
+    together are refused; estimate() matches the rules."""
+    try:
+        load_config(filled("/tmp/x"), predict.pressure_overrides(330.0, None))
+        raise AssertionError("the E rule with p0 must fail")
+    except ValueError as e:
+        assert "give E as a number" in str(e), e
+    ph = load_config(filled("/tmp/x"), predict.pressure_overrides(330.0, 1300.0) + predict.E_overrides(1300.0)).physics
+    assert ph.p0_Pa == 330.0 and ph.E_Pa.value == 1300.0 and ph.volume_ratio is None and ph.E_rule is None
+    for kw in (dict(collapse=40.0, p0=330.0),):
+        try:
+            predict.run(filled("/tmp/x"), **kw)
+            raise AssertionError("collapse and p0 together must fail")
+        except ValueError as e:
+            assert "not both" in str(e)
+    e = predict.estimate(collapse=40.0)
+    assert abs(e["E_Pa"] - 10 ** (E_RULE_A + E_RULE_B * 40.0)) < 1e-6
+    assert abs(predict.estimate(p0=e["p0_Pa"], E=e["E_Pa"])["collapse_percent"] - 40.0) < 1e-9
+    return "p0 330 Pa, E 1300 Pa; at 40 %% the rules expect p0 %.0f Pa" % e["p0_Pa"]
+
+
+def test_run_driven_by_pressure():
+    """predict.run(p0=, E=) on karl04's problem.npz: the collapse % is the result; summary.prediction."""
+    p = W.problem()
+    if p is None:
+        return "skipped"
+    out = Path(tempfile.mkdtemp(prefix="lung_predict_")) / "out"
+    (out / "fem/setup").mkdir(parents=True)
+    p.save(out / "fem/setup/problem.npz")
+    cfg = filled(out)
+    cfg["solver"] = {"core": "numpy_core:NumpySolver", "wall_update": "potential", "adaptive_steps": True,
+                     "warm_substeps": True, "newton_maxit": 50, "load_steps": 4, "max_solve_s": 60}
+    s = predict.run(cfg, p0=300.0, E=1300.0, frames=0, run_name="p0")
+    pr = s["prediction"]
+    assert pr["driven_by"] == "p0" and pr["p0_asked"] == 300.0 and s["physics"]["E_Pa"] == 1300.0
+    assert abs(s["physics"]["p0_Pa"] - 300.0) < 1e-6 and pr["estimate"]["from"] == "p0"
+    return "collapse %.1f %% (estimate %.1f %%)" % (s["collapse_percent"], pr["estimate"]["collapse_percent"])
+
+
 if __name__ == "__main__":
     stubs.run_tests(globals())

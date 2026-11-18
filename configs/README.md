@@ -121,7 +121,7 @@ with h the height against gravity in the reference position.
 
 | Key | Default | Meaning | Values |
 |---|---|---|---|
-| `E_Pa` | 1360 | Effective Young's modulus of the lung tissue [Pa] (tissue, surfactant and recoil together). It sets the gravity slope and scales the reported pressures; without gravity the shape does not depend on it. **Parameter** (bounds 300–10000); fitting it needs gravity. Third form, forward only: `{"rule": "collapse"}` = E from the collapse % of `collapse.volume_ratio`, log₁₀ E = a + b × collapse % (the prediction rule fitted on the cohort, Netgen meshes, `a` 3.5380, `b` −0.012883 in `eurelaps_lung/config.py`; both can be given: `{"rule": "collapse", "a": .., "b": ..}`). | 500–5000 Pa |
+| `E_Pa` | 1360 | Effective Young's modulus of the lung tissue [Pa] (tissue, surfactant and recoil together). It sets the gravity slope and scales the reported pressures; without gravity the shape does not depend on it. **Parameter** (bounds 300–10000); fitting it needs gravity. Third form, forward only (not with `collapse.p0_Pa` / `q0`, where the collapse % is unknown: give E as a number): `{"rule": "collapse"}` = E from the collapse % of `collapse.volume_ratio`, log₁₀ E = a + b × collapse % (the prediction rule fitted on the cohort, Netgen meshes, `a` 3.5380, `b` −0.012883 in the rule file `eurelaps_lung/data/rules.json`, written by `main_calibrate.py --make-default`; another file for a whole process: environment variable `EURELAPS_RULES`; both coefficients can also be given: `{"rule": "collapse", "a": .., "b": ..}`). | 500–5000 Pa |
 | `material.nu` | 0.30 | Poisson's ratio: how compressible the tissue is (the lung loses air). **Parameter** (bounds 0.05–0.45). | 0.2–0.45 |
 | `material.name` | `neo_hookean` | Strain-energy function, a name in [`solvers/materials.py`](../eurelaps_lung/fem/solvers/materials.py). Other than `neo_hookean`: `torch` core only. | `neo_hookean`, `mooney_rivlin` |
 | `material.params` | `{}` | The material's fixed extra parameters. | dict |
@@ -139,7 +139,8 @@ Examples:
 |---|---|
 | fit the collapse pressure, E given (default) | `"E_Pa": 1360, "collapse": {"q0": {"fit": true, "init": 0.3}}` |
 | fit E too | `"E_Pa": {"fit": true, "init": 1360}` |
-| predict from the collapse % only (forward) | `"E_Pa": {"rule": "collapse"}, "collapse": {"volume_ratio": 0.5}` |
+| predict from the collapse % only (forward) | `"E_Pa": {"rule": "collapse"}, "collapse": {"volume_ratio": 0.5}` (E from the rule file in use: `eurelaps_lung/data/rules.json`, or `$EURELAPS_RULES`) |
+| predict from the pressure (forward: the collapse % is the result) | `"E_Pa": 1300, "collapse": {"p0_Pa": 330}` (`main_predict.py --p0 330 --E 1300`) |
 | predict a collapse to 45 % of the volume | `"collapse": {"volume_ratio": 0.45}` (step `collapse`) |
 | predict in lateral decubitus from a supine CT | `"gravity": {"reference": "supine", "collapse": "left_lateral"}` |
 | the old regions fit (best shape the FEM can give) | `"gravity": null, "perturbation": {"regions": [1, 4, 8, 14, 25, 40]}` |

@@ -41,7 +41,10 @@ Status of the package side (2026-11-18): ready for both parts (section 2). Secti
 | Collapse % from the collapsed lung | `collapse="target"` (`--collapse target`) | validation mode |
 | Errors against the collapsed lung | `summary.json`: `assd_mm`, `mean_err_mm`, `median_err_mm`, `p95_err_mm`, `max_err_mm`, `target_volume_ratio`; frames: `Error_mm` | when `inputs.collapsed` is set |
 | Sequence frames | `runs/<run>/sequence/frame_000.vtp …` (+ `target.vtp`, `hilum_anchor.mrk.json`, `load_collapse_in_slicer.py`) | `Displacement_mm`, `Disp_mag_mm`, `Pressure_Pa`, `Error_mm`, `WallDistance_mm`; frames = load 0 → 100 % |
-| Rule range for the UI | `config.E_RULE_INFO` | 13 patients, collapse 23–86 %, residual sd 0.158 log10 E, supine → supine |
+| Rule range for the UI | `config.E_RULE_INFO`, `predict.rules()` | 13 patients, collapse 23–86 %, residual sd 0.158 log10 E, supine → supine |
+| Pressure instead of the collapse % (0.1.1) | `predict.run(cfg, p0=.., E=..)`, `--p0 --E` | the collapse % is the result; the E rule needs the collapse %, so E is given |
+| Estimates before a run (0.1.1) | `predict.estimate(collapse=..)` → E, q0, p0; `predict.estimate(p0=.., E=..)` → collapse % | E rule + q0 rule (log10 q0 = −0.9351 + 0.010662 × collapse %, the same 13 fits); `summary["prediction"]` keeps the estimate of the run |
+| Rules as a file (0.1.1) | `eurelaps_lung/data/rules.json`; `$EURELAPS_RULES` | `main_calibrate.py --make-default` rewrites it after new fits; the extension reads the rules from the package, so a recalibration is a new package version |
 | No GPL code | Netgen (LGPL) replaced gmsh | section 10.6 |
 | No pyvista outside pyacvd | `eurelaps_lung/vtk_mesh.py` (Slicer's VTK) | outputs identical to the pyvista code on 16 patients |
 | Imports | tested in `tests/test_predict.py` | the prediction modules import without torch, Warp, GetFEM, itk, scikit-learn, nvmath, pypardiso, pyvista, pyacvd, netgen (each is imported only where it is used) |
@@ -259,7 +262,7 @@ Not exposed: the other keys of the config (surface remesh, mesh size, clamp, sol
    - It was validated on the Mac numpy core and run on the server once (results 5c).
    - The rule was calibrated on supine → supine: whether the same E holds in the lateral position is not tested (the real collapsed CTs are supine).
 3. **Airways only, without vessels.** With airways only the hilum moves towards the main bronchus and the clamp shrinks: a different model. Either the vessels are required (automatic segmentation, e.g. TotalSegmentator), or the cohort is refitted with `fem_setup.clamp.points: ["hilum", "airways"]` and gets its own rule. **Decision needed**; for now the three trees are required.
-4. **Calibration updates.** The rule is in the package (`config.E_RULE_A`, `E_RULE_B`, `E_RULE_INFO`). A new calibration = a new package version, and the extension pins it.
+4. **Calibration updates.** The rules are a file of the package (`eurelaps_lung/data/rules.json`: the E rule and the q0 rule; `config.E_RULE_*`, `predict.rules()`). `main_calibrate.py --make-default` rewrites it; a new calibration = a new package version, and the extension pins it. To try a rule file without a new version: `EURELAPS_RULES=FILE` in the environment of the prediction process.
 
 ## 9. The two parts
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eurelaps-lung"
-version = "0.1.0"
+version = "0.1.1"
 description = "FEM model of lung collapse (pneumothorax): from segmented lung surfaces to the predicted collapsed lung"
 readme = "README.md"
 requires-python = ">=3.10"

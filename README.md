@@ -84,11 +84,15 @@ python main_calibrate.py --configs configs/*.json --fit E --jobs 4              
 python main_calibrate.py --configs configs/*.json --fit E --fit-run fitE_nu30 --skip-fit --no-loo   # rule from existing fits
 ```
 
-**Predict** (`main_predict.py`): the inflated lung collapsed to a given collapse % (q0 searched to reach that volume), with E from a rule file (`--params`), from a fit of the same patient (`--from-fit RUN`), or from the config. Any other parameter with `--set`.
+**Predict** (`main_predict.py`): the inflated lung collapsed to a given collapse % (q0 searched to reach that volume), with E from a rule file (`--params`), from a fit of the same patient (`--from-fit RUN`), or from the config. Or driven by the pressure: `--p0 330 --E 1300` (the collapse % is then the result; the E rule needs the collapse %, so E is given). `--estimate` prints what the rules expect without running (the p0 of a collapse %, the collapse % of a p0 and E). Any other parameter with `--set`.
+
+**The rules** (E from the collapse %, and q0 = p0 / E from the collapse % for the estimates) are a file, not code: `eurelaps_lung/data/rules.json` by default. After new fits or new patients, `python main_calibrate.py ... --make-default` writes the new rules there (then raise the package version); a rule file can also be used without changing the default, with `--params FILE` or, for a whole process (e.g. the 3D Slicer extension), the environment variable `EURELAPS_RULES=FILE`.
 
 ```bash
 python main_predict.py --config configs/karl04.json --collapse 50 --params calibration/E_fitE.json --frames 30
 python main_predict.py --config configs/karl04.json --collapse 50 --from-fit fitE --run half_fitE
+python main_predict.py --config configs/karl04.json --p0 330 --E 1300 --run p330     # pressure given
+python main_predict.py --estimate --collapse 50                                      # the rules' estimate only
 
 # patient on the left side during the collapse
 python main_predict.py --config configs/karl04.json --collapse 50 --params calibration/E_fitE.json \
@@ -101,7 +105,7 @@ python main_predict.py --config configs/karl04.json --collapse 50 --params calib
 
 If a step fails, the error is in `logs/fit.log` (or `predict.log`) and the run stops.
 
-**As a library:** prediction with `from eurelaps_lung import predict; cfg = predict.default_config()` (the calibrated defaults), fill in `patient`, `data_dir`, `output_dir`, `inputs`, then `summary = predict.run(cfg, collapse=40, frames=30)` (also `python -m eurelaps_lung.predict --config c.json --collapse 40`, the entry point of the 3D Slicer extension). `--collapse target` / `collapse="target"` takes the collapse % of the collapsed lung of the config (validation). Lower level: `from eurelaps_lung.config import load_config` (a file or a dict), `from eurelaps_lung.fem import forward, fit`, `from eurelaps_lung import calibration`.
+**As a library:** prediction with `from eurelaps_lung import predict; cfg = predict.default_config()` (the calibrated defaults), fill in `patient`, `data_dir`, `output_dir`, `inputs`, then `summary = predict.run(cfg, collapse=40, frames=30)` or `predict.run(cfg, p0=330, E=1300)` (also `python -m eurelaps_lung.predict --config c.json --collapse 40`, the entry point of the 3D Slicer extension). `--collapse target` / `collapse="target"` takes the collapse % of the collapsed lung of the config (validation). `predict.estimate(collapse=40)` / `predict.estimate(p0=330, E=1300)`: the rules' expectation before a run; `predict.rules()`: the rules in use. `summary["prediction"]`: how the run was driven and that estimate. Lower level: `from eurelaps_lung.config import load_config` (a file or a dict), `from eurelaps_lung.fem import forward, fit`, `from eurelaps_lung import calibration`.
 
 ## Input data
 

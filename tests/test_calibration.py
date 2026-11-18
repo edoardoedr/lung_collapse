@@ -25,7 +25,7 @@ def synthetic(a=3.6, b=-0.0135, rho=200.0, n=8, c=None):
         else:
             E = rho * C.G / 1000 * L / 10 ** (a + b * pct + c * math.log10(rm))
         out["p%d" % i] = {"target_volume_ratio": 1 - pct / 100, "assd_mm": 3.0,
-                          "physics": {"E_Pa": E, "nu": 0.3, "q0": 0.4, "tissue_density_kg_m3": rho,
+                          "physics": {"E_Pa": E, "nu": 0.3, "q0": 10 ** (-0.9 + 0.01 * pct), "tissue_density_kg_m3": rho,
                                       "gravity": {"extent_mm": L, "slope_pE": C.slope_of(E, rho, L)}}}
         dens["p%d" % i] = rm
     return out, dens
@@ -112,6 +112,53 @@ def test_rule_on_local_fits():
     r = C.fit_rule({p: v for p, v in s.items() if C.in_bounds(v)}, "E")
     assert r["n"] == 12 and abs(r["a"] - 3.5332) < 1e-4 and abs(r["b"] + 0.013455) < 1e-6
     return "a %.4f, b %.6f, %d patients" % (r["a"], r["b"], r["n"])
+
+
+def test_q0_rule_and_estimate():
+    """The rule file has the q0 rule (same patients); estimate() goes collapse % -> E, p0 and back."""
+    s, _ = synthetic()
+    r = C.fit_rule(s, "E")
+    q = r["q0"]
+    assert abs(q["a"] + 0.9) < 1e-9 and abs(q["b"] - 0.01) < 1e-11 and q["n"] == 8 and q["residual_sd"] < 1e-9
+    e = C.estimate(r, collapse_percent=40.0)
+    assert abs(e["E_Pa"] - C.apply_rule(r, 40.0)[0]) < 1e-9 and abs(e["q0"] - 10 ** (-0.9 + 0.4)) < 1e-12
+    assert abs(e["p0_Pa"] - e["q0"] * e["E_Pa"]) < 1e-9 and e["in_range"] and e["from"] == "collapse"
+    back = C.estimate(r, p0=e["p0_Pa"], E=e["E_Pa"])
+    assert abs(back["collapse_percent"] - 40.0) < 1e-9 and back["from"] == "p0"
+    for bad in (dict(), dict(collapse_percent=40.0, p0=300.0), dict(p0=300.0)):
+        try:
+            C.estimate(r, **bad)
+            raise AssertionError("no error for %s" % bad)
+        except ValueError:
+            pass
+    return "q0 rule a %.3f b %.4f; 40 %% -> p0 %.0f Pa -> %.1f %%" % (q["a"], q["b"], e["p0_Pa"], back["collapse_percent"])
+
+
+def test_rules_file():
+    """The default rules are a file (eurelaps_lung/data/rules.json) = config.E_RULE_*; $EURELAPS_RULES
+    replaces it for {"rule": "collapse"} without touching the code."""
+    import os
+    from eurelaps_lung import config as K
+    d = C.load_rules()
+    assert d["rule"] == "E" and (d["a"], d["b"]) == (K.E_RULE_A, K.E_RULE_B) and d["q0"]["n"] == d["n"]
+    assert K.E_RULE_INFO["collapse_percent_range"] == tuple(d["collapse_range"])
+    s, _ = synthetic(a=3.0, b=-0.01)
+    path = Path(tempfile.mkdtemp()) / "rules.json"
+    path.write_text(json.dumps(C.fit_rule(s, "E")))
+    raw = json.loads(config().source.read_text())
+    raw["physics"]["E_Pa"] = {"rule": "collapse"}
+    raw["physics"]["collapse"] = {"volume_ratio": 0.6}
+    f = Path(tempfile.mkdtemp()) / "cfg.json"
+    f.write_text(json.dumps(raw))
+    os.environ[C.RULES_ENV] = str(path)
+    try:
+        E = load_config(f).physics.E_Pa.value
+        assert C.load_rules()["source"] == str(path)
+    finally:
+        del os.environ[C.RULES_ENV]
+    assert abs(E - 10 ** (3.0 - 0.01 * 40)) < 1e-6
+    assert abs(load_config(f).physics.E_Pa.value - 10 ** (K.E_RULE_A + K.E_RULE_B * 40)) < 1e-6
+    return "default %s; $EURELAPS_RULES: E %.0f Pa at 40 %%" % (Path(d["source"]).name, E)
 
 
 if __name__ == "__main__":
