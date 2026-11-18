@@ -8,7 +8,7 @@
      with a margin per point (wall_tol_mm + how far the point already lies outside), stored as
      the surface and as a smooth field (wall_field.py: smoothed signed distance on a grid)
   4. optional Ward pressure regions of the target displacement (regions; diagnostic fits only)
-  5. tetrahedral volume mesh (Gmsh), surface nodes and triangles unchanged
+  5. tetrahedral volume mesh (Gmsh or Netgen, fem_setup.mesher), surface nodes and triangles unchanged
   6. output_dir/fem/setup/: problem.npz (read by the collapse and fit steps) + files to inspect
 """
 
@@ -17,13 +17,12 @@ import logging
 import time
 
 import numpy as np
-import pyvista as pv
 
+from .. import vtk_mesh as vm
 from ..data_io import read_fiducial_radii, read_fiducials, read_surface, write_surface
 from .anchor import clamped_triangles
 from .geometry import WallDistance, assd, face_adjacency, faces_of, polydata, signed_volume, tri_geometry
 from .problem import CollapseProblem
-from .regions import all_levels
 from .volume_mesh import tet_mesh
 from .wall_field import WallField, signed_distance_grid
 
@@ -142,12 +141,15 @@ def run(cfg):
         if not has_target:
             raise RuntimeError("fem_setup.regions needs the collapsed lung (inputs.collapsed)")
         un = np.einsum("ij,ij->i", u[tris].mean(axis=1), nrm)
+        from .regions import all_levels                       # scikit-learn: only for the regions
         levels, regions = all_levels(un[:, None], adj, ~clamped, cfg.regions, cen, cfg.regions_pos_weight)
         log.info("pressure regions on the closest-point displacement (|u| mean %.1f mm, u.n mean %.1f mm, "
                  "negative = inward): K = %s", np.linalg.norm(u, axis=1).mean(), un.mean(), ", ".join(map(str, levels)))
 
     # 5. volume mesh
-    nodes, tets, surface_nodes = tet_mesh(X_ref, tris, out / "gmsh", cfg.mesh_size_mm, cfg.gmsh_timeout_s)
+    size = cfg.mesh_size_mm if cfg.mesher == "gmsh" else cfg.netgen_maxh_mm
+    nodes, tets, surface_nodes = tet_mesh(X_ref, tris, out / cfg.mesher, size, cfg.gmsh_timeout_s, cfg.mesher,
+                                          cfg.netgen_optsteps3d)
 
     # 6. outputs
     problem = CollapseProblem(nodes=nodes, tets=tets, surface_nodes=surface_nodes, tris=tris,
@@ -169,10 +171,9 @@ def run(cfg):
     write_surface(s, out / "reference.vtp", "LPS")
     if has_target:
         write_surface(polydata(T_pts, T_tris), out / "target.vtp", "LPS")
-    vol = pv.UnstructuredGrid({pv.CellType.TETRA: tets}, nodes)
-    vol.point_data["Clamped"] = np.isin(np.arange(len(nodes)), surface_nodes[cpts]).astype(np.uint8)
-    vol.field_data["SPACE"] = np.array(["LPS"])
-    vol.save(out / "volume.vtu")
+    clamped_nodes = np.isin(np.arange(len(nodes)), surface_nodes[cpts]).astype(np.uint8)
+    vm.write_grid(vm.tet_grid(nodes, tets, {"Clamped": clamped_nodes}, {"SPACE": np.array(["LPS"])}),
+                  out / "volume.vtu")
 
     (out / "setup_summary.json").write_text(json.dumps(dict(
         reference=str(cfg.reference), target=str(cfg.target) if has_target else None, anchor=str(cfg.anchor),
@@ -184,6 +185,7 @@ def run(cfg):
         baseline_assd_mm=assd(X_ref, T_pts, T_tris, tris_a=tris) if has_target else None,
         regions=levels.tolist(), wall=str(cfg.wall) if cfg.wall is not None else None, wall_tol_mm=cfg.wall_tol_mm,
         wall_grid_mm=cfg.wall_grid_mm if wfield else None, wall_smoothing_mm=cfg.wall_smoothing_mm if wfield else None,
-        volume_nodes=int(len(nodes)), tets=int(len(tets)), mesh_size_mm=cfg.mesh_size_mm), indent=2))
+        volume_nodes=int(len(nodes)), tets=int(len(tets)), mesher=cfg.mesher, mesh_size_mm=size,
+        netgen_optsteps3d=cfg.netgen_optsteps3d if cfg.mesher == "netgen" else None), indent=2))
     log.info("wrote %s/ (problem.npz, reference.vtp, volume.vtu%s)", out, ", target.vtp" if has_target else "")
     return out

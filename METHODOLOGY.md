@@ -341,6 +341,7 @@ These terms are not part of the physical model and are never used in prediction.
 | File (`eurelaps_lung/`) | Content |
 |---|---|
 | `surface_mesh.py`, `hilum.py`, `check_inputs.py` | section 2 |
+| `vtk_mesh.py`, `data_io.py` | surfaces as arrays, the VTK filters (cleaning, smoothing, hole filling, connectivity, closest point, signed distance) and the file I/O; plain VTK, no pyvista |
 | `fem/setup.py`, `wall_field.py` | clamp, wall field, volume mesh (sections 2, 3.5) |
 | `fem/load.py` | the load as a function of the parameters, its linear structure and the chain rule (3.7, 6.2, 6.4) |
 | `fem/solvers/nodal.py` | Newton, load path, wall, body force, sensitivities (section 4) |

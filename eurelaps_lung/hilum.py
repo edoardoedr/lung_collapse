@@ -18,12 +18,12 @@ import json
 import logging
 
 import numpy as np
-import pyvista as pv
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from vtkmodules.vtkCommonCore import vtkLogger
 from vtkmodules.vtkFiltersGeneral import vtkIntersectionPolyDataFilter
 
+from . import vtk_mesh as vm
 from .data_io import fiducial_list, read_surface, write_markups, write_surface
 
 log = logging.getLogger(__name__)
@@ -35,8 +35,8 @@ COLORS = {"airways": (0.6, 0.9, 1.0), "arteries": (0.85, 0.2, 0.2), "veins": (0.
 def intersection_segments(a, b):
     """Exact intersection of two surfaces: (points, line segments as index pairs)."""
     f = vtkIntersectionPolyDataFilter()
-    f.SetInputData(0, a)
-    f.SetInputData(1, b)
+    f.SetInputData(0, a.to_vtk())
+    f.SetInputData(1, b.to_vtk())
     f.SplitFirstOutputOff()
     f.SplitSecondOutputOff()
     old = vtkLogger.GetCurrentVerbosityCutoff()
@@ -45,10 +45,10 @@ def intersection_segments(a, b):
         f.Update()
     finally:
         vtkLogger.SetStderrVerbosity(old)
-    x = pv.wrap(f.GetOutput(0)).clean()
-    if x.n_lines == 0:
+    x = vm.clean(f.GetOutput(0), kind="lines")
+    if len(x.lines) == 0:
         return np.zeros((0, 3)), np.zeros((0, 2), dtype=int)
-    return np.asarray(x.points), x.lines.reshape(-1, 3)[:, 1:]
+    return np.asarray(x.points), x.lines
 
 
 def split_rings(pts, seg):
@@ -87,7 +87,7 @@ def run(cfg):
     hilum = np.mean([r["center"] for r in chosen.values()], axis=0)
     hilum_radius = float(np.mean([r["radius"] for r in chosen.values()]))
     dist = {k: float(np.linalg.norm(r["center"] - hilum)) for k, r in chosen.items()}
-    _, closest = lung.find_closest_cell(hilum[None], return_closest_point=True)
+    _, closest = vm.CellLocator(lung).closest(hilum[None])
     surf_dist = float(np.linalg.norm(closest[0] - hilum))
     log.info("hilum LPS [%.1f, %.1f, %.1f], radius %.1f mm (mean of the rings), %.1f mm from "
              "the %s surface; ring centres at %s", *hilum, hilum_radius, surf_dist, cfg.lung.name,
@@ -131,7 +131,7 @@ def rings_polydata(all_rings):
             hilar.append(np.full(len(r["segments"]), int(j == 0)))
         offset += len(pts)
     seg = np.vstack(lines)
-    out = pv.PolyData(np.vstack(pts_all), lines=np.hstack([np.full((len(seg), 1), 2), seg]).ravel())
+    out = vm.Surface(np.vstack(pts_all), lines=seg)
     out.cell_data["Structure"] = np.concatenate(struct)
     out.cell_data["Hilar"] = np.concatenate(hilar)
     out.field_data["StructureNames"] = np.array(list(all_rings))

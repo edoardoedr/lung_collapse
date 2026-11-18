@@ -613,7 +613,6 @@ class NodalSolver(ForwardSolver):
         self._lin_U, self._lin_cache, self._lin_start = None, [], None
 
     def export_volume(self, path, state):
-        import pyvista as pv
-        g = pv.UnstructuredGrid({pv.CellType.TETRA: self.tets}, self.X.copy())
-        g.point_data["Displacement"] = np.asarray(state).reshape(-1, 3)
-        g.save(str(path), binary=False)
+        from ... import vtk_mesh as vm
+        g = vm.tet_grid(self.X, self.tets, {"Displacement": np.asarray(state, float).reshape(-1, 3)})
+        vm.write_grid(g, path, binary=False)

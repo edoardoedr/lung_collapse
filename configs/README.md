@@ -94,8 +94,11 @@ Writes `fem/setup/problem.npz`, read by the `collapse` and `fit` steps. Rerun it
 | `clamp.min_points` | 20 | The first ball grows until the clamp holds at least this many surface points, not all in a plane (otherwise rigid motions stay free). | 10–50 |
 | `clamp.growth` | 1.1 | Factor of each growth step. | 1.05–1.3 |
 | `clamp.max_growth_steps` | 10 | Maximum growth steps. | 5–20 |
-| `mesh_size_mm` | 14.0 | Maximum tetrahedron size inside the lung (the surface keeps the `geometry` triangles). | 8–20 mm |
-| `gmsh_timeout_s` | 300 | Gmsh is killed after this time. | 60–600 s |
+| `mesher` | `gmsh` | Volume mesher. Both keep the surface triangles of `geometry`. `netgen` (LGPL, `pip install netgen-mesher`): better tetrahedra, collapse closer to a fine mesh (analysis/results.md 7d), no GPL code (3D Slicer). Changing it changes the interior mesh: rerun `fem_setup` and the fits. | `gmsh`, `netgen` |
+| `mesh_size_mm` | 14.0 | Gmsh: maximum tetrahedron size inside the lung (the surface keeps the `geometry` triangles). | 8–20 mm |
+| `netgen_maxh_mm` | 10.0 | Netgen: maximum tetrahedron size (10 gives about the node count of gmsh at 14). | 8–14 mm |
+| `netgen_optsteps3d` | 10 | Netgen: 3D optimisation steps (Netgen's default 3 left slivers on karl04). | 5–20 |
+| `gmsh_timeout_s` | 300 | The mesher (gmsh or Netgen) is killed after this time. | 60–600 s |
 | `wall.surface` | `reference` | The cavity the lung may not leave. `reference` = the inflated surface itself; a file name (in `data_dir`) = that closed surface; `null` = no wall. With gravity the wall carries the lung's weight, so the physical model needs it. | `reference`, file, `null` |
 | `wall.tol_mm` | 5.0 | How far a point may go beyond the wall (segmentation margin), on top of how far it already lies outside. | 2–10 mm |
 | `wall.grid_mm` | 1.5 | Grid spacing of the wall stored as a smooth field (signed distance, smoothed), needed by `solver.wall_update: "potential"`. `null` = not built. Tens of MB in `problem.npz`, ~30 s. | `null`, 1–2 mm |

@@ -10,7 +10,7 @@ Guidance for Claude Code in this repository. What lives where:
 | `*.svg` (root), `scripts/figures/` | the three figures (workflow, physical model, forward / inverse) and the Python that draws them: `cd scripts/figures && python3 workflow.py && python3 model.py && python3 fit.py`, then copy the `.svg` to the root |
 | [analysis/results.md](analysis/results.md) | results, evidence behind the design choices, problems found |
 | [NEXT.md](NEXT.md) | plan and to-do list |
-| [SLICER_EXTENSION.md](SLICER_EXTENSION.md) | design draft of the 3D Slicer extension (prediction only): UI, architecture, platform problems (no MPS for the solve, pyvista replaceable by plain VTK with pyacvd the only real dependency, Python 3.9), package changes needed (2026-11-17) |
+| [SLICER_EXTENSION.md](SLICER_EXTENSION.md) | design draft of the 3D Slicer extension (prediction only): UI, architecture, platform problems (no MPS for the solve, linear solvers on the Mac, pyacvd vs gmsh remesh, float32), package changes needed and their status (2026-11-17/18) |
 | [REWRITE_PLAN.md](REWRITE_PLAN.md) | the plan of the rewrite on branch `refactoring_to_v2` (merged into `main`) (2026-11-16) and its status |
 | this file | how to work here, environments, commands, configs, code architecture, implementation notes |
 
@@ -34,7 +34,7 @@ Lung-collapse model for a GNN surrogate of lung collapse in VATS surgery, as the
 | Where | What is there | Use |
 |---|---|---|
 | Mac (this machine) | base Python with numpy / scipy; **no** pyvista, vtk, itk, gmsh, getfem, warp, torch, pytest | editing, `py_compile`, the tests in `tests/`, reading `results/` |
-| Mac, conda env `lungct` (`/opt/miniconda3/envs/lungct/bin/python`, created with the user's permission 2026-11-17) | numpy, scipy, SimpleITK + itk (pip wheels: the conda ones clash), vtk, pyvista, nibabel, scikit-image, pandas, matplotlib; **no** torch, getfem, warp, gmsh | image / surface analysis on `Input_CT/` (CTs) and `Input_Data/` (surfaces): `ct_density.py`, `cavity_volumes.py`, `pipeline.data_io` |
+| Mac, conda env `lungct` (`/opt/miniconda3/envs/lungct/bin/python`, created with the user's permission 2026-11-17) | numpy, scipy, SimpleITK + itk (pip wheels: the conda ones clash), vtk 9.7, pyvista, pyacvd 0.5 + gmsh 4.15 (pip, 2026-11-18), pykdtree from conda-forge (the pip wheel bundles a second libomp: `OMP: Error #15` in pyacvd), nibabel, scikit-image, pandas, matplotlib; **no** torch, getfem, warp, scikit-learn | image / surface analysis on `Input_CT/` (CTs) and `Input_Data/` (surfaces): `ct_density.py`, `cavity_volumes.py`, `eurelaps_lung.data_io`; the preprocessing steps `check_inputs` → `fem_setup` on `Input_Data/` (`--set data_dir=... output_dir=...`) |
 | Server (Jupyter, conda env `lungfem`, `/home/jovyan/Lung_project/lung_collapse`) | GetFEM (MUMPS), warp-lang, torch, nvmath-python (cuDSS), pypardiso; Xeon CPUs (slow) + CUDA GPU (driver CUDA 12; a cuda-bindings 13 warning is harmless) | all pipeline runs and validation scripts |
 
 - **Tests on the Mac:** `python3 tests/<file>.py` (pytest-compatible files, run without it).
@@ -80,6 +80,7 @@ Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output. Man
 - **One file per patient**, `configs/<p>.json` (16), made by `scripts/migrate_config.py` from the old `<p>_wall_torch.json`: gravity supine → supine, E 1.36 kPa with ρ̄ 200 kg/m³ (1.7 kPa with ρ̄ 250 until 2026-11-17: same load), q0 fitted (start 0.3, 0.5 before), ν 0.30 (0.40 until 2026-11-17), wall = the inflated surface with 5 mm margin, smooth-field wall (`solver.wall_update: "potential"`, grid 1.5 mm, σ 3 mm), torch core, steps `check_inputs` → `fit`. `output_dir` = `FEM_v2_{HD,CZ}/<p>` (2026-11-17): the geometry, hilum and `fem/setup/problem.npz` (with wall field) are copied there from the old `<p>_noreg_hilum_wall` by `init_output_dir.py`, so run `--steps fit` / `collapse` only; a patient whose old setup has no wall field needs `add_wall_field.py` first (patient_2 at least).
 - **Patients:** left lung karl01, karl10, karl17, karl18, karl20, karl23, karl24, patient_1, patient_2, patient_3, patient_10; right lung karl02, karl04, karl06, karl08, karl19. karl = HD dataset, patient_* = CZ dataset. karl19 stops on its input (NEXT.md). patient_2 is included again (user, 2026-11-17; it had been left out of the old wall runs).
 - The old runs are reproduced with overrides: regions fit = `physics.gravity=null 'physics.perturbation={"regions":[1,4,8,14,25,40]}' fit.best_by=mean` (the existing `problem.npz` has those regions); free ap slope = `physics.gravity=null 'physics.perturbation={"gradient":["ap"]}'`; outer wall = `solver.wall_update=outer`.
+- `fem_setup.mesher`: `gmsh` (default) or `netgen` (2026-11-18, `netgen_maxh_mm` 10, `netgen_optsteps3d` 10; LGPL, for the Slicer path; analysis/results.md 7d). The server comparison of the two is in NEXT.md.
 - Unknown keys raise an error; `_`-prefixed keys are comments; `data_dir` / `output_dir` relative to the JSON, inputs to `data_dir`, outputs to `output_dir`.
 
 ## Code architecture
@@ -92,7 +93,9 @@ Steps (`eurelaps_lung/runner.py`, modules imported only when their step runs): `
 | `eurelaps_lung/runner.py` | `STEPS`, logging (`output_dir/logs/{fit,predict}.log`), `run_steps`: shared by the entry points |
 | `eurelaps_lung/calibration.py` | rules `E` / `E_rho` / `sg_rho` (`fit_rule`, `apply_rule`, `rule_overrides`), `fit_overrides` (parameters made free for the cohort fits, `FIT_PARAMS` bounds: E 160–16000 Pa at ρ̄ 200 = the 200–20000 of the fits at 250, scaled to the config's density), `in_bounds` (E compared at ρ̄ 200, `E_at`), rule file; numpy only |
 | `eurelaps_lung/check_inputs.py`, `raster.py` | input checks (need the collapsed lung) |
-| `eurelaps_lung/surface_mesh.py` | `geometry` step: ACVD remesh of the inflated and the collapsed lung, same settings |
+| `eurelaps_lung/vtk_mesh.py` | `Surface` (numpy points + triangles or lines, point / cell / field data; `to_vtk` / `from_vtk`) and the VTK filters, readers, writers the steps use, set as the pyvista methods they replace (2026-11-18). No pyvista in the package except pyacvd in `surface_mesh.py` (Slicer has VTK, not pyvista) |
+| `eurelaps_lung/data_io.py` | surface I/O with the coordinate space (`read_surface` → `Surface`, `write_surface`), markups, images (itk imported only there) |
+| `eurelaps_lung/surface_mesh.py` | `geometry` step: ACVD remesh of the inflated and the collapsed lung, same settings; pyacvd gets a pyvista wrap of the surface |
 | `eurelaps_lung/hilum.py` | hilum rings and spheres |
 | `eurelaps_lung/fem/setup.py` | `fem_setup`: clamp, wall (surface + smooth field), optional Ward regions, Gmsh → `problem.npz`. FEM-library-free |
 | `eurelaps_lung/fem/problem.py` | `CollapseProblem` (arrays of `problem.npz`; old files load: `has_target`, `has_wall`, `has_wall_field`) |

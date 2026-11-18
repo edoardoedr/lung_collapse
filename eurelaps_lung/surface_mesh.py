@@ -15,8 +15,8 @@ import logging
 import math
 
 import numpy as np
-import pyacvd
 
+from . import vtk_mesh as vm
 from .data_io import as_triangles, read_surface, write_surface
 
 log = logging.getLogger(__name__)
@@ -24,34 +24,35 @@ log = logging.getLogger(__name__)
 
 def bad_edge_count(surf):
     """Number of boundary + non-manifold edges (0 = watertight manifold)."""
-    e = surf.extract_feature_edges(boundary_edges=True, non_manifold_edges=True,
-                                   feature_edges=False, manifold_edges=False)
-    return e.n_cells
+    return vm.bad_edges(surf)
 
 
 def close_holes(surf, hole_size):
-    if surf.n_open_edges > 0:
-        surf = as_triangles(surf.fill_holes(hole_size))
+    if vm.bad_edges(surf) > 0:
+        surf = vm.fill_holes(surf, hole_size)
     return surf
 
 
 def smooth(surf, n_iter, pass_band):
-    return surf.smooth_taubin(n_iter=n_iter, pass_band=pass_band) if n_iter > 0 else surf
+    return vm.smooth_taubin(surf, n_iter=n_iter, pass_band=pass_band) if n_iter > 0 else surf
 
 
 def clean_surface(surf, cfg):
-    surf = as_triangles(surf.clean(tolerance=cfg.merge_tolerance))
-    surf = surf.extract_largest()                  # drop speckle islands
+    surf = vm.clean(surf, tolerance=cfg.merge_tolerance)
+    surf = vm.largest_component(surf)              # drop speckle islands
     surf = smooth(surf, cfg.pre_smooth_iters, cfg.smooth_pass_band)
     return close_holes(surf, cfg.hole_size)
 
 
 def acvd_remesh(surf, n_clusters, min_points_per_cluster, max_subdivisions):
-    """ACVD isotropic remesh to ~n_clusters nodes."""
+    """ACVD isotropic remesh to ~n_clusters nodes (pyacvd works on pyvista meshes: the only use of
+    pyvista in the package)."""
+    import pyacvd
+    import pyvista as pv
     # each subdivision multiplies the point count by ~4
     ratio = min_points_per_cluster * n_clusters / max(surf.n_points, 1)
     n_sub = 0 if ratio <= 1 else min(max_subdivisions, math.ceil(math.log(ratio, 4)))
-    clus = pyacvd.Clustering(surf)
+    clus = pyacvd.Clustering(pv.wrap(surf.to_vtk()))
     if n_sub > 0:
         clus.subdivide(n_sub)
     clus.cluster(n_clusters)
@@ -72,7 +73,7 @@ def remesh_surface(surf, cfg, n_clusters):
 
 def min_angles_deg(surf):
     """Smallest interior angle of every triangle [deg]."""
-    tri = surf.points[surf.faces.reshape(-1, 4)[:, 1:]]
+    tri = np.asarray(surf.points)[surf.tris]
     angles = []
     for i in range(3):
         u = tri[:, (i + 1) % 3] - tri[:, i]

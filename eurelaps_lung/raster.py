@@ -36,7 +36,7 @@ def rasterize(surf, ref):
     idx = surf.copy()
     idx.points = ((np.asarray(surf.points) - origin) @ direction) / spacing   # continuous index
     st = vtkPolyDataToImageStencil()
-    st.SetInputData(idx)
+    st.SetInputData(idx.to_vtk())
     st.SetOutputOrigin(0.0, 0.0, 0.0)
     st.SetOutputSpacing(1.0, 1.0, 1.0)
     st.SetOutputWholeExtent(0, int(size[0]) - 1, 0, int(size[1]) - 1, 0, int(size[2]) - 1)

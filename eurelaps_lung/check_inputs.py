@@ -18,11 +18,10 @@ and check_summary.json.
 import json
 import logging
 
-import itk
 import numpy as np
-import pyvista as pv
 from scipy.ndimage import distance_transform_edt, map_coordinates
 
+from . import vtk_mesh as vm
 from .fem.geometry import WallDistance, face_adjacency, faces_of, signed_volume
 from .data_io import detect_space, read_surface, write_surface
 from .raster import geometry, grid_around, rasterize
@@ -45,11 +44,11 @@ def integrity(name, path, warnings, lung=True):
     except Exception as e:
         warnings.append("%s: cannot be read (%s)" % (name, e))
         return None
-    if detect_space(pv.read(path), path) is None:
+    if detect_space(vm.read_polydata(path), path) is None:
         warnings.append("%s: no coordinate space tag, LPS assumed" % name)
     tris = faces_of(surf)
     _, bad = face_adjacency(tris)
-    n_parts = surf.connectivity().point_data["RegionId"].max() + 1
+    n_parts = vm.n_components(surf)
     vol = abs(signed_volume(np.asarray(surf.points), tris)) / 1000.0
     log.info("%-10s %s: %d points, %d triangles, %d piece(s), %d bad edges, %.1f mL",
              name, path.name, surf.n_points, surf.n_cells, n_parts, bad, vol)
@@ -68,12 +67,13 @@ def integrity(name, path, warnings, lung=True):
 
 def read_surface_piece(surf):
     """Largest connected piece, as triangles."""
-    main = surf.connectivity(extraction_mode="largest")
-    return pv.PolyData(np.asarray(main.points), main.faces).clean()
+    main = vm.largest_component(surf)
+    return vm.clean(vm.Surface(main.points, main.tris))           # without the data arrays, as before
 
 
 def notch_depth(surf, radius, spacing):
     """Depth [mm] of each surface point inside the surface closed with a ball of `radius`."""
+    import itk
     img = rasterize(surf, grid_around(surf, np.full(3, spacing), radius + 3 * spacing))
     origin, sp, _, _ = geometry(img)
     m = itk.array_from_image(img) > 0                                  # z, y, x

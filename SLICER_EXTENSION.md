@@ -105,10 +105,14 @@ SlicerLungCollapse/                         extension (GitHub repo, Slicer Exten
 
 ### 5.1 Device and precision on the Mac: no MPS for the solve
 
-- **MPS has no float64**, and torch has no sparse direct solver on MPS. The FEM solve needs both:
-  - Newton to 1e-7 on a nearly incompressible, large-strain problem with a wall penalty;
-  - a sparse LU of the tangent.
-- `TorchSolver` already refuses `mps` (`torch_solver.py`). float32 is not a fix: the tangent is ill-conditioned (penalty 20 E/mm, ν 0.3, large strains), and Newton would stall or reject steps.
+- **MPS has no float64**, and torch has no sparse direct solver on MPS (nor on CPU: the LU is always outside torch, 5.2). `TorchSolver` refuses `mps` (`torch_solver.py`).
+- **Would float32 lose accuracy on the result?** Probably not where it matters, but it has not been measured:
+  - float32 has ~7 digits (eps 1.2e-7). The displacement error of a converged solve is about eps × the condition number of the tangent. Large strains, the wall penalty (20 E/mm) and the stiff clamp make the tangent poorly conditioned; with a condition number of 1e4–1e5 the error is 1e-3–1e-2 relative, i.e. ~0.01–0.5 mm on displacements of tens of mm. That is below the segmentation error (~1 mm) and the model error (ASSD ~9 mm).
+  - The risk is **convergence**, not the final number: Newton stops at `newton_tol` 1e-7 (relative residual), which float32 cannot reach; the tolerance must be ~1e-4–1e-5. Line search, the adaptive load steps and the volume-ratio secant (`find_q0`) then work with a noisier residual, and solves that converge today may fail.
+  - Near the clamp the strains are small: Neo-Hookean stress has the cancellation F − F⁻ᵀ and ln J ≈ J − 1 there, so the relative error of the stress grows like eps / strain. Locally only.
+  - The fit is worse off than the prediction: its Jacobian (sensitivities, Gauss-Newton) needs more digits than the forward solve.
+  - **And it brings no speed:** the LU is still on the CPU (no sparse solver on MPS; SciPy SuperLU runs in float32 too), so every Newton iteration copies the tangent MPS → CPU; at ~7000 tetrahedra the GPU assembly gains little.
+  - Test to settle it (server, no Mac torch needed): the same forward with `TorchFEM` in float32 vs float64 (CUDA or CPU, LU in float32), compare surface displacement, solves and failures.
 - **This is not a problem in practice: the problem is small.** karl04: 1355 nodes, 6777 tetrahedra, ~4000 unknowns, 480 surface nodes.
   - A sparse LU of that size takes milliseconds on a CPU.
   - On the server a whole prediction (volume search included) took 0.2 min on the GPU, where the GPU brings nothing at this size.
@@ -122,6 +126,23 @@ SlicerLungCollapse/                         extension (GitHub repo, Slicer Exten
 | `pypardiso` | Intel MKL: x86 only, not on Apple Silicon |
 | `cudss` (nvmath) | CUDA only |
 | `scipy` (SuperLU) | everywhere; enough at this size |
+
+- The linear solver is separate from the core: torch (or Warp, numpy) assembles the tangent, and `LinearSolver` (`fem/solvers/nodal.py`) factorises it on the host. `auto` picks cuDSS if the device is CUDA and nvmath is installed, else pypardiso if installed, else SciPy SuperLU.
+- What was used so far: **every server run = torch on CUDA + cuDSS** (`auto`; 95 of 95 logs in `results/` say "device cuda, linear solver cudss"). The Mac tests = numpy core + SciPy SuperLU, and they reproduce the server fit (karl04: ASSD 9.00 mm, p0 1283 vs 1282 Pa, 11 solves). The solvers are all direct: the backend changes the time, not the result (up to round-off).
+- The tangent is not symmetric (follower pressure on the surface), so an LU is needed: Cholesky (CHOLMOD) does not apply.
+- Timing on this Mac (2026-11-17): SuperLU on the sparsity pattern of karl18 (766 nodes, 2298 dofs) takes 27 ms per factorisation + solve; a dense LU 98 ms. karl04 (~4000 dofs) should be well under 0.1 s. A Newton solve has tens of factorisations, a prediction tens of solves: the linear algebra costs seconds; the torch assembly on CPU is still to be measured.
+- SuperLU is not the only sparse LU on a Mac, only the one already in the code and in Slicer (SciPy ships with it). Other CPU options, if it is ever the bottleneck (NEXT.md: future test):
+
+  | Option | Notes |
+  |---|---|
+  | Apple Accelerate, `SparseFactor(SparseFactorizationLU, ...)` | in the macOS SDK since **macOS 15.5** (`Sparse/Solve.h`, checked 2026-11-18); also Cholesky / LDLᵀ (symmetric only) and QR (any matrix, slower) since 10.13. C API only: no official Python binding, needs a small ctypes / C extension; Mac only |
+  | `macldlt` (github.com/bodono/macldlt, pip, MIT) | pybind11 wrapper of Accelerate's **LDLᵀ only** (symmetric indefinite; reads one triangle, symmetry not checked): does not apply to the non-symmetric tangent. Wheels macOS 13+ arm64, Python ≥ 3.10, small project (6 stars, no releases; 2026-11-18). Useful as a template for an Accelerate **LU** wrapper (same API: `factor`, `refactor(values)` on a fixed pattern, `solve`) |
+  | UMFPACK (`scikit-umfpack`) | SuiteSparse; compiled package to install in Slicer |
+  | MUMPS (`python-mumps`, `petsc4py`) | the solver of the GetFEM runs; conda-forge builds, compiled |
+  | KLU (SuiteSparse) | fast for small circuit-like matrices; few maintained Python bindings |
+  | CHOLMOD (`scikit-sparse`) | Cholesky: does not apply (the tangent is not symmetric) |
+  | dense LU (`numpy` / `torch.linalg` on CPU) | no install; ~0.1 s at 2300 dofs, grows as n³ |
+  | torch / MPS | no sparse direct solver (torch's sparse solve is CUDA only) |
 
 The extension should set `solver.linear_solver: "scipy"` and `device: "cpu"` explicitly, rather than rely on `auto`.
 
@@ -147,8 +168,8 @@ The extension should set `solver.linear_solver: "scipy"` and `device: "cpu"` exp
 ### 5.5 Python version
 
 - The package uses `X | None` in dataclass annotations (`config.py`, 24 times). These are evaluated at class creation and need **Python ≥ 3.10** (README).
-- Slicer 5.8 and earlier bundle Python 3.9; newer builds moved to a newer Python. **Check the target Slicer version.**
-- The fix is cheap and keeps 3.9 working: `from __future__ import annotations` at the top of the modules that use the syntax.
+- Slicer 5.8 and earlier bundle Python 3.9; Slicer 5.10 moved to Python 3.12.
+- **Target: Slicer 5.12** (user, 2026-11-18), so Python 3.12: no change needed. `from __future__ import annotations` would only matter for Slicer ≤ 5.8.
 
 ### 5.6 pyvista and pyacvd: plain VTK instead
 
@@ -159,8 +180,9 @@ pyvista is only a thin layer over VTK in this code (checked 2026-11-17). Each us
 | `pv.read`, `.save` (.vtk, .vtp, .vtu) | `data_io`, `setup`, `results`, `sequence`, `nodal.export_volume` | `vtkPolyDataReader` / `vtkXMLPolyDataReader` / writers (some already used in `data_io`) |
 | `pv.PolyData(points, faces)`, `.points`, `.faces`, `pv.wrap` | everywhere | `vtkPoints` + `vtkCellArray` via `vtkmodules.util.numpy_support` |
 | `.clean()` | `surface_mesh`, `hilum`, `check_inputs` | `vtkCleanPolyData` |
-| `.fill_holes()`, `.n_open_edges` | `surface_mesh` | `vtkFillHolesFilter`, `vtkFeatureEdges` (or `fem.geometry.face_adjacency`, numpy) |
-| `.connectivity()` | `check_inputs` | `vtkPolyDataConnectivityFilter` |
+| `.fill_holes()`, `.n_open_edges`, `.extract_feature_edges` | `surface_mesh` | `vtkFillHolesFilter`, `vtkFeatureEdges` (or `fem.geometry.face_adjacency`, numpy) |
+| `.smooth_taubin` | `surface_mesh` | `vtkWindowedSincPolyDataFilter` (what pyvista calls) |
+| `.connectivity()`, `.extract_largest()` | `check_inputs`, `surface_mesh` | `vtkPolyDataConnectivityFilter` |
 | `.volume` | `surface_mesh` | `vtkMassProperties` or `fem.geometry.signed_volume` (numpy) |
 | `grid.compute_implicit_distance` | `fem/wall_field.py` | `vtkImplicitPolyDataDistance` on the grid points (already used in `fem/geometry.py`) |
 | `pv.UnstructuredGrid` (tets) | `setup`, `nodal` | `vtkUnstructuredGrid` + `vtkXMLUnstructuredGridWriter` |
@@ -172,16 +194,53 @@ pyvista is only a thin layer over VTK in this code (checked 2026-11-17). Each us
   - (b) call the Surface Toolbox remesh (`SurfaceToolbox` logic) from the extension: same pyacvd, but installed and maintained by Slicer;
   - (c) remesh with gmsh, which is already a dependency (surface reparametrisation + `Mesh.MeshSizeMax`). This is a method change: the meshes differ from the cohort's, so it has to be validated (volume, quality, effect on the collapse).
 - (a) or (b) are enough at first: pyacvd runs once per patient, in the separate process. The separate process (section 4) does not isolate packages: `PythonSlicer` has the same site-packages.
+- pyacvd imports pyvista at module level (and pykdtree): pyvista cannot be avoided while pyacvd is used, but it is now confined to `surface_mesh.acvd_remesh` (2026-11-18).
+- Seen on the Mac (env `lungct`, 2026-11-18): the pip wheel of **pykdtree** (a pyacvd dependency) bundles its own `libomp.dylib`; with the conda one already loaded the process aborts (`OMP: Error #15`) inside pyacvd, old and new code alike. Fixed there with the conda-forge pykdtree. Slicer bundles its own OpenMP too: check this first when pyacvd is installed in Slicer 5.12.
 
-### 5.7 Other dependencies
+### 5.7 What gets installed in Slicer 5.12
 
-| Package | Where | In Slicer |
+Prediction path (`geometry` → `hilum` → `fem_setup` → `collapse`), imports checked 2026-11-18:
+
+| Package | Used by | In Slicer 5.12 |
 |---|---|---|
-| `itk` | `data_io` (top-level import, used only for image I/O), `raster`, `check_inputs` | not needed by the prediction. Make the import lazy in `data_io`; Slicer has SimpleITK if images are needed. |
-| `scikit-learn` | `fem/regions.py`, imported by `fem/setup.py` at top level | only for the Ward regions (fit). Make the import lazy. |
-| `gmsh` | `fem/volume_mesh.py` (subprocess) | pip wheels for macOS arm64 / x86, Linux, Windows bundle the native library. GPL: fine as a runtime pip dependency, to keep in mind if the extension bundles it. |
-| `pyacvd` | `surface_mesh.py` | installed by Slicer's Surface Toolbox too; pin a version that works with Slicer's VTK (5.6) |
-| `scipy`, `numpy` | everywhere | already in Slicer |
+| `numpy`, `scipy` | everywhere; SciPy SuperLU = the linear solver (5.2) | already there |
+| `vtk` (`vtkmodules`) | `vtk_mesh.py`: every surface operation and file | already there (Slicer's own VTK): **never pip-install `vtk`** |
+| `eurelaps_lung` | the package | `pip install` (git or wheel, pinned version, A1) |
+| `gmsh` | `fem/volume_mesh.py` (subprocess) | `pip install gmsh`: the wheel bundles the native library, no dependencies. GPL: fine as a runtime pip dependency |
+| `pyacvd` + `pykdtree` | `surface_mesh.acvd_remesh` | `pip install pyacvd` (pinned), as Slicer's Surface Toolbox does; check the OpenMP clash of the pykdtree wheel (5.6) |
+| `pyvista` | only inside pyacvd | comes with pyacvd. Its pip requirements include `vtk`, plus matplotlib, pillow, pooch, scooby, cyclopts, pyvista-validation: verify that installing it in Slicer 5.12 does **not** pull a second VTK; if it does, `pip install pyvista --no-deps` + its pure-Python requirements |
+| `torch` (CPU) | `fem/solvers/torch_solver.py` (the core) | the PyTorch extension of Slicer (SlicerPyTorch) or `pip install torch` (CPU wheel, ~200-300 MB); or nothing if the numpy core is written (C2) |
+
+Not installed in Slicer (not on the prediction path):
+
+| Package | Used by |
+|---|---|
+| `itk` | `check_inputs`, `raster`, image I/O of `data_io` (fit only; import now lazy in `data_io`) |
+| `scikit-learn` | `fem/regions.py`, only with `fem_setup.regions` (import now lazy) |
+| `warp-lang`, `getfem`, `nvmath-python` (cuDSS), `pypardiso` | server cores and solvers |
+
+### 5.7b Licenses
+
+Slicer itself is BSD-style and takes no copyleft code; extensions with a more restrictive license than MIT / BSD / Apache must say why, and Slicer maintainers avoid relying on GPL code (a GPL dependency is accepted as a separate executable, documented as such). Licenses from the installed packages' metadata (2026-11-18):
+
+| Package | License | For the extension |
+|---|---|---|
+| numpy, scipy, VTK, torch | BSD | fine |
+| pyacvd | MIT | fine; it is what Slicer's own Surface Toolbox uses for "Uniform remesh" |
+| pyvista | MIT | fine |
+| pykdtree (pyacvd dependency) | LGPL-3.0+ | fine as a separate pip-installed package (not bundled, not modified) |
+| **gmsh** | **GPL-2.0+** | the only copyleft one. We already run it as a separate process (`volume_mesh.py`), installed by pip at the user's request, not bundled: the "separate executable" case. To state in the extension's README; or replace it |
+
+What the Slicer community uses for volume meshes: the **SegmentMesher** extension, with **Cleaver2** (MIT; meshes the segmentation labelmap itself, so it does not keep a given surface triangulation) and **TetGen** (AGPL / commercial license; constrained Delaunay that keeps the surface). Options if gmsh has to go, keeping the surface exactly as the model needs:
+
+| Option | License | Notes |
+|---|---|---|
+| keep gmsh, separate process | GPL-2.0+ | no change; documented dependency, installed by the user |
+| **Netgen** (`netgen-mesher` 6.2, pip wheels for macOS / Linux / Windows; brings `netgen-occt`) | LGPL-2.1 | volume mesh of a given closed surface mesh (`GenerateVolumeMesh`, `maxh` 10, `optsteps3d` 10), surface kept. **Tested on the Mac 2026-11-18 (analysis/results.md 7d):** surface kept on 14 / 14 patients, < 1.5 s, better tetrahedra than gmsh, collapse as close or closer to a fine-mesh reference than gmsh's (3 / 4 patients closer, karl04 equal) |
+| TetGen | AGPL / commercial | what SegmentMesher offers; more restrictive than gmsh |
+| Cleaver2 | MIT | does not keep our ACVD surface: the surface nodes would change (a method change, as 5.11) |
+
+Why not SegmentMesher itself: (1) it meshes the segmentation, not our ACVD surface, so the surface nodes of the model (wall, clamp, target matching, calibration, the GNN graph) would change; (2) it is a Slicer extension of compiled command-line tools, while the same meshing must run on the server without Slicer (cohort fits, GNN training data): the server and Slicer would build different meshes; (3) its surface-keeping engine is TetGen (AGPL).
 
 ### 5.8 Windows
 
@@ -204,6 +263,27 @@ pyvista is only a thin layer over VTK in this code (checked 2026-11-17). Each us
   - volume in a plausible range (e.g. 1–4 L);
   - airways touching the lung surface (the hilum needs the rings).
 
+### 5.11 Surface remesh: pyacvd or gmsh
+
+The mesh is built in two stages, and only the first one is in question:
+
+1. **Surface** (`geometry` step, `surface_mesh.py`): Slicer surface (dense, staircase) → weld, largest component, Taubin smoothing, fill holes → **ACVD** (pyacvd) to ~480 nodes (`target_nodes`, `max_faces` 1000) → light smoothing → watertightness check (retries with 2 % fewer clusters).
+2. **Volume** (`fem_setup` step, `fem/volume_mesh.py`): **gmsh** fills that surface with tetrahedra (Delaunay, `MeshSizeMax` 14 mm inside) and must keep the surface triangulation exactly: the code stops if gmsh moves a surface node or changes a triangle. gmsh stays in any case.
+
+The question is who does stage 1:
+
+| | pyacvd (now) | gmsh surface remesh (alternative) |
+|---|---|---|
+| How | clusters the dense surface into n Voronoi regions of equal area; one node per region | `classifySurfaces` + `createGeometry` re-parametrise the STL as patches, then a frontal / Delaunay 2D mesh at a size in mm |
+| Control | number of nodes (`geometry.target_nodes` 480): the same graph size for every patient | element size in mm. The node count can be targeted too: on the cohort's ACVD meshes the mean edge equals h = √(4A / (√3 F)), F = 2N − 4 (A = area; 15–22 mm for N = 480, area 900–1950 cm²), so h from the smoothed surface's area gives ~N nodes, and one correction of h hits it within a few %. Size can also be graded (finer at the hilum) |
+| Quality | near-equilateral triangles; sometimes a few non-manifold edges (the retry loop handles it) | good triangles, but the re-parametrisation of a closed, curved surface depends on an angle threshold and can fail or make bad patches on a noisy input |
+| Input | robust on the dense segmentation surface | needs the surface smoothed first (the VTK Taubin step stays) |
+| Dependencies | pyacvd + pyvista; pyacvd 0.3.0 broke in Slicer (5.6) | none new (gmsh is there for stage 2); one tool for surface and volume |
+| Validation | all the cohort's fits, the E rule and the GNN data use these meshes | **new**: different meshes → check volume, ASSD of the fits, the E rule (mesh dependence) before switching |
+
+- Recommendation: keep pyacvd for the extension (pinned version, or the Surface Toolbox's install), and remove pyvista from everything else (5.6). Test the gmsh remesh later on the cohort, as a fallback if pyacvd breaks again in Slicer; switching needs the calibration redone on the new meshes.
+- A VTK-only remesh (`vtkQuadricDecimation` + smoothing) is not an option: it gives non-uniform triangles and no control of the node count.
+
 ## 6. Model questions this raises
 
 1. **Calibration file.** The extension ships the E rule at ρ̄ 200 (a 3.5332, b −0.013455, `config.py`) as a JSON from `main_calibrate.py`. It records the cohort (12 patients), the collapse range and the residual (0.16 in log₁₀ E, i.e. E ×/÷ 1.45 at 1 sd). It is updated when the cohort grows.
@@ -220,17 +300,44 @@ pyvista is only a thin layer over VTK in this code (checked 2026-11-17). Each us
 
 ## 7. Changes to the package before the extension
 
-| Change | Why |
-|---|---|
-| `pyproject.toml`, version number, `pip install eurelaps_lung` (from git or a wheel) | the extension installs a pinned version |
-| `eurelaps_lung/predict.py` with `run(config, collapse=None, params=None, from_fit=None, frames=None, progress=None)` and `python -m eurelaps_lung.predict`; `main_predict.py` becomes a thin wrapper | a Python API, not only a CLI script |
-| `load_config` from a dict (base folder given) | configs built in memory |
-| lazy imports of `itk` (`data_io`) and `scikit-learn` (`fem/setup.py` → `regions`) | fewer dependencies for the prediction |
-| `from __future__ import annotations` in the modules with `X \| None` | Python 3.9 |
-| progress callback or structured log lines (`step`, `solve i / n`) | progress bar |
-| sequence frames also returned as arrays (`make_sequence` → data + files) | build the Slicer sequence without re-reading files |
-| optional: numpy core with the closed-form Neo-Hookean tangent | no torch in Slicer (5.4) |
-| optional: inflated-only input checks | 5.10 |
+Goal: the extension (a separate repository) does `pip install eurelaps_lung==X.Y` into Slicer's Python and calls the package; nothing of the package is copied into the extension. Every change keeps the server runs identical (same files, same numbers): check with `tests/` and one fit + one prediction on the server.
+
+**A. Packaging and API**
+
+| # | Change | Why |
+|---|---|---|
+| A1 | `pyproject.toml`, version number, install from git or a wheel; dependencies split into extras: core (numpy, scipy, vtk, pyacvd, gmsh), `[torch]`, `[fit]` (scikit-learn), `[images]` (itk), `[server]` (warp-lang, getfem, nvmath, pypardiso) | the extension installs a pinned version and only what the prediction needs |
+| A2 | `eurelaps_lung/predict.py`: `run(config, collapse=None, params=None, from_fit=None, frames=None, progress=None)` + `python -m eurelaps_lung.predict`; `main_predict.py` becomes a thin wrapper | a Python API, not only a CLI script |
+| A3 | `load_config` from a dict (base folder given) | configs built in memory from the UI |
+| A4 | calibration file shipped in the package (`eurelaps_lung/data/E_rule.json`, read by `calibration.load_rule`) | the extension uses the same rule as `physics.E_Pa {"rule": "collapse"}` |
+| A5 | progress callback or structured log lines (`step`, `solve i / n`) | progress bar |
+| A6 | sequence frames also returned as arrays (`make_sequence` → data + files) | build the Slicer sequence without re-reading files |
+
+**B. Dependencies that Slicer does not have or that clash**
+
+| # | Change | Why |
+|---|---|---|
+| B1 | pyvista removed: `eurelaps_lung/vtk_mesh.py` with the plain-VTK helpers, surfaces passed as `(points, tris)` or `vtkPolyData` (5.6) | one VTK, Slicer's |
+| B2 | pyacvd kept for the surface remesh, version pinned against Slicer's VTK; gmsh remesh tested later as fallback (5.11) | pyacvd is the only real pyvista user |
+| B3 | lazy imports of `itk` (`data_io`, `raster`, `check_inputs`) and `scikit-learn` (`fem/setup.py` → `regions`). **Done for `data_io` and `fem/setup.py` (2026-11-18)**; `raster` / `check_inputs` still import itk at the top, but the prediction does not import them | not needed by the prediction |
+| B4 | gmsh subprocess: an interpreter that is Python in Slicer (`PythonSlicer`, not the Slicer executable `sys.executable` may point to), or gmsh in-process with a timeout | `volume_mesh.py` runs `sys.executable -c ...` |
+| B5 | ~~`from __future__ import annotations`~~ not needed: Slicer 5.12 has Python 3.12 (5.5) | Python 3.9 (Slicer ≤ 5.8) only |
+
+**C. Compute (to be decided with the torch questions)**
+
+| # | Change | Why |
+|---|---|---|
+| C1 | prediction on CPU float64 + scipy SuperLU as the documented default; no pypardiso / cuDSS / Warp on that path | Mac and Windows (5.1–5.3) |
+| C2 | optional: numpy core with the closed-form Neo-Hookean tangent | no torch in Slicer (5.4) |
+
+**D. Inputs**
+
+| # | Change | Why |
+|---|---|---|
+| D1 | inflated-only input checks (closed, one component, volume range, airways touch the lung) | `check_inputs` needs the collapsed lung (5.10) |
+| D2 | airways-only hilum / clamp, if decided (6.2) | vessels may not be segmented |
+
+Order: B1, B3 and A1 first (the package imports in Slicer), then A2–A6 and B4 (the extension can call it), then C and D.
 
 ## 8. Phases
 

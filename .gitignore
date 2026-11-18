@@ -12,3 +12,4 @@ seq_*.txt
 Input_CT/*
 .ipynb_checkpoints/
 logs_*
+.vscode/

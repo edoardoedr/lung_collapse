@@ -4,7 +4,7 @@ continuous in the position (C2). The contact of wall_update "potential" is the e
 field at the current positions, inside Newton (solvers/nodal.py).
 
 Evaluation (WallField) needs numpy / scipy only; building the grid (signed_distance_grid) needs
-pyvista / VTK and is done once in fem_setup.
+VTK and is done once in fem_setup.
 """
 
 import numpy as np
@@ -15,14 +15,12 @@ def signed_distance_grid(points, tris, spacing, margin, smoothing):
     """Smoothed signed distance to the closed surface (points, tris; outward triangles) on a
     regular grid: (grid (nx, ny, nz) float32, origin (3,)). spacing, margin (around the surface's
     bounding box) and smoothing (Gaussian sigma) in mm."""
-    import pyvista as pv
+    from .. import vtk_mesh as vm
     P = np.asarray(points, float)
     lo, hi = P.min(0) - margin, P.max(0) + margin
     dims = np.ceil((hi - lo) / spacing).astype(int) + 1
-    image = getattr(pv, "ImageData", None) or pv.UniformGrid
-    grid = image(dimensions=tuple(int(d) for d in dims), spacing=(spacing,) * 3, origin=tuple(lo))
-    surf = pv.PolyData(P, np.column_stack([np.full(len(tris), 3), tris]).ravel())
-    d = np.asarray(grid.compute_implicit_distance(surf)["implicit_distance"], float)
+    X = vm.grid_points(dims, (spacing,) * 3, lo)
+    d = vm.implicit_distance(vm.Surface(P, tris), X)
     d = d.reshape(tuple(dims), order="F")                      # VTK order: x fastest
     if d[0, 0, 0] < 0:                                         # a corner of the box is outside
         d = -d

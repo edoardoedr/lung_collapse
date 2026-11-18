@@ -1,16 +1,18 @@
 """Surface helpers for the collapse steps. Points (N, 3), triangles (T, 3) index arrays."""
 
 import numpy as np
-import pyvista as pv
 from vtkmodules.vtkFiltersCore import vtkImplicitPolyDataDistance
+
+from .. import vtk_mesh as vm
 
 
 def faces_of(surf):
-    return np.asarray(surf.faces).reshape(-1, 4)[:, 1:].astype(np.int64)
+    return np.asarray(surf.tris, dtype=np.int64)
 
 
 def polydata(points, tris):
-    return pv.PolyData(np.asarray(points, float), np.column_stack([np.full(len(tris), 3), tris]).ravel())
+    """Surface (vtk_mesh) of float points and triangles."""
+    return vm.Surface(np.asarray(points, float), tris)
 
 
 def tri_geometry(P, tris):
@@ -77,10 +79,11 @@ class WallDistance:
     def __init__(self, points, tris):
         self.P = np.asarray(points, float)
         self.T = np.asarray(tris, np.int64)
-        self.surf = polydata(self.P, self.T)
+        self.surf = polydata(self.P, self.T).to_vtk()
         self.N = vertex_normals(self.P, self.T)
         self.f = vtkImplicitPolyDataDistance()
         self.f.SetInput(self.surf)
+        self.loc = vm.CellLocator(self.surf)
 
     def distance(self, X):
         return np.array([self.f.EvaluateFunction(x) for x in np.asarray(X, float)])
@@ -91,9 +94,8 @@ class WallDistance:
     def closest(self, X):
         """(closest point, phi, n) of each X; also the closest-point target of an unregistered fit."""
         X = np.atleast_2d(np.asarray(X, float))
-        cell, cp = self.surf.find_closest_cell(X, return_closest_point=True)
-        cp = np.atleast_2d(cp)
-        return (cp, *self._contact(X, np.atleast_1d(cell), cp))
+        cell, cp = self.loc.closest(X)
+        return (cp, *self._contact(X, cell, cp))
 
     def _contact(self, X, cell, cp):
         """(phi, n) from the closest triangle and point of each X."""
@@ -120,9 +122,8 @@ def barycentric(P, tri, cp):
 def closest_on_surface(P, tris, X):
     """Closest point of each X (M, 3) on the surface (P, tris): (triangle index, barycentric weights,
     closest point = weights x triangle points)."""
-    cell, cp = polydata(P, tris).find_closest_cell(np.atleast_2d(np.asarray(X, float)), return_closest_point=True)
-    cell = np.atleast_1d(cell)
-    w = barycentric(P, tris[cell], np.atleast_2d(cp))
+    cell, cp = vm.CellLocator(polydata(P, tris)).closest(X)
+    w = barycentric(P, tris[cell], cp)
     return cell, w, np.einsum("ik,ikj->ij", w, P[tris[cell]])
 
 
@@ -130,6 +131,6 @@ def assd(PA, PB, tris, tris_a=None):
     """Symmetric mean point-to-surface distance between two surfaces: A (PA, tris_a) and B (PB, tris);
     tris_a None = the same triangles as B."""
     A, B = polydata(PA, tris if tris_a is None else tris_a), polydata(PB, tris)
-    _, cb = B.find_closest_cell(A.points, return_closest_point=True)
-    _, ca = A.find_closest_cell(B.points, return_closest_point=True)
+    _, cb = vm.CellLocator(B).closest(A.points)
+    _, ca = vm.CellLocator(A).closest(B.points)
     return float(np.r_[np.linalg.norm(A.points - cb, axis=1), np.linalg.norm(B.points - ca, axis=1)].mean())

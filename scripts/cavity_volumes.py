@@ -15,7 +15,7 @@ down). Per patient, from the input surfaces only (data_dir):
   (middle of the lateral extents of the two sides), positive = away from the pneumothorax. A proxy
   of the mediastinal shift (the heart is not segmented).
 With --fit-run, E and the ASSD of that run, and the correlations of log10 E with the enlargement,
-the collapse % and the trachea shift. Needs pyvista (server).
+the collapse % and the trachea shift. Needs VTK (server, or the Mac env lungct).
 """
 
 import argparse
@@ -32,14 +32,13 @@ sys.path.insert(0, str(ROOT))
 
 from eurelaps_lung import calibration as C                               # noqa: E402
 from eurelaps_lung.config import load_config                              # noqa: E402
-from eurelaps_lung.data_io import as_triangles, read_surface              # noqa: E402
+from eurelaps_lung import vtk_mesh as vm                                  # noqa: E402
+from eurelaps_lung.data_io import read_surface                            # noqa: E402
 
 
 def volume(mesh):
-    m = as_triangles(mesh.clean())             # clean() turns degenerate triangles into lines: drop them
-    open_edges = m.extract_feature_edges(boundary_edges=True, feature_edges=False, manifold_edges=False,
-                                         non_manifold_edges=False).n_cells
-    return abs(m.volume) / 1000.0, open_edges                       # mL
+    m = vm.clean(mesh)                         # clean() turns degenerate triangles into lines: dropped
+    return abs(m.volume) / 1000.0, vm.boundary_edges(m)             # mL
 
 
 def corr(x, y):

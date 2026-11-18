@@ -95,8 +95,11 @@ class FemSetupConfig:
     clamp_min_points: int = 20         # the first ball grows until the clamp holds this many points (rank 3)
     clamp_growth: float = 1.1
     clamp_max_growth_steps: int = 10
+    mesher: str = "gmsh"               # volume mesher: "gmsh" (GPL) | "netgen" (LGPL); both keep the surface
     mesh_size_mm: float = 14.0         # Gmsh MeshSizeMax (interior; the surface is kept)
-    gmsh_timeout_s: int = 300
+    netgen_maxh_mm: float = 10.0       # Netgen maxh (~ the node count of gmsh at 14 mm)
+    netgen_optsteps3d: int = 10        # Netgen 3D optimisation steps (3 = Netgen's default leaves slivers)
+    gmsh_timeout_s: int = 300          # the mesher (gmsh or Netgen) is killed after this time
     # wall: cavity the lung may not leave. "reference" = the inflated surface itself, a file name
     # (data_dir) = that closed surface, None = no wall
     wall: Path | str | None = "reference"
@@ -477,7 +480,8 @@ def load_config(path, overrides=None):
     hilum.structures = dict(structures)
     hilum.output = output_dir / hilum.output
 
-    fs = dict(_clean(raw.get("fem_setup", {}), "fem_setup", ("clamp", "wall", "mesh_size_mm", "gmsh_timeout_s", "regions")))
+    fs = dict(_clean(raw.get("fem_setup", {}), "fem_setup", ("clamp", "wall", "mesher", "mesh_size_mm", "netgen_maxh_mm",
+                                                                "netgen_optsteps3d", "gmsh_timeout_s", "regions")))
     clamp = _clean(fs.pop("clamp", {}), "fem_setup.clamp", ("points", "radius_factor", "min_points", "growth", "max_growth_steps"))
     wall = _clean(fs.pop("wall", {}), "fem_setup.wall", ("surface", "tol_mm", "grid_mm", "grid_margin_mm", "smoothing_mm"))
     regions = _clean(fs.pop("regions", None) or {}, "fem_setup.regions", ("levels", "pos_weight"))
@@ -488,6 +492,8 @@ def load_config(path, overrides=None):
     if "pos_weight" in regions:
         fs["regions_pos_weight"] = regions["pos_weight"]
     fem_setup = _section(FemSetupConfig, fs, "fem_setup")
+    if fem_setup.mesher not in ("gmsh", "netgen"):
+        raise ValueError("fem_setup.mesher: gmsh or netgen")
     if fem_setup.wall is not None and fem_setup.wall != "reference":
         fem_setup.wall = data_dir / fem_setup.wall
     fem_setup.reference = output_dir / geometry.inflated_output

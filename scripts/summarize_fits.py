@@ -80,7 +80,7 @@ def point_surface_distance(P, X, tris, chunk=128):
 
 
 def axis_coords(X_ref, tris, clamped, area, hilum):
-    """Copy of eurelaps_lung.fem.fit.axis_coords (that module needs pyvista): normalised coordinate
+    """Copy of eurelaps_lung.fem.fit.axis_coords (that module needs VTK): normalised coordinate
     of each triangle centroid, LPS reference; ap + = anterior (-y), si + = superior (+z),
     ml + = lateral (away from the hilum in x)."""
     C = X_ref[tris].mean(1)

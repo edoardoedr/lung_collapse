@@ -1,23 +1,21 @@
 """Surface and image I/O with explicit coordinate spaces.
 
-Every surface inside the pipeline is an all-triangle pv.PolyData in a known space
+Every surface inside the pipeline is an all-triangle vtk_mesh.Surface in a known space
 (LPS or RAS; they differ by the sign of x and y). The space is stored in the
 "SPACE" field-data array and, for legacy .vtk files, also in the header line the
 way 3D Slicer writes it ("... SPACE=LPS").
 
-Images are itk images; ITK physical coordinates are always LPS.
+Images are itk images; ITK physical coordinates are always LPS. itk is imported only by the
+image functions (the surface steps and the prediction do not need it).
 """
 
 import json
 import logging
 from pathlib import Path
 
-import itk
 import numpy as np
-import pyvista as pv
-from vtkmodules.vtkFiltersCore import vtkTriangleFilter
-from vtkmodules.vtkIOLegacy import vtkPolyDataWriter
-from vtkmodules.vtkIOXML import vtkXMLPolyDataWriter
+
+from . import vtk_mesh as vm
 
 log = logging.getLogger(__name__)
 
@@ -26,26 +24,15 @@ DEFAULT_SPACE = "LPS"   # Slicer >= 4.11 writes models in LPS
 
 
 def as_triangles(mesh):
-    """Surface of `mesh` as PolyData with triangle cells only (no verts / lines)."""
-    if not isinstance(mesh, pv.PolyData):
-        mesh = mesh.extract_surface()
-    f = vtkTriangleFilter()
-    f.SetInputData(mesh)
-    f.PassVertsOff()
-    f.PassLinesOff()
-    f.Update()
-    tri = pv.wrap(f.GetOutput())
-    if tri.n_lines or tri.n_verts:      # PassLinesOff still lets through the lines that clean() made of
-        tri = pv.PolyData(tri.points, faces=tri.faces)   # degenerate triangles (karl19): keep the polygons
-    if not tri.is_all_triangles:
-        raise ValueError("triangulation left non-triangle cells")
-    return tri
+    """Surface of `mesh` (vtkPolyData or Surface) with triangle cells only (no verts / lines)."""
+    return vm.triangles(mesh)
 
 
 def detect_space(mesh, path):
-    """'LPS' / 'RAS' from the SPACE field data or the legacy header, else None."""
-    if "SPACE" in mesh.field_data:
-        space = str(np.asarray(mesh.field_data["SPACE"]).ravel()[0]).upper()
+    """'LPS' / 'RAS' from the SPACE field data (Surface or vtkPolyData) or the legacy header, else None."""
+    fields = mesh.field_data if isinstance(mesh, vm.Surface) else vm.field_data(mesh)
+    if "SPACE" in fields:
+        space = str(np.asarray(fields["SPACE"]).ravel()[0]).upper()
         if space in SPACES:
             return space
     if Path(path).suffix.lower() == ".vtk":
@@ -76,41 +63,28 @@ def read_surface(path, space=DEFAULT_SPACE, input_space="auto"):
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(path)
-    mesh = pv.read(path)
+    raw = vm.read_polydata(path)
     src = input_space
     if src == "auto":
-        src = detect_space(mesh, path)
+        src = detect_space(raw, path)
         if src is None:
             log.warning("%s has no SPACE tag, assuming %s", path.name, DEFAULT_SPACE)
             src = DEFAULT_SPACE
-    surf = as_triangles(mesh)
+    surf = as_triangles(raw)
     log.info("read %s: %d pts, %d tris, %s -> %s",
              path.name, surf.n_points, surf.n_cells, src, space)
     return convert_space(surf, src, space)
 
 
 def write_surface(mesh, path, space):
-    """Write `mesh` (already in `space`) tagged with its space. .vtp or .vtk keep the tag."""
+    """Write `mesh` (a Surface, already in `space`) tagged with its space. .vtp or .vtk keep the tag."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     mesh = mesh.copy()
     mesh.field_data["SPACE"] = np.array([space])
-    suffix = path.suffix.lower()
-    if suffix == ".vtp":
-        w = vtkXMLPolyDataWriter()
-    elif suffix == ".vtk":
-        w = vtkPolyDataWriter()
-        w.SetHeader("eurelaps_lung. SPACE=%s" % space)
-        w.SetFileTypeToBinary()
-    else:
+    if path.suffix.lower() not in (".vtp", ".vtk"):
         log.warning("%s: format cannot store the coordinate space (%s)", path.name, space)
-        mesh.save(path)
-        return path
-    w.SetFileName(str(path))
-    w.SetInputData(mesh)
-    if not w.Write():
-        raise OSError("could not write %s" % path)
-    return path
+    return vm.write_polydata(mesh, path, header="eurelaps_lung. SPACE=%s" % space)
 
 
 def read_mask(path, label=None):
@@ -118,6 +92,7 @@ def read_mask(path, label=None):
 
     Expects a 3D labelmap (Slicer: segmentation -> Export visible segments to binary labelmap).
     """
+    import itk
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(path)
@@ -195,6 +170,7 @@ def read_fiducial_radii(path):
 
 
 def write_image(img, path):
+    import itk
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     itk.imwrite(img, str(path), compression=True)

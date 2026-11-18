@@ -56,7 +56,7 @@ def mask_from_surface(surf, img):
     s = surf.copy()
     s.points = np.linalg.solve(D, (np.asarray(surf.points) - o).T).T / sp      # continuous index
     st = vtk.vtkPolyDataToImageStencil()
-    st.SetInputData(s)
+    st.SetInputData(s.to_vtk())
     st.SetOutputOrigin(0, 0, 0)
     st.SetOutputSpacing(1, 1, 1)
     st.SetOutputWholeExtent(0, n[0] - 1, 0, n[1] - 1, 0, n[2] - 1)

@@ -455,7 +455,31 @@ karl04 on the Mac with the numpy test core and a 4 mm wall grid (`tests/test_ste
 
 **Server, torch core (2026-11-16, karl04, `runs/v2_check`):** the rewritten `fit` reproduces the previous code evaluation by evaluation (same mean / rms at every solve: 9.716 / 14.856, 8.620 / 13.011, ... 8.844 / 12.774): ASSD 9.001 mm, p0 1283 Pa, 11 solves, 0 failed, 39 s. `check_jacobian.py` with the smooth-field wall: core columns (4 bands + ν) vs finite differences max 2.6e-8, load-model column (q0) 2.2e-9. Wall field added to 8 more setups (16–28 s each, no target point beyond its margin). Still to run: forward, lateral position, regions, `geometry` / `fem_setup` from scratch (REWRITE_PLAN.md, "Status", steps 4–7).
 
-## 8. Evidence behind the design choices
+### 7d. pyvista removed; Netgen vs gmsh volume mesh (Mac, env `lungct`, 2026-11-18)
+
+**pyvista → plain VTK (`eurelaps_lung/vtk_mesh.py`).** `check_inputs` → `geometry` → `hilum` → `fem_setup` run with the previous code (pyvista 0.49) and the new one (VTK 9.7 only; pyacvd 0.5 still gets a pyvista wrap), on the 16 patients of `Input_Data/`: every output file (`*_mesh.vtp`, `hilum_anchor.mrk.json`, `hilum/rings.vtp`, `checks/*`, `fem/setup/problem.npz`, `reference.vtp`, `target.vtp`, `volume.vtu`, the JSON summaries) has the same points, cells and data arrays, difference 0, on 16 / 16 patients. One difference found and fixed: karl19's `checks/inflated_check.vtp` kept Slicer's `Normals` array (the inflated lung has extra pieces; the old code rebuilt the largest piece without arrays).
+
+**Netgen (`netgen-mesher` 6.2, LGPL-2.1) as the volume mesher**, on the gmsh `fem_setup` surface of 14 patients (all but patient_3 / patient_10, not yet set up at the time): Netgen keeps the surface exactly on 14 / 14 (no point moved, boundary faces = the surface triangles), < 1.5 s each. Settings: `maxh` 10 mm, `optsteps3d` 10 (with the default 3 steps, `maxh` 10 left slivers on karl04: min dihedral 7.6°, radius ratio 0.035). Node counts close to gmsh's (`MeshSizeMax` 14): −9 % (patient_1) to +20 % (karl18). Quality better on every patient:
+
+| | gmsh (14 patients) | Netgen |
+|---|---|---|
+| min dihedral angle | 13.3–15.2° | 20.5–30.3° |
+| 1st percentile dihedral | 27–31° | 45–46° |
+| max dihedral | 165–170° | 151–165° |
+| radius ratio min / mean | 0.17–0.31 / 0.78–0.81 | 0.34–0.54 / 0.86–0.88 |
+
+**Effect on the collapse** (numpy test core, config physics, E from the collapse rule; gmsh run at the real volume ratio, Netgen and a fine Netgen mesh, `maxh` 5 mm, at the same q0 and E). Distance of the surface displacement from the fine mesh's:
+
+| Patient | nodes gmsh / Netgen / fine | mean |U| [mm] | gmsh vs fine mean / max [mm] | Netgen vs fine mean / max [mm] | volume ratio gmsh / Netgen / fine |
+|---|---|---|---|---|---|
+| karl18 | 766 / 922 / 4348 | 18.8 | 1.10 / 4.27 | 0.67 / 2.58 | 0.696 / 0.694 / 0.691 |
+| karl01 | 733 / 735 / 3355 | 18.3 | 1.05 / 2.36 | 0.89 / 1.98 | 0.746 / 0.746 / 0.743 |
+| patient_1 | 840 / 767 / 3523 | 43.7 | 2.14 / 7.57 | 1.89 / 4.61 | 0.415 / 0.413 / 0.405 |
+| karl04 | 1356 / 1199 / 7233 | 38.3 | 1.29 / 4.98 | 1.27 / 5.04 | 0.487 / 0.487 / 0.481 |
+
+- Netgen is closer to the fine mesh than gmsh on karl18, karl01, patient_1 (mean −12 to −40 %, max −16 to −40 %) and as close on karl04 (mean 1.27 vs 1.29, max 5.04 vs 4.98 mm; karl04 equal), with fewer or about as many nodes; gmsh vs Netgen on karl04 0.39 / 2.09 mm. ASSD against the real collapsed lung changes by ≤ 0.14 mm.
+- **Both production meshes are not mesh-converged:** 1–2 mm mean, up to 4–8 mm max against the fine mesh (P1 tetrahedra are too stiff at this size; the fine mesh collapses ~0.5–1 % more at the same load). Not a Netgen / gmsh question; to keep in mind for the GNN data and the calibration (E and q0 absorb part of it).
+
 
 - **No alignment, `plane` loss** (2026-10-05, registered setup): with `hilum_rigid` alignment karl04 was 14.6 mm from the real collapsed surface, against 3.1–3.3 mm unaligned with the plane loss; the alignment rotated the target ~16° and put up to 22 target points beyond the wall (20.6 mm).
 - **No registration** (2026-10-27, 15 patients, still-point clamp): median ASSD 2.20 (registered) vs 2.24 mm; less rotation (−2.9° median), 1–4 min faster. The registered reference volume was wrong on karl23 (1984 vs 2554 mL, Dice 0.85: collapse 37 instead of 51 %) and karl20 (−7 %); patient_2 9.3 vs 3.6 mm.
