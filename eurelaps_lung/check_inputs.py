@@ -7,7 +7,7 @@
      shrinks); points outside by more than outside_tol_mm are flagged
   4. narrow notches (folds, open fissures) in both lungs: the mask is closed with a ball of
      notch_radius_mm and points lying deeper than notch_depth_mm inside the closed volume are
-     flagged. They break Gmsh (self-intersections)
+     flagged. They break the volume mesher (self-intersections)
   5. volume ratio inflated / collapsed
 
 Findings are logged as warnings; the step fails only if fail_on_warning. Outputs in

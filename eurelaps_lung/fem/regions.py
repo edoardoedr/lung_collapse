@@ -9,11 +9,11 @@ import warnings
 
 import numpy as np
 from scipy.sparse import coo_matrix
-from sklearn.cluster import AgglomerativeClustering
 
 
 def ward_labels(feat, adj_pairs, active, K, pos, pos_weight):
     """Per-triangle labels 0..K-1 (-1 where not active), and the K actually used."""
+    from sklearn.cluster import AgglomerativeClustering       # scikit-learn: fem_setup.regions only
     lab = -np.ones(len(active), dtype=int)
     idx = np.where(active)[0]
     K = int(min(K, len(idx)))

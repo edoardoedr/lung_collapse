@@ -89,16 +89,16 @@ class LinearSolver:
         self.backend = backend or "auto"
         if self.backend == "auto":
             self.backend = "scipy"
-            try:
-                import pypardiso  # noqa: F401
+            try:                                        # not only ImportError: a missing MKL / CUDA
+                import pypardiso  # noqa: F401              # library raises OSError & co. at import
                 self.backend = "pardiso"
-            except ImportError:
+            except Exception:                           # noqa: BLE001
                 pass
             if cuda:
                 try:
                     import nvmath  # noqa: F401
                     self.backend = "cudss"
-                except ImportError:
+                except Exception:                       # noqa: BLE001
                     pass
         if self.backend not in ("cudss", "pardiso", "scipy"):
             raise ValueError("linear_solver must be auto, cudss, pardiso or scipy")

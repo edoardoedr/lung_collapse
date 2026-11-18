@@ -480,6 +480,66 @@ karl04 on the Mac with the numpy test core and a 4 mm wall grid (`tests/test_ste
 - Netgen is closer to the fine mesh than gmsh on karl18, karl01, patient_1 (mean −12 to −40 %, max −16 to −40 %) and as close on karl04 (mean 1.27 vs 1.29, max 5.04 vs 4.98 mm; karl04 equal), with fewer or about as many nodes; gmsh vs Netgen on karl04 0.39 / 2.09 mm. ASSD against the real collapsed lung changes by ≤ 0.14 mm.
 - **Both production meshes are not mesh-converged:** 1–2 mm mean, up to 4–8 mm max against the fine mesh (P1 tetrahedra are too stiff at this size; the fine mesh collapses ~0.5–1 % more at the same load). Not a Netgen / gmsh question; to keep in mind for the GNN data and the calibration (E and q0 absorb part of it).
 
+**Cohort fits on the server** (torch, `main_calibrate.py --fit E`, 16 patients, gmsh vs Netgen `fem_setup`, same geometry and hilum, 2026-11-18):
+
+| Patient | E gmsh / Netgen [Pa] | q0 gmsh / Netgen | ASSD gmsh / Netgen [mm] |
+|---|---|---|---|
+| karl01 | 1243 / 1273 | 0.242 / 0.243 | 5.51 / 5.50 |
+| karl02 | 942 / 953 | 0.398 / 0.398 | 5.13 / 5.15 |
+| karl04 | 539 / 538 | 0.377 / 0.377 | 8.37 / 8.39 |
+| karl06 | 1688 / 1709 | 0.187 / 0.186 | 4.82 / 4.83 |
+| karl08 | 2097 / 2160 | 0.236 / 0.235 | 6.40 / 6.36 |
+| karl10 | 15741 / 15741 (upper bound) | 0.465 / 0.466 | 10.31 / 10.28 |
+| karl17 | 1200 / 1260 | 0.186 / 0.186 | 5.98 / 6.02 |
+| karl18 | 15998 / 16000 (upper bound) | 0.297 / 0.296 | 5.84 / 5.89 |
+| karl19 | 603 / 636 | 0.660 / 0.656 | 8.77 / 8.85 |
+| karl20 | 356 / 367 | 0.548 / 0.553 | 8.02 / 8.02 |
+| karl23 | 160 / 160 (lower bound) | 0.485 / 0.396 | 9.18 / 8.70 |
+| karl24 | 2979 / 3030 | 0.212 / 0.212 | 5.49 / 5.50 |
+| patient_1 | 547 / 616 | 0.530 / 0.510 | 11.79 / 11.81 |
+| patient_10 | 521 / 530 | 0.310 / 0.311 | 6.05 / 6.02 |
+| patient_2 | 325 / 345 | 0.902 / 0.878 | 9.51 / 9.57 |
+| patient_3 | 1286 / 1301 | 0.349 / 0.351 | 7.50 / 7.52 |
+
+- ASSD equal: |difference| ≤ 0.08 mm on 15 / 16; karl23 9.18 → 8.70 mm, but its E is at the lower bound on both meshes (q0 0.485 vs 0.396: a different end point of an ill-posed fit, not a mesh effect).
+- q0 equal (≤ 0.005) except at the bound (karl23) and on the two largest collapses (patient_1 −0.020, patient_2 −0.024).
+- **E systematically a little higher with Netgen**: ratio Netgen / gmsh on the 13 patients inside the bounds 0.998–1.126, median 1.024; the largest on the large collapses (patient_1 +13 %, patient_2 +6 %, karl19 +5 %, karl17 +5 %). Consistent with the fine-mesh test: the coarser / worse-shaped gmsh mesh is stiffer, so the fit needs a lower E for the same collapse; the Netgen E is a bit closer to the mesh-converged value. The same 3 patients are at the bounds on both meshes.
+- The rule fitted on Netgen would therefore have E ~2 % higher at the same collapse %; since the forward run uses the same mesh, the prediction should not change (leave-one-out to confirm).
+
+**Rule and leave-one-out** (`calibration/E_gmsh.json`, `E_netgen.json`; runs `loo_gmsh`, `loo_netgen`; same 13 patients in the rule, same 3 left out):
+
+| | gmsh | Netgen |
+|---|---|---|
+| rule log10 E = a + b · collapse % | 3.5366, −0.013178 | 3.5380, −0.012883 |
+| residual sd (log10) | 0.157 | 0.158 |
+| E at 25 / 50 / 75 % [Pa] | 1611 / 755 / 353 | 1644 / 783 / 373 (+2 / +4 / +6 %) |
+| slope error, rms log10 | 0.172 (×1.49) | 0.172 (×1.49) |
+| ASSD fit median / mean [mm] | 6.40 / 7.18 | 6.36 / 7.19 |
+| ASSD leave-one-out median / mean [mm] | 6.48 / 7.39 | 6.45 / 7.38 |
+| LOO − fit median / mean / max [mm] | +0.09 / +0.21 / +0.80 | +0.09 / +0.19 / +0.78 |
+
+- Per patient the leave-one-out ASSD differs by ≤ 0.12 mm between the meshes (karl18), ≤ 0.07 mm on the 13 in bounds; karl23 (E at the bound) 14.03 vs 13.92 mm.
+- **Conclusion: Netgen and gmsh are equivalent for fit, rule and prediction.** The only difference is the ~2–6 % higher E of the Netgen rule (stiffer gmsh mesh), which the prediction absorbs since each rule is used with its own mesh. The previous built-in rule (3.5332, −0.013455, `fitE_nu30` on the gmsh setups) is close to `E_gmsh.json`.
+- **Decided (user, 2026-11-18): Netgen is the only volume mesher, gmsh removed from the code; the built-in E rule is `E_netgen.json` (3.5380, −0.012883).** Netgen is deterministic run to run but sensitive to the last digits of the input: on karl04 the surface points of `fem_setup` (from the ACVD mesh) and the same points read back from the gmsh `problem.npz` (differences 5e-13 mm) give 1194 and 1199 nodes. The setups made with the package (server `FEM_v2_netgen_*`) use the former, as a new `fem_setup` does.
+
+
+### 7e. The prediction path as in 3D Slicer; hilum on the inflated lung (Mac, env `lungct`, 2026-11-18)
+
+**Prediction from the packaged defaults** (`eurelaps_lung.predict.run(predict.default_config() + karl04's surfaces, collapse="target", frames=4)`; real VTK, pyacvd, Netgen, the numpy test core instead of torch): geometry 3 s, hilum 9 s, fem_setup 27 s (Netgen 1194 nodes), collapse % of the collapsed lung 51.4 %, E 752 Pa from the rule, q0 0.428 in 1 solve, ASSD 8.83 mm (server, hilum on the collapsed lung: fit 8.39, leave-one-out 8.68), 5 frames; 97 s in all (the numpy core is slow: torch on the CPU is to be timed). `tests/test_predict.py`: the prediction modules import with torch, Warp, GetFEM, itk, scikit-learn, nvmath, pypardiso, pyvista, pyacvd, netgen blocked (it found `fem/load.py` → `regions.py` importing scikit-learn: now lazy).
+
+**Hilum on the inflated vs the collapsed lung.** The cohort configs compute the hilum on the collapsed lung (`hilum.lung: "collapsed"`); a prediction has only the inflated one. `hilum` step on the inflated lung of the 16 local patients, distance of the hilum (and of the ring centres) from the collapsed-lung one:
+
+| Hilum moves | Patients |
+|---|---|
+| 0–0.5 mm | karl01, karl08, karl10, karl19, karl24, patient_3, patient_10 |
+| 1–3.6 mm | karl02 1.2, karl04 2.7, karl06 2.1, karl18 3.6, karl23 1.4, patient_1 3.6, patient_2 1.4 |
+| 12.3 mm | karl20: the veins ring 42 mm away |
+| 39.2 mm | karl17: the airways ring 116 mm away (a ring centre 76 mm from the hilum: the step warns "> 50 mm") |
+
+- Single rings move more (airways 7.7 mm on karl04 and karl18, veins 8.7 mm on patient_1): the trees cross the inflated surface at another place than the collapsed one.
+- The calibration (fits, rule, leave-one-out) used the collapsed-lung hilum, the prediction uses the inflated one: to be refitted on the server with `hilum.lung: "inflated"` (NEXT.md). The ring choice on the inflated lung needs a look on karl17 / karl20 (the Slicer extension shows the rings and the warning).
+
+## 8. Evidence behind the design choices
 
 - **No alignment, `plane` loss** (2026-10-05, registered setup): with `hilum_rigid` alignment karl04 was 14.6 mm from the real collapsed surface, against 3.1–3.3 mm unaligned with the plane loss; the alignment rotated the target ~16° and put up to 22 target points beyond the wall (20.6 mm).
 - **No registration** (2026-10-27, 15 patients, still-point clamp): median ASSD 2.20 (registered) vs 2.24 mm; less rotation (−2.9° median), 1–4 min faster. The registered reference volume was wrong on karl23 (1984 vs 2554 mL, Dice 0.85: collapse 37 instead of 51 %) and karl20 (−7 %); patient_2 9.3 vs 3.6 mm.

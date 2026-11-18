@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eurelaps-lung"
+version = "0.1.0"
+description = "FEM model of lung collapse (pneumothorax): from segmented lung surfaces to the predicted collapsed lung"
+readme = "README.md"
+requires-python = ">=3.10"
+# The default install is the prediction path (geometry -> hilum -> fem_setup -> collapse) minus the two
+# libraries a host may already provide:
+#   vtk    3D Slicer has its own VTK: never pip-install vtk into Slicer -> extra [vtk] elsewhere
+#   torch  the FEM core; in Slicer from the PyTorch extension (SlicerPyTorch) -> extra [torch] elsewhere
+# pyacvd depends on pyvista, which declares vtk: in Slicer check that no second VTK gets installed
+# (SLICER_EXTENSION.md, 5.7).
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pyacvd>=0.3.1",          # geometry step: ACVD surface remesh (0.3.0 broke inside Slicer)
+    "netgen-mesher>=6.2",     # fem_setup: tetrahedral mesh, surface kept (LGPL)
+]
+
+[project.optional-dependencies]
+vtk = ["vtk>=9.2"]                                   # outside 3D Slicer
+torch = ["torch>=2.0"]                               # the FEM core (default solver.core "torch")
+fit = ["scikit-learn", "itk>=5.3"]                   # fit / cohort: check_inputs, image I/O, Ward regions
+gpu = ["nvmath-python[cu12]", "pypardiso"]           # server linear solvers (cuDSS, MKL Pardiso)
+warp = ["warp-lang"]                                 # the Warp core
+standalone = ["eurelaps-lung[vtk,torch]"]            # prediction outside Slicer
+server = ["eurelaps-lung[vtk,torch,fit,gpu,warp]"]   # everything but GetFEM (conda: conda-forge getfem)
+
+[project.scripts]
+eurelaps-predict = "eurelaps_lung.predict:main"
+
+[tool.setuptools.packages.find]
+include = ["eurelaps_lung*"]
+
+[tool.setuptools.package-data]
+eurelaps_lung = ["data/*.json"]

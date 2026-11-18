@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-HEAVY = ("pyvista", "vtk", "vtkmodules", "sklearn", "torch", "warp", "getfem", "gmsh", "itk", "pyacvd")
+HEAVY = ("pyvista", "vtk", "vtkmodules", "sklearn", "torch", "warp", "getfem", "netgen", "itk", "pyacvd")
 
 
 class _Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):

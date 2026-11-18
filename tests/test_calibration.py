@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 import stubs
-import main_predict
+from eurelaps_lung import predict as main_predict
 from eurelaps_lung import calibration as C
 from eurelaps_lung.config import load_config
 
@@ -103,14 +103,14 @@ def test_predict_overrides():
 
 
 def test_rule_on_local_fits():
-    """The rule of the 12 fitE_nu30 fits (density 250) = the built-in one at 200 (config.E_RULE_A, E_RULE_B)."""
+    """The rule of the 12 fitE_nu30 fits (gmsh meshes, density 250) = the built-in one at 200 until 2026-11-18
+    (3.5332, -0.013455; the built-in rule is now the Netgen one, fitted on the server)."""
     root = Path(stubs.ROOT) / "results"
     s = {f.parts[-4]: json.loads(f.read_text()) for f in root.glob("*/runs/fitE_nu30/summary.json")}
     if not s:
         return "skipped"
     r = C.fit_rule({p: v for p, v in s.items() if C.in_bounds(v)}, "E")
-    from eurelaps_lung.config import E_RULE_A, E_RULE_B
-    assert r["n"] == 12 and abs(r["a"] - E_RULE_A) < 1e-4 and abs(r["b"] - E_RULE_B) < 1e-6
+    assert r["n"] == 12 and abs(r["a"] - 3.5332) < 1e-4 and abs(r["b"] + 0.013455) < 1e-6
     return "a %.4f, b %.6f, %d patients" % (r["a"], r["b"], r["n"])
 
 

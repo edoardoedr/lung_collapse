@@ -9,7 +9,7 @@ The new folder is each config's output_dir; the old one is --old (a template wit
   geometry   lung_inflated_mesh.vtp, lung_collapsed_mesh.vtp
   hilum      hilum_anchor.mrk.json, hilum/
   checks     checks/check_summary.json
-  fem_setup  fem/setup/ (problem.npz, setup_summary.json, reference.vtp, volume.vtu, target.vtp; not gmsh/)
+  fem_setup  fem/setup/ (problem.npz, setup_summary.json, reference.vtp, volume.vtu, target.vtp; not netgen/)
   runs       runs/<name>/ with a summary.json (new layout), except --skip patterns; sequence/ left out
 
 The old folder is not changed. Nothing in the new one is overwritten (an existing file is

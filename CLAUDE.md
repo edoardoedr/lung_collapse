@@ -10,7 +10,7 @@ Guidance for Claude Code in this repository. What lives where:
 | `*.svg` (root), `scripts/figures/` | the three figures (workflow, physical model, forward / inverse) and the Python that draws them: `cd scripts/figures && python3 workflow.py && python3 model.py && python3 fit.py`, then copy the `.svg` to the root |
 | [analysis/results.md](analysis/results.md) | results, evidence behind the design choices, problems found |
 | [NEXT.md](NEXT.md) | plan and to-do list |
-| [SLICER_EXTENSION.md](SLICER_EXTENSION.md) | design draft of the 3D Slicer extension (prediction only): UI, architecture, platform problems (no MPS for the solve, linear solvers on the Mac, pyacvd vs gmsh remesh, float32), package changes needed and their status (2026-11-17/18) |
+| [SLICER_EXTENSION.md](SLICER_EXTENSION.md) | design of the 3D Slicer extension (prediction only, separate repository; rewritten 2026-11-18): what the package provides, inputs, installation (pip from a git tag, torch from the PyTorch extension), the base config, architecture, the UI spec (Part 1) and the computation (Part 2), model questions, technical background (MPS / float32, linear solvers, dependencies and licenses) |
 | [REWRITE_PLAN.md](REWRITE_PLAN.md) | the plan of the rewrite on branch `refactoring_to_v2` (merged into `main`) (2026-11-16) and its status |
 | this file | how to work here, environments, commands, configs, code architecture, implementation notes |
 
@@ -18,7 +18,7 @@ Read them instead of re-deriving, and keep them current: a new result goes in `a
 
 ## Project
 
-Lung-collapse model for a GNN surrogate of lung collapse in VATS surgery, as the package `eurelaps_lung/` (named by the user, 2026-11-17: Eureka/Archimedes + collapse) with three entry points at the root: `main_fit.py` (one patient), `main_calibrate.py` (cohort → population rule → leave-one-out), `main_predict.py` (inflated lung + collapse % + parameters → collapsed lung). CT segmentations (3D Slicer) → surface meshes → hilum anchor → FEM model of the collapse: an elastic lung clamped at the hilum, loaded by the pleural pressure it loses in the pneumothorax (uniform part + the gradient that carried its weight), inside the chest wall. The model runs **forward** (parameters given → collapsed lung) or **inverse** (parameters fitted to the collapsed CT). The forward runs are the source of the GNN's training data (planned in PyTorch, possibly PyG).
+Lung-collapse model for a GNN surrogate of lung collapse in VATS surgery, as the package `eurelaps_lung/` (named by the user, 2026-11-17: Eureka/Archimedes + collapse) (pip-installable: `pyproject.toml`, `eurelaps-lung` 0.1.0; prediction API `eurelaps_lung/predict.py`) with three entry points at the root: `main_fit.py` (one patient), `main_calibrate.py` (cohort → population rule → leave-one-out), `main_predict.py` (inflated lung + collapse % + parameters → collapsed lung). CT segmentations (3D Slicer) → surface meshes → hilum anchor → FEM model of the collapse: an elastic lung clamped at the hilum, loaded by the pleural pressure it loses in the pneumothorax (uniform part + the gradient that carried its weight), inside the chest wall. The model runs **forward** (parameters given → collapsed lung) or **inverse** (parameters fitted to the collapsed CT). The forward runs are the source of the GNN's training data (planned in PyTorch, possibly PyG).
 
 ## Working with the user
 
@@ -33,8 +33,8 @@ Lung-collapse model for a GNN surrogate of lung collapse in VATS surgery, as the
 
 | Where | What is there | Use |
 |---|---|---|
-| Mac (this machine) | base Python with numpy / scipy; **no** pyvista, vtk, itk, gmsh, getfem, warp, torch, pytest | editing, `py_compile`, the tests in `tests/`, reading `results/` |
-| Mac, conda env `lungct` (`/opt/miniconda3/envs/lungct/bin/python`, created with the user's permission 2026-11-17) | numpy, scipy, SimpleITK + itk (pip wheels: the conda ones clash), vtk 9.7, pyvista, pyacvd 0.5 + gmsh 4.15 (pip, 2026-11-18), pykdtree from conda-forge (the pip wheel bundles a second libomp: `OMP: Error #15` in pyacvd), nibabel, scikit-image, pandas, matplotlib; **no** torch, getfem, warp, scikit-learn | image / surface analysis on `Input_CT/` (CTs) and `Input_Data/` (surfaces): `ct_density.py`, `cavity_volumes.py`, `eurelaps_lung.data_io`; the preprocessing steps `check_inputs` → `fem_setup` on `Input_Data/` (`--set data_dir=... output_dir=...`) |
+| Mac (this machine) | base Python with numpy / scipy; **no** pyvista, vtk, itk, netgen, getfem, warp, torch, pytest | editing, `py_compile`, the tests in `tests/`, reading `results/` |
+| Mac, conda env `lungct` (`/opt/miniconda3/envs/lungct/bin/python`, created with the user's permission 2026-11-17) | numpy, scipy, SimpleITK + itk (pip wheels: the conda ones clash), vtk 9.7, pyvista, pyacvd 0.5 + netgen-mesher 6.2 (pip, 2026-11-18; gmsh 4.15 also there, no longer used), pykdtree from conda-forge (the pip wheel bundles a second libomp: `OMP: Error #15` in pyacvd), nibabel, scikit-image, pandas, matplotlib; **no** torch, getfem, warp, scikit-learn | image / surface analysis on `Input_CT/` (CTs) and `Input_Data/` (surfaces): `ct_density.py`, `cavity_volumes.py`, `eurelaps_lung.data_io`; the preprocessing steps `check_inputs` → `fem_setup` on `Input_Data/` (`--set data_dir=... output_dir=...`) |
 | Server (Jupyter, conda env `lungfem`, `/home/jovyan/Lung_project/lung_collapse`) | GetFEM (MUMPS), warp-lang, torch, nvmath-python (cuDSS), pypardiso; Xeon CPUs (slow) + CUDA GPU (driver CUDA 12; a cuda-bindings 13 warning is harmless) | all pipeline runs and validation scripts |
 
 - **Tests on the Mac:** `python3 tests/<file>.py` (pytest-compatible files, run without it).
@@ -50,7 +50,7 @@ Lung-collapse model for a GNN surrogate of lung collapse in VATS surgery, as the
 ```bash
 python main_fit.py --config configs/<p>.json                   # the steps of the config (check_inputs .. fit)
 python main_fit.py --config configs/<p>.json --steps fit --set physics.E_Pa=1000 run_name=E1000
-python main_predict.py --config configs/<p>.json --collapse 50 [--params calibration/E_fitE.json | --from-fit RUN] [--frames 30] [--run NAME] [--set ...]   # forward; builds geometry/hilum/fem_setup if problem.npz is missing
+python main_predict.py --config configs/<p>.json --collapse 50|target [--params calibration/E_fitE.json | --from-fit RUN] [--frames 30] [--run NAME] [--set ...]   # forward; builds geometry/hilum/fem_setup if problem.npz is missing; = python -m eurelaps_lung.predict
 python main_calibrate.py --configs configs/*.json --fit E [nu] [--rule E|E_rho|sg_rho] [--density csv] [--fit-run fitE] [--skip-fit] [--no-loo] [--jobs 4] [--collect] [--out FILE]   # per-patient fits -> rule file -> leave-one-out
 JOBS=4 bash scripts/run_all.sh [case ...] [-- main_fit.py args]    # configs/<case>.json in parallel; logs_run_all/<case>[_$LOG].txt
 python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000 [--jobs 4] [--collect]
@@ -70,7 +70,7 @@ python scripts/collapse_sequence.py --config configs/<p>.json [--frames 30] [--m
 python scripts/migrate_config.py OLD_wall_torch.json --out configs/      # old schema (v1_version) -> new
 python scripts/summarize_fits.py <results folder> [--out analysis]       # OLD layout only (fem/<run>/)
 python -m py_compile main_*.py eurelaps_lung/*.py eurelaps_lung/fem/*.py eurelaps_lung/fem/solvers/*.py scripts/*.py
-python3 tests/test_wall_field.py; python3 tests/test_wall_potential.py; python3 tests/test_steps.py; python3 tests/test_calibration.py   # Mac
+python3 tests/test_wall_field.py; python3 tests/test_wall_potential.py; python3 tests/test_steps.py; python3 tests/test_calibration.py; python3 tests/test_predict.py   # Mac
 ```
 
 Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output. Many parallel jobs slow every solve (~15× with 28 jobs): use `JOBS` ≤ 4 when times or failures matter.
@@ -80,8 +80,10 @@ Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output. Man
 - **One file per patient**, `configs/<p>.json` (16), made by `scripts/migrate_config.py` from the old `<p>_wall_torch.json`: gravity supine → supine, E 1.36 kPa with ρ̄ 200 kg/m³ (1.7 kPa with ρ̄ 250 until 2026-11-17: same load), q0 fitted (start 0.3, 0.5 before), ν 0.30 (0.40 until 2026-11-17), wall = the inflated surface with 5 mm margin, smooth-field wall (`solver.wall_update: "potential"`, grid 1.5 mm, σ 3 mm), torch core, steps `check_inputs` → `fit`. `output_dir` = `FEM_v2_{HD,CZ}/<p>` (2026-11-17): the geometry, hilum and `fem/setup/problem.npz` (with wall field) are copied there from the old `<p>_noreg_hilum_wall` by `init_output_dir.py`, so run `--steps fit` / `collapse` only; a patient whose old setup has no wall field needs `add_wall_field.py` first (patient_2 at least).
 - **Patients:** left lung karl01, karl10, karl17, karl18, karl20, karl23, karl24, patient_1, patient_2, patient_3, patient_10; right lung karl02, karl04, karl06, karl08, karl19. karl = HD dataset, patient_* = CZ dataset. karl19 stops on its input (NEXT.md). patient_2 is included again (user, 2026-11-17; it had been left out of the old wall runs).
 - The old runs are reproduced with overrides: regions fit = `physics.gravity=null 'physics.perturbation={"regions":[1,4,8,14,25,40]}' fit.best_by=mean` (the existing `problem.npz` has those regions); free ap slope = `physics.gravity=null 'physics.perturbation={"gradient":["ap"]}'`; outer wall = `solver.wall_update=outer`.
-- `fem_setup.mesher`: `gmsh` (default) or `netgen` (2026-11-18, `netgen_maxh_mm` 10, `netgen_optsteps3d` 10; LGPL, for the Slicer path; analysis/results.md 7d). The server comparison of the two is in NEXT.md.
-- Unknown keys raise an error; `_`-prefixed keys are comments; `data_dir` / `output_dir` relative to the JSON, inputs to `data_dir`, outputs to `output_dir`.
+- **Volume mesher: Netgen** (`fem_setup.mesh_size_mm` = its maxh 10, `mesh_optsteps3d` 10, `mesh_timeout_s`); Gmsh removed (user, 2026-11-18) after the server comparison (analysis/results.md 7d: same fits, rule and leave-one-out, E ~2 % higher; LGPL instead of GPL for Slicer). The old keys `mesher`, `gmsh_timeout_s`, `netgen_*` raise an error. The server `FEM_v2_*` setups must be the Netgen ones (NEXT.md).
+- Unknown keys raise an error; `_`-prefixed keys are comments; `data_dir` / `output_dir` relative to the JSON (or to `base_dir` for a config given as a dict), inputs to `data_dir`, outputs to `output_dir`.
+- **Hilum:** the cohort configs use `hilum.lung: "collapsed"`, the prediction defaults `"inflated"` (no collapsed lung in a prediction); the difference is in analysis/results.md 7e (karl17, karl20 move a lot); the server refit with the inflated hilum is in NEXT.md.
+- A new import of an optional library (torch, warp, getfem, itk, scikit-learn, nvmath, pypardiso, pyacvd, netgen) goes inside the function that uses it: `tests/test_predict.py` checks that the prediction modules import without them.
 
 ## Code architecture
 
@@ -90,14 +92,17 @@ Steps (`eurelaps_lung/runner.py`, modules imported only when their step runs): `
 | File | Role |
 |---|---|
 | `eurelaps_lung/config.py` | schema and loader: `Param` (number = fixed, `{fit, init, bounds}` = fitted), `PhysicsConfig`, `PipelineConfig.solver_options()` (solver options + wall stiffness / material from physics) |
-| `eurelaps_lung/runner.py` | `STEPS`, logging (`output_dir/logs/{fit,predict}.log`), `run_steps`: shared by the entry points |
+| `eurelaps_lung/runner.py` | `STEPS`, logging (`output_dir/logs/{fit,predict}.log`, `config_used_<name>.json` = the config with the overrides), `run_steps`: shared by the entry points |
+| `eurelaps_lung/predict.py` | prediction: `run(config file or dict, collapse=% / "target" / None, params, from_fit, frames, ...)` → summary, `default_config()`, CLI (`main_predict.py`, `python -m eurelaps_lung.predict`, the Slicer extension) |
+| `eurelaps_lung/data/predict_default.json` | the prediction defaults (calibrated model; torch on CPU + SuperLU). `configs/templates/new_patient.json` must keep the same model sections (`tests/test_predict.py`) |
+| `pyproject.toml` | package `eurelaps-lung`; default deps = prediction minus vtk / torch (Slicer has them); extras `vtk`, `torch`, `fit`, `gpu`, `warp`, `standalone`, `server`. `requirements.txt` = `-e .[server]`. Version also in `eurelaps_lung/__init__.py` |
 | `eurelaps_lung/calibration.py` | rules `E` / `E_rho` / `sg_rho` (`fit_rule`, `apply_rule`, `rule_overrides`), `fit_overrides` (parameters made free for the cohort fits, `FIT_PARAMS` bounds: E 160–16000 Pa at ρ̄ 200 = the 200–20000 of the fits at 250, scaled to the config's density), `in_bounds` (E compared at ρ̄ 200, `E_at`), rule file; numpy only |
 | `eurelaps_lung/check_inputs.py`, `raster.py` | input checks (need the collapsed lung) |
 | `eurelaps_lung/vtk_mesh.py` | `Surface` (numpy points + triangles or lines, point / cell / field data; `to_vtk` / `from_vtk`) and the VTK filters, readers, writers the steps use, set as the pyvista methods they replace (2026-11-18). No pyvista in the package except pyacvd in `surface_mesh.py` (Slicer has VTK, not pyvista) |
 | `eurelaps_lung/data_io.py` | surface I/O with the coordinate space (`read_surface` → `Surface`, `write_surface`), markups, images (itk imported only there) |
 | `eurelaps_lung/surface_mesh.py` | `geometry` step: ACVD remesh of the inflated and the collapsed lung, same settings; pyacvd gets a pyvista wrap of the surface |
 | `eurelaps_lung/hilum.py` | hilum rings and spheres |
-| `eurelaps_lung/fem/setup.py` | `fem_setup`: clamp, wall (surface + smooth field), optional Ward regions, Gmsh → `problem.npz`. FEM-library-free |
+| `eurelaps_lung/fem/setup.py` | `fem_setup`: clamp, wall (surface + smooth field), optional Ward regions, Netgen → `problem.npz`. FEM-library-free |
 | `eurelaps_lung/fem/problem.py` | `CollapseProblem` (arrays of `problem.npz`; old files load: `has_target`, `has_wall`, `has_wall_field`) |
 | `eurelaps_lung/fem/load.py` | `LoadModel` (builds the levels from `PhysicsConfig`) and `Level` (x → q per triangle, body magnitude, ν; `chain` = Jacobian chain rule; `x0_from` = warm start; `describe` → physical units) |
 | `eurelaps_lung/fem/fit.py` | `Loss` (plane + symmetric), `run_level` (lsq with analytic Jacobian, anchoring), `run`; also `make_solver`, `sign_check` |
@@ -107,7 +112,7 @@ Steps (`eurelaps_lung/runner.py`, modules imported only when their step runs): `
 | `eurelaps_lung/fem/run_control.py` | `Tracker` (history, best state, checkpoints, stops), watchdog |
 | `eurelaps_lung/fem/wall_field.py` | `signed_distance_grid` (VTK), `WallField` (numpy tricubic B-spline: value, gradient, Hessian), `penalty` |
 | `eurelaps_lung/fem/geometry.py` | surface helpers, `WallDistance` (closest point + interpolated normal; VTK) |
-| `eurelaps_lung/fem/regions.py`, `anchor.py`, `volume_mesh.py` | Ward regions, clamp, Gmsh |
+| `eurelaps_lung/fem/regions.py`, `anchor.py`, `volume_mesh.py` | Ward regions, clamp, Netgen (subprocess) |
 
 FEM cores (`eurelaps_lung/fem/solvers/`):
 
@@ -137,7 +142,7 @@ Not obvious from the code; the reasons and numbers are in analysis/results.md.
 - **Wall `potential`:** `problem.npz` holds `wall_grid` / `wall_origin` / `wall_spacing` / `wall_smoothing_mm` / `wall_field_allow`. A Newton trial with a surface point outside the grid is rejected like an inverted element (`fail_inverted`). The cores' own (linearised) wall term is skipped (`_assemble(..., wall=False)`). The margin is measured with the smoothed field, so against the exact wall the points go ~2.5 mm beyond it (summary: `wall_max_penetration_mm` exact, `wall_field_max_penetration_mm` smoothed).
 - **Wall `outer`:** unsettled after `wall_max_updates` = failure; a settled state keeps the linearisation it was solved with (Jacobian too, Gauss-Newton); states loaded from a file have none and re-linearise.
 - `Loss`: the forward plane term is only Gauss-Newton on a triangulated target (interpolated vertex normal ≠ distance gradient); the symmetric term's gradient is exact.
-- **E rule** (`physics.E_Pa {"rule": "collapse"}`): resolved in `config._physics` into a fixed E from `collapse.volume_ratio` (`E_RULE_A`, `E_RULE_B`; A rescaled by log10 0.8 for ρ̄ 200, 2026-11-17), recorded as `physics.E_rule`; `describe` reports it. `physics.ct_density` is report only (`E_Pa_ct`, `p0_Pa_ct` in the summary).
+- **E rule** (`physics.E_Pa {"rule": "collapse"}`): resolved in `config._physics` into a fixed E from `collapse.volume_ratio` (`E_RULE_A`, `E_RULE_B` = 3.5380, −0.012883: the Netgen-mesh fits `fitE_netgen`, 2026-11-18; before 3.5332, −0.013455 on gmsh), recorded as `physics.E_rule`; `describe` reports it. `physics.ct_density` is report only (`E_Pa_ct`, `p0_Pa_ct` in the summary).
 - `forward.find_q0`: first guess `(1 − ratio) · K/E`, extrapolation at most ×2 until bracketed, then secant kept 10 % away from the bracket ends; a failed solve halves the step from the last good q0.
 - Summary keys (`runs/<run>/summary.json`): `physics` (E_Pa, q0, p0_Pa, nu, gravity {positions, extent_mm, slope_pE, gamma_pE_per_mm, body_force}, fitted), `volume_ratio`, `collapse_percent`, `assd_mm`, `mean_err_mm`, `mean_normal_err_mm`, `target_to_fitted_mm`, `target_volume_ratio`, `rigid_rotation_deg`, wall penetrations, `solver_stats`; fit: `stop_reason`, `levels`, `evals`, `failed_solves`, `parameters`; forward: `solves`, `volume_search`.
 

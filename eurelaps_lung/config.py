@@ -15,6 +15,7 @@ outputs to output_dir; absolute paths are used as given. Keys starting with "_" 
 Unknown keys are errors.
 """
 
+import copy
 import json
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -95,11 +96,10 @@ class FemSetupConfig:
     clamp_min_points: int = 20         # the first ball grows until the clamp holds this many points (rank 3)
     clamp_growth: float = 1.1
     clamp_max_growth_steps: int = 10
-    mesher: str = "gmsh"               # volume mesher: "gmsh" (GPL) | "netgen" (LGPL); both keep the surface
-    mesh_size_mm: float = 14.0         # Gmsh MeshSizeMax (interior; the surface is kept)
-    netgen_maxh_mm: float = 10.0       # Netgen maxh (~ the node count of gmsh at 14 mm)
-    netgen_optsteps3d: int = 10        # Netgen 3D optimisation steps (3 = Netgen's default leaves slivers)
-    gmsh_timeout_s: int = 300          # the mesher (gmsh or Netgen) is killed after this time
+    # volume mesh: Netgen, the surface triangles kept (Gmsh until 2026-11-18, analysis/results.md 7d)
+    mesh_size_mm: float = 10.0         # Netgen maxh inside the lung
+    mesh_optsteps3d: int = 10          # Netgen 3D optimisation steps (3 = Netgen's default leaves slivers)
+    mesh_timeout_s: int = 300          # Netgen is killed after this time
     # wall: cavity the lung may not leave. "reference" = the inflated surface itself, a file name
     # (data_dir) = that closed surface, None = no wall
     wall: Path | str | None = "reference"
@@ -223,11 +223,15 @@ def _clean(raw, name, known):
     return raw
 
 
-# E from the collapse % (prediction rule, analysis/results.md 5f): log10 E = a + b * collapse %, fitted on
-# the fitE_nu30 runs of the 12 patients with E inside its bounds (2026-11-17; nu 0.30, tissue_density 250,
-# r -0.87, residual sd 0.16 in log10 E, collapse 23-86 %). Only density / E is identified, so for
-# tissue_density 200 (2026-11-17) the fitted E scale by 0.8: a = 3.6301 + log10(0.8).
-E_RULE_A, E_RULE_B = 3.5332, -0.013455
+# E from the collapse % (prediction rule, analysis/results.md 5f, 7d): log10 E = a + b * collapse %, fitted
+# on the Netgen-mesh fits fitE_netgen of the 13 patients with E inside its bounds (2026-11-18, calibration/
+# E_netgen.json; nu 0.30, tissue_density 200, residual sd 0.158 in log10 E, collapse 23-86 %). Until
+# 2026-11-18: 3.5332, -0.013455 (gmsh meshes, fitE_nu30 at density 250 rescaled by 0.8).
+E_RULE_A, E_RULE_B = 3.5380, -0.012883
+# what the rule was fitted on (shown by the Slicer extension: outside the range it is an extrapolation)
+E_RULE_INFO = dict(patients=13, collapse_percent_range=(23.0, 86.0), residual_sd_log10=0.158, nu=0.30,
+                   tissue_density=200.0, positions=("supine", "supine"), mesher="netgen", fits="fitE_netgen",
+                   date="2026-11-18")
 
 
 def _E_rule(raw, volume_ratio):
@@ -363,7 +367,7 @@ class PipelineConfig:
     data_dir: Path
     output_dir: Path
     steps: list
-    source: Path                       # the JSON file this was read from
+    source: Path | None                # the JSON file this was read from (None: a dict)
     run_name: str
     inflated: Path                     # inputs
     collapsed: Path | None
@@ -378,6 +382,7 @@ class PipelineConfig:
     solver: SolverConfig
     collapse: CollapseConfig
     fit: FitConfig
+    raw: dict | None = None            # the config as read, overrides applied (logged by runner.start)
 
     def solver_options(self, core=None):
         """Options for the core: solver.options plus what physics decides (wall stiffness, material).
@@ -438,13 +443,20 @@ TOP = ("patient", "data_dir", "output_dir", "steps", "run_name", "inputs", "chec
 STEP_NAMES = ("check_inputs", "geometry", "hilum", "fem_setup", "collapse", "fit")
 
 
-def load_config(path, overrides=None):
-    path = Path(path).resolve()
-    raw = _clean(apply_overrides(json.loads(path.read_text()), overrides), "the config", TOP)
+def load_config(source, overrides=None, base_dir=None):
+    """source: a JSON file, or the config as a dict (relative data_dir / output_dir are then taken
+    from base_dir, default the current folder). overrides: see apply_overrides."""
+    if isinstance(source, dict):
+        path, base = None, Path(base_dir or ".").resolve()
+        raw = copy.deepcopy(source)
+    else:
+        path = Path(source).resolve()
+        base = Path(base_dir).resolve() if base_dir else path.parent
+        raw = json.loads(path.read_text())
+    raw = _clean(apply_overrides(raw, overrides), "the config", TOP)
     for k in ("patient", "data_dir", "output_dir", "inputs"):
         if k not in raw:
             raise ValueError("the config needs '%s'" % k)
-    base = path.parent
     data_dir = (base / raw["data_dir"]).resolve()
     output_dir = (base / raw["output_dir"]).resolve()
     steps = list(raw.get("steps", []))
@@ -480,8 +492,12 @@ def load_config(path, overrides=None):
     hilum.structures = dict(structures)
     hilum.output = output_dir / hilum.output
 
-    fs = dict(_clean(raw.get("fem_setup", {}), "fem_setup", ("clamp", "wall", "mesher", "mesh_size_mm", "netgen_maxh_mm",
-                                                                "netgen_optsteps3d", "gmsh_timeout_s", "regions")))
+    gone = sorted(set(raw.get("fem_setup", {})) & {"mesher", "gmsh_timeout_s", "netgen_maxh_mm", "netgen_optsteps3d"})
+    if gone:
+        raise ValueError("fem_setup: %s removed with gmsh (2026-11-18): the mesher is Netgen, mesh_size_mm is its "
+                         "maxh (10), mesh_optsteps3d, mesh_timeout_s" % ", ".join(gone))
+    fs = dict(_clean(raw.get("fem_setup", {}), "fem_setup", ("clamp", "wall", "mesh_size_mm", "mesh_optsteps3d",
+                                                                "mesh_timeout_s", "regions")))
     clamp = _clean(fs.pop("clamp", {}), "fem_setup.clamp", ("points", "radius_factor", "min_points", "growth", "max_growth_steps"))
     wall = _clean(fs.pop("wall", {}), "fem_setup.wall", ("surface", "tol_mm", "grid_mm", "grid_margin_mm", "smoothing_mm"))
     regions = _clean(fs.pop("regions", None) or {}, "fem_setup.regions", ("levels", "pos_weight"))
@@ -492,8 +508,6 @@ def load_config(path, overrides=None):
     if "pos_weight" in regions:
         fs["regions_pos_weight"] = regions["pos_weight"]
     fem_setup = _section(FemSetupConfig, fs, "fem_setup")
-    if fem_setup.mesher not in ("gmsh", "netgen"):
-        raise ValueError("fem_setup.mesher: gmsh or netgen")
     if fem_setup.wall is not None and fem_setup.wall != "reference":
         fem_setup.wall = data_dir / fem_setup.wall
     fem_setup.reference = output_dir / geometry.inflated_output
@@ -522,4 +536,5 @@ def load_config(path, overrides=None):
                           run_dir=output_dir / "runs" / run_name, check_inputs=check, geometry=geometry,
                           hilum=hilum, fem_setup=fem_setup, physics=physics, solver=solver,
                           collapse=_section(CollapseConfig, raw.get("collapse", {}), "collapse"),
-                          fit=_section(FitConfig, raw.get("fit", {}), "fit"))
+                          fit=_section(FitConfig, raw.get("fit", {}), "fit"),
+                          raw=dict(raw, data_dir=str(data_dir), output_dir=str(output_dir)))

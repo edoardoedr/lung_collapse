@@ -8,7 +8,7 @@
      with a margin per point (wall_tol_mm + how far the point already lies outside), stored as
      the surface and as a smooth field (wall_field.py: smoothed signed distance on a grid)
   4. optional Ward pressure regions of the target displacement (regions; diagnostic fits only)
-  5. tetrahedral volume mesh (Gmsh or Netgen, fem_setup.mesher), surface nodes and triangles unchanged
+  5. tetrahedral volume mesh (Netgen), surface nodes and triangles unchanged
   6. output_dir/fem/setup/: problem.npz (read by the collapse and fit steps) + files to inspect
 """
 
@@ -147,9 +147,8 @@ def run(cfg):
                  "negative = inward): K = %s", np.linalg.norm(u, axis=1).mean(), un.mean(), ", ".join(map(str, levels)))
 
     # 5. volume mesh
-    size = cfg.mesh_size_mm if cfg.mesher == "gmsh" else cfg.netgen_maxh_mm
-    nodes, tets, surface_nodes = tet_mesh(X_ref, tris, out / cfg.mesher, size, cfg.gmsh_timeout_s, cfg.mesher,
-                                          cfg.netgen_optsteps3d)
+    nodes, tets, surface_nodes = tet_mesh(X_ref, tris, out / "netgen", cfg.mesh_size_mm, cfg.mesh_timeout_s,
+                                          cfg.mesh_optsteps3d)
 
     # 6. outputs
     problem = CollapseProblem(nodes=nodes, tets=tets, surface_nodes=surface_nodes, tris=tris,
@@ -185,7 +184,7 @@ def run(cfg):
         baseline_assd_mm=assd(X_ref, T_pts, T_tris, tris_a=tris) if has_target else None,
         regions=levels.tolist(), wall=str(cfg.wall) if cfg.wall is not None else None, wall_tol_mm=cfg.wall_tol_mm,
         wall_grid_mm=cfg.wall_grid_mm if wfield else None, wall_smoothing_mm=cfg.wall_smoothing_mm if wfield else None,
-        volume_nodes=int(len(nodes)), tets=int(len(tets)), mesher=cfg.mesher, mesh_size_mm=size,
-        netgen_optsteps3d=cfg.netgen_optsteps3d if cfg.mesher == "netgen" else None), indent=2))
+        volume_nodes=int(len(nodes)), tets=int(len(tets)), mesher="netgen", mesh_size_mm=cfg.mesh_size_mm,
+        mesh_optsteps3d=cfg.mesh_optsteps3d), indent=2))
     log.info("wrote %s/ (problem.npz, reference.vtp, volume.vtu%s)", out, ", target.vtp" if has_target else "")
     return out

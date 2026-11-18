@@ -65,8 +65,9 @@
       "growth": 1.1,
       "max_growth_steps": 10
     },
-    "mesh_size_mm": 14.0,
-    "gmsh_timeout_s": 300,
+    "mesh_size_mm": 10.0,
+    "mesh_optsteps3d": 10,
+    "mesh_timeout_s": 300,
     "wall": {
       "surface": "reference",
       "tol_mm": 5.0,

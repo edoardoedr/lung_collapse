@@ -38,15 +38,16 @@ Each physical parameter is either **given** (a number) or **fitted** to the coll
 
 ## Setup
 
+The package is `eurelaps-lung` (`pyproject.toml`, Python >= 3.10). From a clone:
+
 ```bash
-pip install -r requirements.txt       # Python >= 3.10
+pip install -e ".[standalone]"     # prediction: numpy, scipy, pyacvd, netgen-mesher + vtk + torch
+pip install -e ".[server]"         # everything for fits and cohorts (+ scikit-learn, itk, cuDSS, pypardiso, Warp)
 ```
 
-The `collapse` and `fit` steps also need the library of the FEM core chosen in `solver.core`:
+From GitHub, without cloning: `pip install "eurelaps-lung[standalone] @ git+https://github.com/edoardoedr/lung_collapse.git@v0.1.0"`. The plain install (no extra) is the prediction path without `vtk` and `torch`, for hosts that already have them (3D Slicer: [SLICER_EXTENSION.md](SLICER_EXTENSION.md)). `requirements.txt` installs the same as `[server]` from the clone.
 
-- **PyTorch** (default): `pip install torch` (≥ 2.0), optionally `"nvmath-python[cu12]"` (cuDSS on GPU) and `pypardiso`.
-- **Warp:** `pip install warp-lang`, same optional linear solvers.
-- **GetFEM** (validation only): `conda install -c conda-forge getfem`.
+FEM cores (`solver.core`): **PyTorch** (default, extra `torch`; on GPU, cuDSS from `gpu`), **Warp** (extra `warp`), **GetFEM** (validation only, not on PyPI: `conda install -c conda-forge getfem`).
 
 ## Running
 
@@ -100,7 +101,7 @@ python main_predict.py --config configs/karl04.json --collapse 50 --params calib
 
 If a step fails, the error is in `logs/fit.log` (or `predict.log`) and the run stops.
 
-**As a library:** `from eurelaps_lung.config import load_config`, `from eurelaps_lung.fem import forward, fit`, `from eurelaps_lung import calibration`.
+**As a library:** prediction with `from eurelaps_lung import predict; cfg = predict.default_config()` (the calibrated defaults), fill in `patient`, `data_dir`, `output_dir`, `inputs`, then `summary = predict.run(cfg, collapse=40, frames=30)` (also `python -m eurelaps_lung.predict --config c.json --collapse 40`, the entry point of the 3D Slicer extension). `--collapse target` / `collapse="target"` takes the collapse % of the collapsed lung of the config (validation). Lower level: `from eurelaps_lung.config import load_config` (a file or a dict), `from eurelaps_lung.fem import forward, fit`, `from eurelaps_lung import calibration`.
 
 ## Input data
 

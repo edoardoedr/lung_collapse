@@ -56,7 +56,7 @@ def migrate(old, E=1360.0, wall_update="potential", run_name=None):
             "clamp": {"points": [anchor] if isinstance(anchor, str) else anchor,
                       "radius_factor": fs.get("anchor_radius_factor", 2.0), "min_points": fs.get("anchor_min_points", 20),
                       "growth": fs.get("anchor_growth", 1.1), "max_growth_steps": fs.get("anchor_max_growth_steps", 10)},
-            "mesh_size_mm": fs.get("mesh_size_mm", 14.0), "gmsh_timeout_s": fs.get("gmsh_timeout_s", 300),
+            "mesh_size_mm": 10.0, "mesh_optsteps3d": 10, "mesh_timeout_s": fs.get("gmsh_timeout_s", 300),
             "wall": {"surface": wall, "tol_mm": fs.get("wall_tol_mm", 5.0), "grid_mm": 1.5 if wall else None,
                      "grid_margin_mm": 30.0, "smoothing_mm": 3.0}},
         "physics": {

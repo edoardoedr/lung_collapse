@@ -1,0 +1,108 @@
+{
+  "_how": "prediction defaults of eurelaps_lung (the 3D Slicer extension starts from these): the model and solver settings of the calibrated model (analysis/results.md 5f, 7d). The caller sets patient, data_dir, output_dir, inputs, and the collapse (eurelaps_lung.predict.run(cfg, collapse=..)). Keys and ranges: configs/README.md",
+  "patient": "patient",
+  "data_dir": ".",
+  "output_dir": "eurelaps_output",
+  "steps": [],
+  "run_name": "predict",
+  "inputs": {
+    "_comment": "surfaces (data_dir), LPS or RAS tagged in the file header: the inflated lung to collapse, optionally the collapsed lung (same coordinates: the errors are then reported), and the three trees for the hilum",
+    "inflated": "lung_inflated.vtk",
+    "collapsed": null,
+    "structures": {
+      "airways": "airways.vtk",
+      "arteries": "arteries.vtk",
+      "veins": "veins.vtk"
+    }
+  },
+  "geometry": {
+    "input_space": "auto",
+    "merge_tolerance": 1e-05,
+    "pre_smooth_iters": 15,
+    "post_smooth_iters": 5,
+    "smooth_pass_band": 0.1,
+    "target_nodes": 480,
+    "max_faces": 1000,
+    "shrink_factor": 0.9,
+    "max_remesh_attempts": 6,
+    "min_points_per_cluster": 12,
+    "max_subdivisions": 4,
+    "hole_size": 10000.0,
+    "inflated_output": "lung_inflated_mesh.vtp",
+    "collapsed_output": "lung_collapsed_mesh.vtp"
+  },
+  "hilum": {
+    "lung": "inflated",
+    "output": "hilum_anchor.mrk.json",
+    "max_ring_distance_mm": 50.0,
+    "_comment": "inflated: the hilum from the inflated lung, also when a collapsed lung is given, so that the prediction does not depend on it (the cohort fits used the collapsed lung: analysis/results.md 7e)"
+  },
+  "fem_setup": {
+    "_comment": "clamp: triangles within sphere radius x radius_factor of the anchor points. wall.surface: 'reference' (the inflated surface), a file, or null; grid_mm / smoothing_mm: the wall as a smooth field (solver.wall_update potential). regions: {levels: [...]} only for physics.perturbation regions",
+    "clamp": {
+      "points": [
+        "hilum",
+        "airways",
+        "arteries",
+        "veins"
+      ],
+      "radius_factor": 2.0,
+      "min_points": 20,
+      "growth": 1.1,
+      "max_growth_steps": 10
+    },
+    "mesh_size_mm": 10.0,
+    "mesh_optsteps3d": 10,
+    "mesh_timeout_s": 300,
+    "wall": {
+      "surface": "reference",
+      "tol_mm": 5.0,
+      "grid_mm": 1.5,
+      "grid_margin_mm": 30.0,
+      "smoothing_mm": 3.0
+    }
+  },
+  "physics": {
+    "_comment": "a parameter is a number (fixed) or {fit: true, init, bounds} (fitted by the fit step). gravity: position of the inflated CT and of the collapse (supine | prone | left_lateral | right_lateral | [x, y, z] LPS), null = no gravity. collapse: q0 (p/E) | p0_Pa | volume_ratio. perturbation (fit only): null | {gradient: [ap, si, ml]} | {regions: [K, ...]}. E_Pa {rule: collapse}: E from the collapse %, the built-in rule of the Netgen-mesh cohort fits (config.E_RULE_A, E_RULE_B; calibrated on supine -> supine, collapse 23-86 %). collapse.volume_ratio: set by the caller (predict.run(collapse=..))",
+    "material": {
+      "name": "neo_hookean",
+      "nu": 0.3,
+      "params": {}
+    },
+    "E_Pa": {
+      "rule": "collapse"
+    },
+    "tissue_density": 200.0,
+    "gravity": {
+      "reference": "supine",
+      "collapse": "supine"
+    },
+    "collapse": {
+      "volume_ratio": 0.5
+    },
+    "wall": {
+      "stiffness": 20.0,
+      "eps": 0.5
+    },
+    "perturbation": null
+  },
+  "solver": {
+    "_comment": "torch core on the CPU in float64, SciPy SuperLU: the same on every platform (SLICER_EXTENSION.md 5.1-5.2). On a CUDA server: device null, linear_solver null (auto: cuda + cuDSS)",
+    "core": "torch",
+    "wall_update": "potential",
+    "order": 1,
+    "load_steps": 8,
+    "newton_tol": 1e-07,
+    "newton_maxit": 50,
+    "warm_substeps": true,
+    "wall_max_updates": 15,
+    "wall_settle_mm": 0.5,
+    "adaptive_steps": true,
+    "max_solve_s": 600,
+    "device": "cpu",
+    "linear_solver": "scipy"
+  },
+  "collapse": {
+    "sequence_frames": 30
+  }
+}
