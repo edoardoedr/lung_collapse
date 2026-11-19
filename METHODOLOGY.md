@@ -29,7 +29,7 @@ The lung is modelled as a compressible hyperelastic body, fixed at the hilum, lo
 
 **Chest wall.** The cavity is taken as the inflated lung surface itself: before the collapse the lung fills its cavity. A point may move beyond the wall by a margin $A_i$ = 5 mm (the accuracy of the segmentations) plus however far it already lies outside.
 
-**CT densities (section 2b).** The CT of each patient is converted voxel by voxel to density, $\rho = (\mathrm{HU} - \mathrm{HU}_{air}) / (-\mathrm{HU}_{air})$ g/mL, with $\mathrm{HU}_{air}$ the median of the pleural air of the same scan (water 1 g/mL). Only air leaves a collapsing lung, so the mass of the lung is the sum over the collapsed lung, and its mean density in the reference state is $\bar\rho_0$ = mass / $V_{cavity}$ (median 163 kg/m³, uncertainty about ±25 %: analysis/results.md 5e). The contralateral lung, inflated in the same scan, gives a second, independent density; the two lungs of one person have the same density before a pneumothorax (patient_6: 0.208 and 0.207 g/mL), but during it the contralateral lung is denser (+40 % on patient_6) and the cavity is larger than the lung, so the two estimates agree only on part of the cohort. Planned (2026-11-19): the emphysema index LAA%−950 (fraction of lung voxels below −950 HU on the calibrated scale) of both lungs, for the compression limit of section 3.4.1. For a new patient with an inflated CT, $\bar\rho_0$ and LAA% are measured on the lung itself.
+**CT densities and emphysema.** The CT of each patient is converted voxel by voxel to density, $\rho = (\mathrm{HU} - \mathrm{HU}_{air}) / (-\mathrm{HU}_{air})$ g/mL, with $\mathrm{HU}_{air}$ the median of the pleural air of the same scan (water 1 g/mL). Only air leaves a collapsing lung, so the mass of the lung is the sum over the collapsed lung, and its mean density in the reference state is $\bar\rho_0$ = mass / $V_{cavity}$ (cohort median 163 kg/m³, uncertainty about ±25 %). The contralateral lung, inflated in the same scan, gives an independent check: the two lungs of one person have the same density before a pneumothorax (patient_6: 0.208 and 0.207 g/mL), and their masses agree on 9 of 16 patients; where they do not, the cavity is larger than the lung or the contralateral lung is denser during the pneumothorax (+40 % on patient_6). Emphysema is measured as LAA%−950, the fraction of lung voxels below −950 HU on the calibrated scale, after a 3×3×3 median filter (on thin-slice scans the noise alone puts normal lung below the threshold) and 2 mm inside the lung border; for the cohort it is measured on the contralateral lung, the operated one being seen only collapsed (emphysema is bilateral: the two lungs agree, Spearman 0.82). Below about 5 % the index does not separate emphysema from none (a few bullae are evident to the eye but 1–3 % of the volume), so whether a patient has emphysema is the reading of the CT by the user; the index gives its volume. For a new patient with an inflated CT, $\bar\rho_0$ and LAA% are measured on the lung itself (air calibrated in the trachea). Both are computed by the `ct` step of the pipeline from the CT; the user gives only whether emphysema is to be considered. Values per patient: analysis/results.md 5e and 5j.
 
 ## 3. Physical model
 
@@ -100,29 +100,38 @@ $$
 
 The first term is isochoric (shape change), the second volumetric. The lung loses air as it collapses, so it is compressible: $\nu = 0.30$, i.e. $K = 0.83\,E$ (0.40 until 2026-11-17; $\nu$ is not identifiable from the collapsed shape, it trades off against $q_0$: analysis/results.md 5c). Under a uniform pressure the response is $p = K (1 - J)$ at any strain. $E$ is an **effective** modulus of the parenchyma as a continuum: tissue elasticity, surface tension of the alveoli and the recoil they produce are lumped in it.
 
-### 3.4.1 Limit of compression: tissue and trapped air (2026-11-19; implemented, `physics.barrier`, off by default; server checks pending)
+### 3.4.1 Limit of compression: tissue and trapped air
 
-A collapsing lung loses only air. Tissue, blood and water stay, and are nearly incompressible; in an emphysematous lung part of the air cannot leave either, because the destroyed alveolar walls and the airways that close on expiration trap it (air trapping). There is therefore a smallest volume the lung can reach, a fraction $\phi$ of its inflated volume:
+A collapsing lung loses only air. Tissue, blood and water stay and are nearly incompressible, and in an emphysematous lung part of the air cannot leave either: the destroyed alveolar walls and the airways that close on expiration trap it. There is therefore a smallest volume the lung can reach, a fraction $\phi$ of its inflated volume,
 
 $$
-\phi = \frac{V_{min}}{V_0} = \underbrace{\frac{\bar\rho_0}{\rho_t}}_{\phi_t:\ \text{tissue}} + \underbrace{r\, f_e}_{\phi_e:\ \text{trapped air}},
+\phi = \frac{V_{min}}{V_0} = \underbrace{\frac{\bar\rho_0}{\rho_t}}_{\phi_t:\ \text{tissue}} + \underbrace{\epsilon\, r\, f_e}_{\phi_e:\ \text{trapped air}},
 \qquad \rho_{end} = \frac{\bar\rho_0}{\phi},
 $$
 
-with $\bar\rho_0$ the mean density of the inflated lung, $\rho_t \approx 1050$ kg/m³ the density of airless tissue, $f_e$ the volume fraction of emphysematous air in the inflated lung (low-attenuation area, section 2b), $r \in [0, 1]$ the fraction of it that stays trapped, and $\rho_{end}$ the largest mean density the deflated lung can reach. Mass is conserved, so at any state the density is $\rho = \bar\rho_0 / J$ and the barrier is equivalently a density limit, $\rho \le \rho_{end}$.
+with $\bar\rho_0$ the mean density of the inflated lung, $\rho_t$ = 1050 kg/m³ the density of airless tissue (tissue and blood), $\epsilon$ = 1 if the patient has emphysema and 0 otherwise, $f_e$ its volume fraction (LAA%−950), $r \in [0, 1]$ the fraction of the emphysematous air that stays trapped, and $\rho_{end}$ the largest mean density the deflated lung can reach. Mass is conserved, so the density of a deformed element is $\bar\rho_0 / J$ and the limit is equivalently $\rho \le \rho_{end}$.
 
-The Neo-Hookean material of section 3.4 has no such limit: its volumetric response $p = K(1 - J)$ stays finite as $J \to 0$, so an element can lose more volume than the air it holds. A uniform load $q_0 > K/E$ (0.83 at $\nu = 0.30$; 12 mmHg of surgical insufflation is $q_0 \approx 1.2$ at $E$ = 1.36 kPa) has no equilibrium in free uniform compression; in the clamped lung an equilibrium may still exist, held by the isochoric term (which stiffens as $J^{-2/3}$), but an unphysical one: karl04 at $q_0$ = 1.2 converges to 6.6 % of its volume, with $J$ down to 0.005 and 91 % of the volume below the tissue fraction (numpy core; with the barrier at $\phi$ = 0.15: 20.8 %, $J_{min}$ 0.159). The limit is added as a barrier energy per unit reference volume,
+The Neo-Hookean material of section 3.4 has no such limit: its volumetric response $p = K(1 - J)$ stays finite as $J \to 0$, so an element can lose more volume than the air it holds. Under a free uniform compression a load $q_0 > K/E$ (0.83 at $\nu = 0.30$) has no equilibrium; in the clamped lung an equilibrium may still exist, held by the isochoric term, but not a physical one. Surgical insufflation at 12 mmHg is $q_0 \approx 1.2$ at $E$ = 1.36 kPa: on karl04 the Neo-Hookean lung then converges to 6.6 % of its volume, with $J$ down to 0.005 and 91 % of the volume below the tissue fraction. The limit is added as a barrier energy per unit reference volume,
 
 $$
-W = W_{NH}(F) + \kappa E\, \frac{\langle J_{on} - J \rangle_+^{3}}{J - \phi},
-\qquad J_{on} = \phi + \delta ,
+W = W_{NH}(F) + \kappa E\, b(J),
+\qquad b(J) = \frac{\langle J_{on} - J \rangle_+^{3}}{J - \phi},
+\qquad J_{on} = \phi + \delta .
 $$
 
-zero above $J_{on}$ (so the response of every state with $J > J_{on}$ is the Neo-Hookean one, and the calibration of sections 5–6 is unchanged), twice continuously differentiable at $J_{on}$ (Newton's method needs a continuous tangent), and unbounded as $J \to \phi^+$. Under a uniform pressure the response becomes $q = (K/E)(1 - J) - \kappa\, b'(J)$, with $b(J) = \langle J_{on} - J \rangle_+^3 / (J - \phi)$ and $-b' \to +\infty$ as $J \to \phi^+$: an equilibrium exists for any load, and as the load grows the lung tends to $V_{min}$. Values: $\delta$ = 0.1, $\kappa$ = 1 (numerical; the result near the limit is set by $\phi$, not by $\kappa$). Trial Newton states with $J \le \phi$ in any element are rejected, as inverted elements are. The term depends on $J$ only, so its stress and tangent are written in closed form ($P = \kappa E\, b'(J)\, J F^{-T}$, $\partial P / \partial F = \kappa E\,[b'' J^2\, F^{-T}\!\otimes F^{-T} + b' J\,(F^{-T}\!\otimes F^{-T} - F^{-T} \boxtimes F^{-T})]$) and added after each core's assembly, the same for the PyTorch and the Warp core and for any material.
+$b$ is zero above $J_{on}$, so every state with $J > J_{on}$ in all elements has the Neo-Hookean response and the calibration of sections 5–6 is unchanged; it is twice continuously differentiable at $J_{on}$, as Newton's method needs, and unbounded as $J \to \phi^+$. Under a uniform pressure the response becomes $q = (K/E)(1 - J) - \kappa\, b'(J)$ with $-b' \to +\infty$ at $\phi$: an equilibrium exists for any load, and as the load grows the lung tends to $V_{min}$ (karl04 at $q_0$ = 1.2 with $\phi$ = 0.15: 20.8 % of the volume, $J_{min}$ = 0.159). $\delta$ = 0.1 and $\kappa$ = 1 are numerical: near the limit the result is set by $\phi$. The term depends on $J$ only, so its stress and tangent have closed forms,
 
-**Parameters from the CT.** $\bar\rho_0$ is the mass of the lung over its reference volume (section 2b): for the cohort the mass of the collapsed lung over the volume of the cavity, for a new patient the mean density of the inflated lung itself. $f_e$ is measured on the CT as the fraction of lung voxels below −950 HU (LAA%−950, with the HU scale calibrated on the air of the scan, after a median filter against the noise). Emphysema is usually bilateral, so for the cohort, where the lung on the operated side is only seen collapsed, $f_e$ is measured on the contralateral lung and checked against the operated one; the trapped fraction $r$ is estimated from the low-attenuation air still present in the collapsed lung, $r \approx V_{LAA}^{collapsed} / (f_e V_0)$. The index is computed after a 3×3×3 median filter: on thin-slice scans the noise alone puts normal lung below −950 HU (patient_10: 11.3 % unfiltered, 1.0 % filtered). On the cohort (analysis/results.md 5j) 7 of 16 patients are emphysematous (LAA%−950 ≥ 5 %), the index of the two lungs agrees (Spearman 0.82), $r \approx 0.54$ (0.35–0.70), and $\phi = \phi_t + 0.54 f_e$ (0.10–0.52) is below every observed collapse. Below about 5 % the index does not separate emphysema from none (a few bullae are evident to the eye but 1–3 % of the volume; the visual check of the CT disagrees with any threshold: analysis/results.md 5j), so whether a patient has emphysema is **given by the user** (`physics.emphysema`), and $f_e$ (measured) enters $\phi$ only when it is: $\phi = \phi_t$ otherwise. The barrier itself is switched on by the user. Within a patient $\phi$ is uniform at first; the inflated CT of a new patient would also give $\phi$ per element.
+$$
+P_b = \kappa E\, b'(J)\, J F^{-T},
+\qquad
+\frac{\partial P_b}{\partial F} = \kappa E \left[ \left(b'' J^2 + b' J\right) F^{-T} \otimes F^{-T} - b' J\, F^{-T} \boxtimes F^{-T} \right],
+$$
 
-**Use.** With the barrier the collapse can be driven by a pressure instead of a volume: in surgery the pleural cavity is insufflated with CO₂ at about 12 mmHg (1.6 kPa) and the air of the operated lung is let out, so $p_0$ is known, the final volume is close to $\phi V_0$, and the ratio of the gravity term to the uniform one, $\bar\rho g L / p_0$, no longer depends on $E$.
+with $(A \boxtimes B)_{iKjL} = A_{iL} B_{jK}$, and are added to those of any strain energy and any core (section 4).
+
+**Parameters.** $\bar\rho_0$ and $f_e$ come from the CT (section 2). $\epsilon$ is given by the user. $r$ is estimated on the cohort from the low-attenuation air still present in the collapsed lung, $r \approx V_{LAA}^{collapsed} / (f_e V_0)$: median 0.54 (0.35–0.70) over the 7 patients with LAA%−950 ≥ 5 %, so about half of the emphysematous air does not leave. With these values $\phi$ ranges from 0.10 to 0.52 and is below the observed collapsed volume of every patient (analysis/results.md 5j). $\phi$ is uniform within a patient. The barrier is optional and switched on by the user.
+
+**Use.** With the barrier the collapse can be driven by a pressure instead of a volume. In surgery the pleural cavity is insufflated with CO₂ at about 12 mmHg (1.6 kPa) and the air of the operated lung is let out, so $p_0$ is known and the final volume is close to $\phi V_0$; the ratio of the gravity term to the uniform one, $\bar\rho g L / p_0$, no longer depends on $E$. The cohort's CTs are not under insufflation (their $p_0$ is the released recoil, a few hundred Pa), so this mode is an extrapolation of the calibrated model.
 
 ### 3.5 Chest wall
 
@@ -159,7 +168,7 @@ $$
 + \underbrace{\int_{\Gamma_f} w(g)\, \nabla\tilde\varphi \cdot \delta u \, dA}_{\text{wall}} = 0 .
 $$
 
-The problem is quasi-static: inertia and viscous effects are neglected, and the collapsed state is an equilibrium.
+$P$ includes the barrier stress $P_b$ of section 3.4.1 when it is used. The problem is quasi-static: inertia and viscous effects are neglected, and the collapsed state is an equilibrium.
 
 ### 3.7 Non-dimensional form and parameters
 
@@ -216,7 +225,7 @@ $$
 
 $R(U) = 0$ is solved by Newton's method with the exact tangent $K_t = \partial R / \partial U$:
 
-- *elasticity:* $K_{ab} = \sum_t V_t\, \dfrac{\partial P_{iK}}{\partial F_{jL}}\, \dfrac{\partial N_a}{\partial X_K}\, \dfrac{\partial N_b}{\partial X_L}$, with $\partial P/\partial F$ from automatic differentiation of $W$ (PyTorch core) or derived by hand (Warp core);
+- *elasticity:* $K_{ab} = \sum_t V_t\, \dfrac{\partial P_{iK}}{\partial F_{jL}}\, \dfrac{\partial N_a}{\partial X_K}\, \dfrac{\partial N_b}{\partial X_L}$, with $\partial P/\partial F$ from automatic differentiation of $W$ (PyTorch core) or derived by hand (Warp core), plus the closed-form barrier tangent (section 3.4.1);
 - *pressure* (load stiffness of the follower load, non-symmetric): the derivative of the area vector $n = a \times b$, $a = x_2 - x_1$, $b = x_3 - x_1$, with respect to the vertices, $\partial n/\partial x_1 = [b]_\times - [a]_\times$, $\partial n/\partial x_2 = -[b]_\times$, $\partial n/\partial x_3 = [a]_\times$;
 - *wall:* a 3 × 3 block per node,
 
@@ -227,7 +236,7 @@ $$
   the second term being the curvature of the wall. Because $\tilde\varphi$ is evaluated at the current position, contact is part of the same Newton iteration: there is no separate contact loop.
 - the body force is a dead load and has no tangent.
 
-Each iteration solves $K_t\, \Delta U = -R$ with a sparse direct solver (cuDSS on GPU, PARDISO or SuperLU on CPU). The step is accepted if the residual norm does not exceed 1.5 times the current one; otherwise it is scaled by 0.6 repeatedly, down to $10^{-3}$. Convergence: $\min\left(\lVert R \rVert_1,\ \lVert \Delta U \rVert_1 / \lVert U \rVert_1\right) \le 10^{-7}$, at most 50 iterations. A trial state with an inverted element ($J \le 0$), or with a surface node outside the wall grid, is rejected.
+Each iteration solves $K_t\, \Delta U = -R$ with a sparse direct solver (cuDSS on GPU, PARDISO or SuperLU on CPU). The step is accepted if the residual norm does not exceed 1.5 times the current one; otherwise it is scaled by 0.6 repeatedly, down to $10^{-3}$. Convergence: $\min\left(\lVert R \rVert_1,\ \lVert \Delta U \rVert_1 / \lVert U \rVert_1\right) \le 10^{-7}$, at most 50 iterations. A trial state with an inverted element ($J \le 0$, or $J \le \phi$ with the barrier), or with a surface node outside the wall grid, is rejected.
 
 ### 4.3 Load path
 
@@ -247,13 +256,15 @@ $$
 
 $V$ decreases monotonically with $q_0$, so $q_0(r)$ is found by a one-dimensional search: first guess from the hydrostatic response, $q_0 = (1 - r)\,K/E$; extrapolation by at most a factor 2 until the target is bracketed; then secant steps kept inside the bracket; each solve starts from the previous state. Three to six solves give $r$ within 0.5 %.
 
-**Prediction rule.** For a new lung the only input is the collapse % (the volume ratio $r$). $\nu$ = 0.30 is fixed; $q_0$ follows from $r$ as above; the gravity slope, i.e. $E$ at $\bar\rho$ = 200 kg/m³, from a rule fitted on the patients' inverse fits (E and $q_0$ fitted, 12 patients with $E$ inside its bounds):
+**Prediction rule.** For a new lung the only input is the collapse % (the volume ratio $r$). $\nu$ = 0.30 is fixed; $q_0$ follows from $r$ as above; the gravity slope, i.e. $E$ at $\bar\rho$ = 200 kg/m³, from a rule fitted on the patients' inverse fits (E and $q_0$ fitted, Netgen meshes, the 13 patients with $E$ inside its bounds; `eurelaps_lung/data/rules.json`):
 
 $$
-\log_{10} E\,[\text{Pa}] = 3.533 - 0.01346 \times \text{collapse \%} ,
+\log_{10} E\,[\text{Pa}] = 3.538 - 0.01288 \times \text{collapse \%} ,
 $$
 
-about 1.6 kPa at 25 % and 0.73 kPa at 50 % (fitted at $\bar\rho$ = 250 kg/m³ and rescaled by 0.8, exact since only $\bar\rho / E$ is identified; $r$ = −0.87, residual 0.16 in $\log_{10} E$). In leave-one-out the predicted shape is 0.2 mm (median) worse than the patient's own fit; the density measured on the CT does not improve it (analysis/results.md 5e–5f), so it is used only to report $E$ and $p_0$ in physical units.
+about 1.6 kPa at 25 % and 0.78 kPa at 50 % (residual 0.16 in $\log_{10} E$). In leave-one-out the predicted shape is 0.2 mm (median) worse than the patient's own fit; the density measured on the CT does not improve it (analysis/results.md 5e–5f), so it is used only to report $E$ and $p_0$ in physical units.
+
+**Pressure-driven mode** (section 3.4.1, with the barrier): $p_0$ given in Pa, e.g. 1600 Pa for 12 mmHg of insufflation, a fixed $E$, and the position of the operation (lateral decubitus, operated side up: section 3.3); the volume is an output, bounded below by $\phi V_0$. Not yet validated: the sensitivity of the shape to $E$ in this mode is to be measured.
 
 A collapse sequence is obtained by solving at $\lambda = 0 \ldots 1$ of the final load: the intermediate shapes are equilibria of the proportional load, not a linear morph.
 
@@ -329,8 +340,8 @@ These terms are not part of the physical model and are never used in prediction.
 **Assumptions of the model.**
 
 1. *Stress-free reference.* The inflated lung is taken as unstressed. In vivo it is prestressed by the recoil and by its weight. A rigorous treatment needs the unloaded geometry (a further inverse problem); to first order in the load the two coincide, the difference being the stiffening due to the prestress.
-2. *Homogeneous, isotropic material.* One $E$, $\nu$ and $\bar\rho$ for the whole lung. No CT values of the inflated lung are available, so there is no per-element density or air fraction, although the dependent lung is denser.
-3. *No limit to compression without the barrier (section 3.4.1, off by default).* The volumetric term $(J-1)^2$ stays finite as $J \to 0$: an element can lose more volume than the air it contains, and a uniform $q$ above $K/E$ (0.83 at $\nu = 0.30$) has either no equilibrium or, in the clamped lung, one far below the tissue volume (karl04 at $q_0$ = 1.2: 6.6 % of the volume). The barrier $J \ge \phi$ (tissue + trapped air, from the CT density and the emphysema index) removes this; with it, the limit is uniform within a patient and the trapped fraction $r$ is a cohort estimate.
+2. *Homogeneous, isotropic material.* One $E$, $\nu$, $\bar\rho$ and $\phi$ for the whole lung, although the dependent lung is denser and emphysema is regional (upper lobes). The CT would give a per-element density and air fraction (for the cohort only in the collapsed state); it is not used yet.
+3. *Limit of compression.* Without the barrier (the default) an element can lose more volume than the air it contains; the cohort fits never come close to it. With the barrier (section 3.4.1) the limit is uniform within a patient, the trapped fraction $r$ is a cohort estimate measured at the end of a pneumothorax (an upper value for a deflation with suction), and whether a patient has emphysema is a visual reading.
 4. *Effective elasticity.* Surface tension, airway closure and the recruitment / derecruitment of alveoli are not modelled; their net effect is in $E$ and $\nu$.
 5. *Quasi-static.* No inertia, viscoelasticity or time: the model gives the final equilibrium, not how fast the lung deflates, nor the absorption atelectasis that continues over minutes.
 6. *Rigid clamp.* The hilum does not move; the pulmonary ligament and the bronchial and vascular tethering beyond the hilum region are not modelled.
@@ -338,7 +349,7 @@ These terms are not part of the physical model and are never used in prediction.
 8. *One body.* The lobes are not separated: no sliding along the fissures, no self-contact of the lung surface, no folding.
 9. *Mean density assumed* ($\bar\rho$ = 200 kg/m³, the measured pleural gradient; the CT gives 85–294 kg/m³ per patient). Since only $\bar\rho / E$ matters for the shape, an error in $\bar\rho$ is an error of the same relative size in the calibrated $E$.
 10. *Patient position.* The scan is assumed supine (the pleural air is anterior in 15 / 15 patients); the buoyancy of the pleural air (~1/200 of the lung's weight) and the small motion of the lung while the patient is turned with the chest closed are neglected.
-11. *No surgical action.* Instruments, retraction, one-lung ventilation settings and residual airway pressure are outside the model; a residual pressure is absorbed in $p_0$.
+11. *No surgical action.* Instruments, retraction, one-lung ventilation settings and residual airway pressure are outside the model; a residual pressure is absorbed in $p_0$. The insufflation pressure enters only as a uniform $p_0$ (section 5, pressure-driven mode).
 12. *The cavity as the inflated lung.* The reference is the pleural cavity of the pneumothorax scan, not the lung before the pneumothorax. With the pleural pressure lost the chest wall springs outward, the mediastinum shifts to the other side and the hemidiaphragm flattens, so the cavity is larger than the lung that filled it, and shaped differently on its medial and diaphragmatic faces. The collapse % measured against it is an overestimate, and the model must also "collapse away" volume the lung never occupied. The size of this error is unknown and probably grows with the size of the pneumothorax.
 
 **Approaches tried and abandoned** (evidence in analysis/results.md; the code is in git on `v1_version`).
@@ -362,6 +373,7 @@ These terms are not part of the physical model and are never used in prediction.
 - **Cores.** PyTorch and Warp against GetFEM on the same mesh: relative difference of the displacements ≤ 2·10⁻¹⁴ without wall, ≤ 10⁻¹¹ with the linearised wall; analytic sensitivities against central finite differences ~10⁻⁸.
 - **Smooth wall.** Tangent against finite differences of the residual 10⁻⁷; sensitivities with contact against finite differences 3·10⁻⁸ (PyTorch core on the server, 5 columns).
 - **Body force.** Resultant equal to the weight along the collapse position; sensitivity column against finite differences 10⁻⁷.
+- **Compression barrier.** On one tetrahedron the barrier force and tangent agree with finite differences of the energy to 10⁻⁹; zero above $J_{on}$, unbounded at $\phi$. On karl04 (numpy core) the assembled tangent with the barrier active agrees with finite differences to 5·10⁻⁷, and a collapse that stays above $J_{on}$ is identical to the Neo-Hookean one.
 - **Inverse problem.** A fit of $(q_0, E)$ on a synthetic target generated by a forward run recovers the parameters ($q_0$ to 10⁻⁴, $E$ within 0.1 %). The symmetric term's gradient is exact (2·10⁻¹⁰ against finite differences); the simulated → target term is Gauss-Newton only, because on a triangulated target the interpolated normal is not the gradient of the distance.
 - **Robustness.** With the smooth wall, fits from the reference with the whole gravity load, at $E$ = 1.7 and 1 kPa on four patients: no failed solve, under one minute each.
 
@@ -373,10 +385,11 @@ These terms are not part of the physical model and are never used in prediction.
 | `vtk_mesh.py`, `data_io.py` | surfaces as arrays, the VTK filters (cleaning, smoothing, hole filling, connectivity, closest point, signed distance) and the file I/O; plain VTK, no pyvista |
 | `fem/setup.py`, `wall_field.py` | clamp, wall field, volume mesh (sections 2, 3.5) |
 | `fem/load.py` | the load as a function of the parameters, its linear structure and the chain rule (3.7, 6.2, 6.4) |
-| `fem/solvers/nodal.py` | Newton, load path, wall, body force, sensitivities (section 4) |
+| `fem/solvers/nodal.py` | Newton, load path, wall, body force, compression barrier, sensitivities (sections 3.4.1, 4) |
 | `fem/solvers/torch_solver.py`, `warp_solver.py`, `getfem_solver.py`, `materials.py` | the three cores and the strain energies (3.4, 4.4) |
 | `fem/forward.py` | forward problem (section 5) |
 | `fem/fit.py` | inverse problem (section 6) |
 | `calibration.py` | the population rule from the per-patient fits (section 6) |
+| `scripts/ct_density.py`, `scripts/emphysema_map.py` (repository root) | densities and emphysema from the CT (section 2) |
 | `main_fit.py`, `main_calibrate.py`, `main_predict.py` (repository root) | entry points: one fit, cohort calibration + leave-one-out, prediction |
 | `tests/` | the checks of section 8 that run without the FEM libraries |

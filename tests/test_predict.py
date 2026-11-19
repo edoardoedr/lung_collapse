@@ -21,7 +21,8 @@ from eurelaps_lung.config import E_RULE_A, E_RULE_B, load_config
 OPTIONAL = ("torch", "warp", "getfem", "itk", "sklearn", "nvmath", "pypardiso", "gmsh", "pyvista", "pyacvd", "netgen")
 PREDICTION_MODULES = ("eurelaps_lung.predict", "eurelaps_lung.surface_mesh", "eurelaps_lung.hilum",
                       "eurelaps_lung.fem.setup", "eurelaps_lung.fem.forward", "eurelaps_lung.fem.sequence",
-                      "eurelaps_lung.fem.results", "eurelaps_lung.fem.solvers.nodal", "eurelaps_lung.calibration")
+                      "eurelaps_lung.fem.results", "eurelaps_lung.fem.solvers.nodal", "eurelaps_lung.calibration",
+                      "eurelaps_lung.ct")
 
 IMPORT_CHECK = r"""
 import importlib.abc, sys
@@ -126,6 +127,36 @@ def test_drive_by_pressure():
     assert abs(e["E_Pa"] - 10 ** (E_RULE_A + E_RULE_B * 40.0)) < 1e-6
     assert abs(predict.estimate(p0=e["p0_Pa"], E=e["E_Pa"])["collapse_percent"] - 40.0) < 1e-9
     return "p0 330 Pa, E 1300 Pa; at 40 %% the rules expect p0 %.0f Pa" % e["p0_Pa"]
+
+
+def test_emphysema_and_barrier():
+    """The Slicer inputs: emphysema yes / no, CT density and emphysema volume, the barrier from them."""
+    from eurelaps_lung import ct
+    base = predict.pressure_overrides(1600.0, 1200.0) + predict.E_overrides(1200.0)
+    ph = load_config(filled("/tmp/x"), base + predict.ct_overrides(True, 180.0, 20.0, True)).physics
+    assert ph.emphysema is True and ph.ct_density == 180.0 and ph.ct_emphysema == 20.0
+    assert abs(ph.barrier["phi"] - ct.barrier_phi(180.0, True, 20.0)) < 1e-12
+    assert abs(ph.barrier["phi"] - (180 / 1050 + 0.54 * 0.20)) < 1e-12
+    no = load_config(filled("/tmp/x"), base + predict.ct_overrides(False, 180.0, 20.0, True)).physics
+    assert abs(no.barrier["phi"] - 180 / 1050) < 1e-12                  # emphysema no: the index is ignored
+    try:
+        load_config(filled("/tmp/x"), base + predict.ct_overrides(None, 180.0, 20.0, True))
+        raise AssertionError("the barrier without physics.emphysema must fail")
+    except ValueError:
+        pass
+    pend = load_config(filled("/tmp/x"), base + predict.ct_overrides(True, None, None, True))
+    assert pend.physics.barrier["pending"]                        # waits for the `ct` step
+    try:
+        pend.solver_options()
+        raise AssertionError("an unresolved barrier must not reach the solver")
+    except ValueError as e:
+        assert "inputs.ct" in str(e)
+    from eurelaps_lung.config import resolve_barrier
+    pend.physics.ct_density, pend.physics.ct_emphysema = 180.0, 20.0
+    assert abs(resolve_barrier(pend.physics)["phi"] - ph.barrier["phi"]) < 1e-12
+    off = load_config(filled("/tmp/x"), base + predict.ct_overrides(True, 180.0, 20.0, None)).physics
+    assert off.barrier is None
+    return "phi %.3f with emphysema, %.3f without; missing inputs refused" % (ph.barrier["phi"], no.barrier["phi"])
 
 
 def test_run_driven_by_pressure():

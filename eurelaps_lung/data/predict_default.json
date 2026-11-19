@@ -87,7 +87,7 @@
     "perturbation": null
   },
   "solver": {
-    "_comment": "torch core on the CPU in float64, SciPy SuperLU: the same on every platform (SLICER_EXTENSION.md 5.1-5.2). On a CUDA server: device null, linear_solver null (auto: cuda + cuDSS)",
+    "_comment": "torch core on the CPU in float64, SciPy SuperLU: the same on every platform (the same results on the Mac and in 3D Slicer). On a CUDA server: device null, linear_solver null (auto: cuda + cuDSS)",
     "core": "torch",
     "wall_update": "potential",
     "order": 1,

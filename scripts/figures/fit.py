@@ -9,18 +9,18 @@ o = [header(W, H, "Forward and inverse problem",
 # inputs
 o.append(box(20, 20, 350, 78, ORANGE, "Model geometry", ["inflated lung: tetrahedral mesh Ω₀, clamp Γ_D at the hilum".replace("Ω₀", sub("Ω_0")).replace("Γ_D", sub("Γ_D")),
                                                          "chest wall as a smooth distance field φ̃, margin A"], "fem/setup/problem.npz"))
-o.append(box(390, 20, 350, 78, PURPLE, "Physical parameters θ", [sub("q_0 (or p_0, or volume ratio), E, ν, ρ̄, positions e_A → e_B"),
+o.append(box(390, 20, 350, 78, PURPLE, "Physical parameters θ", [sub("q_0 (or p_0, or volume ratio), E, ν, ρ̄, positions e_A → e_B, φ"),
                                                                  "each one given, or marked “fit”"], "physics"))
 o.append(path("M195 98 L195 114 L330 114 L330 128"))
 o.append(path("M565 98 L565 114 L430 114 L430 128"))
 # load
 o.append(box(120, 130, 520, 78, PURPLE, "Load", [sub("surface pressure  q(X) = q_0 + γ (h(X) − h̄),   γ = ρ̄ g / E,   h = −e_A · X"),
-                                                 sub("body force  b = γ (e_B − e_A)  (only when the position changes)")], "collapse/load.py"))
+                                                 sub("body force  b = γ (e_B − e_A)  (only when the position changes)")], "fem/load.py"))
 o.append(arrow(380, 208, 380, 226))
 # solve
 o.append('<rect x="20" y="228" width="720" height="186" rx="12" class="grp"/>')
 o.append(text(34, 244, "Finite-element solve  R(U; θ) = 0   (PyTorch / Warp cores, P1 tetrahedra)", "h", BLUE["title"]))
-o.append(box(34, 258, 220, 64, BLUE, "Elasticity", ["compressible Neo-Hookean", "∫ P(F) : ∇δu dV"]))
+o.append(box(34, 258, 220, 64, BLUE, "Elasticity", ["Neo-Hookean (+ barrier J ≥ φ)", "∫ P(F) : ∇δu dV"]))
 o.append(box(270, 258, 220, 64, BLUE, "Pleural pressure", ["follows the surface (Nanson)", sub("∫ q J F^{−T}N · δu dA").replace("^{−T}", "⁻ᵀ")]))
 o.append(box(506, 258, 220, 64, BLUE, "Chest wall", ["penalty on the smooth field φ̃", "exact tangent, inside Newton"]))
 o.append(box(34, 336, 340, 64, BLUE, "Newton's method", ["exact tangent K = ∂R/∂U, sparse direct solver,".replace("K =", sub("K_t =")), "line search; ≤ 50 iterations"]))
@@ -32,7 +32,7 @@ o.append(path("M520 459 L560 459 L560 506"))
 # forward
 o.append('<rect x="20" y="508" width="230" height="200" rx="12" class="grp"/>')
 o.append(text(34, 524, "Forward  (collapse)", "h", GREEN["title"]))
-o.append(box(34, 540, 202, 64, GREEN, "Parameters given", [sub("q_0 or p_0: one solve"), "no collapsed CT needed"]))
+o.append(box(34, 540, 202, 64, GREEN, "Parameters given", [sub("q_0, or p_0 (12 mmHg with the"), "barrier): one solve"]))
 o.append(box(34, 618, 202, 76, GREEN, "Volume ratio given", [sub("search q_0 with V(q_0) / V_0 = r:"), "secant steps in a bracket,", "3–6 solves"]))
 # inverse
 o.append('<rect x="266" y="508" width="474" height="200" rx="12" class="grp"/>')

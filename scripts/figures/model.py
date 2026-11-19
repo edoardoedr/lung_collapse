@@ -1,7 +1,7 @@
 import math
 from common import *
 
-W, H = 760, 876
+W, H = 760, 1160
 LUNG, LUNG_S = "#f6ddd5", "#993c1d"
 BL = "#185fa5"
 o = [header(W, H, "Physical model of the lung collapse",
@@ -9,7 +9,8 @@ o = [header(W, H, "Physical model of the lung collapse",
             "the top; its gradient carries the weight of the lung. Right: in the pneumothorax that pressure is lost; the "
             "load is an inward pressure, uniform part plus gradient, the lung shrinks towards the clamped hilum and rests "
             "on the dependent chest wall. Below: patient positions and the direction of gravity in the reference CT and "
-            "during the collapse, and the table of the parameters.")]
+            "during the collapse; the limit of compression (tissue and air trapped by emphysema, an optional barrier), and "
+            "the table of the parameters.")]
 
 
 def ellipse_pt(cx, cy, rx, ry, deg):
@@ -131,28 +132,86 @@ o.append(text(532, 546, "different positions: + body force", "l", "#444441"))
 o.append(text(532, 564, sub("b = ρ̄ g (e_B − e_A)"), "m", "#993c1d"))
 o.append(text(532, 582, sub("resultant = weight along e_B"), "l"))
 
-# ---------------- D: parameters ----------------
-o.append('<rect x="20" y="620" width="720" height="242" rx="12" class="grp"/>')
-o.append(text(34, 638, "Parameters: each one given (a number) or fitted to the collapsed CT", "h", "#444441"))
+# ---------------- D: limit of compression ----------------
+Y0 = 620
+o.append('<rect x="20" y="%g" width="720" height="250" rx="12" class="grp"/>' % Y0)
+o.append(text(34, Y0 + 18, "Limit of compression (optional barrier): the lung cannot lose more than the air that can leave", "h", "#444441"))
+# plot q / E against J
+px0, px1, py0, py1 = 76, 336, Y0 + 205, Y0 + 50          # J 0..1 -> x, q 0..2 -> y
+X = lambda J: px0 + (px1 - px0) * J
+Yq = lambda q: py0 - (py0 - py1) * q / 2.0
+PHI, ON, KE = 0.15, 0.10, 1.0 / (3 * (1 - 2 * 0.30))
+o.append('<rect x="%g" y="%g" width="%g" height="%g" fill="#e9e6dc"/>' % (X(0), py1, X(PHI) - X(0), py0 - py1))
+o.append(text(X(PHI / 2) + 4, (py0 + py1) / 2, "tissue + trapped air", "k", None, "middle",
+              ' transform="rotate(-90 %g %g)"' % (X(PHI / 2) + 4, (py0 + py1) / 2)))
+o.append('<line x1="%g" y1="%g" x2="%g" y2="%g" stroke="#444441" stroke-width="1"/>' % (px0, py0, px1 + 6, py0))
+o.append('<line x1="%g" y1="%g" x2="%g" y2="%g" stroke="#444441" stroke-width="1"/>' % (px0, py0, px0, py1 - 6))
+for J in (0, 0.5, 1):
+    o.append(text(X(J), py0 + 12, "%g" % J, "k", None, "middle"))
+for q in (0, 1, 2):
+    o.append(text(px0 - 6, Yq(q), "%g" % q, "k", None, "end"))
+o.append(text((px0 + px1) / 2, py0 + 27, "J = local volume / inflated volume", "l", None, "middle"))
+o.append(text(px0 - 30, py1 - 14, "pressure / E", "l"))
+nh = " L".join("%.1f %.1f" % (X(J), Yq(KE * (1 - J))) for J in [i / 50 for i in range(51)])
+o.append('<path d="M%s" fill="none" stroke="#5f5e5a" stroke-width="1.6" stroke-dasharray="5 3"/>' % nh)
+pts = []
+for i in range(400):
+    J = PHI + 1e-3 + (1 - PHI - 1e-3) * i / 399
+    s, d = max(PHI + ON - J, 0.0), J - PHI
+    q = KE * (1 - J) + 3 * s * s / d + s ** 3 / d ** 2
+    if q <= 2.0:
+        pts.append("%.1f %.1f" % (X(J), Yq(q)))
+o.append('<path d="M%s" fill="none" stroke="#993c1d" stroke-width="2"/>' % " L".join(pts))
+o.append('<line x1="%g" y1="%g" x2="%g" y2="%g" stroke="#185fa5" stroke-width="1" stroke-dasharray="3 3"/>' % (px0, Yq(1.18), px1, Yq(1.18)))
+o.append(text(px1 - 2, Yq(1.18) - 9, "12 mmHg at E 1.36 kPa", "k", BL, "end"))
+o.append('<line x1="%g" y1="%g" x2="%g" y2="%g" stroke="#444441" stroke-width="1" stroke-dasharray="2 2"/>' % (X(PHI), py0, X(PHI), py1))
+o.append(text(X(PHI), py0 + 12, "φ", "m", "#444441", "middle"))
+o.append(text(X(0.40), Yq(0.92), "Neo-Hookean (dashed):", "k", "#5f5e5a"))
+o.append(text(X(0.40), Yq(0.80), "at most K/E = 0.83", "k", "#5f5e5a"))
+o.append(text(X(0.27), Yq(1.75), "with the barrier", "k", "#993c1d"))
+# right: composition and formulas
+rx = 372
+o.append(text(rx, Y0 + 46, "smallest volume fraction:", "l", "#444441"))
+o.append(text(rx, Y0 + 66, sub("φ = ρ̄_{CT} / ρ_t  +  ε r f_e"), "m", "#3c3489"))
+o.append(text(rx, Y0 + 88, sub("tissue: ρ̄_{CT} from the CT (mass / volume), ρ_t = 1050 kg/m³"), "l"))
+o.append(text(rx, Y0 + 104, sub("trapped air: ε = emphysema yes / no (user), f_e = LAA%−950"), "l"))
+o.append(text(rx, Y0 + 120, "of the CT, r = 0.54 of it does not leave (cohort)", "l"))
+bx, bw = rx, 350
+o.append('<rect x="%g" y="%g" width="%g" height="16" fill="#e6f1fb" stroke="#185fa5" stroke-width="0.8"/>' % (bx, Y0 + 134, bw))
+o.append('<rect x="%g" y="%g" width="%g" height="16" fill="#5f5e5a"/>' % (bx, Y0 + 134, bw * 0.17))
+o.append('<rect x="%g" y="%g" width="%g" height="16" fill="#e8b45a"/>' % (bx + bw * 0.17, Y0 + 134, bw * 0.35))
+o.append(text(bx + bw * 0.085, Y0 + 158, "tissue", "k", None, "middle"))
+o.append(text(bx + bw * 0.345, Y0 + 158, "trapped (emphysema)", "k", None, "middle"))
+o.append(text(bx + bw * 0.76, Y0 + 158, "air that leaves", "k", BL, "middle"))
+o.append(text(rx, Y0 + 204, sub("W = W_{NH} + κE ⟨J_{on} − J⟩³₊ / (J − φ),   J_{on} = φ + 0.1"), "m", "#993c1d"))
+o.append(text(rx, Y0 + 225, "zero above J_on: the calibrated collapses are unchanged;".replace("J_on", sub("J_{on}")), "l"))
+o.append(text(rx, Y0 + 240, "a surgical pressure (12 mmHg) stops the lung just above φ", "l"))
+
+# ---------------- E: parameters ----------------
+T0 = 884
+o.append('<rect x="20" y="%g" width="720" height="262" rx="12" class="grp"/>' % T0)
+o.append(text(34, T0 + 18, "Parameters: each one given (a number) or fitted to the collapsed CT", "h", "#444441"))
 cols = (34, 110, 392, 566)
 for x, t in zip(cols, ("symbol", "meaning", "config key", "default")):
-    o.append(text(x, 660, t, "l", "#444441", None, ' style="font-weight:600"'))
-o.append('<line x1="34" y1="670" x2="726" y2="670" stroke="#b4b2ab" stroke-width="0.8"/>')
+    o.append(text(x, T0 + 40, t, "l", "#444441", None, ' style="font-weight:600"'))
+o.append('<line x1="34" y1="%g" x2="726" y2="%g" stroke="#b4b2ab" stroke-width="0.8"/>' % (T0 + 50, T0 + 50))
 rows = [(sub("q_0 = p_0 / E"), "uniform pressure released: sets the collapse %", "physics.collapse", "fitted, start 0.3"),
         ("E", "effective stiffness of the lung tissue", "physics.E_Pa", "1360 Pa, or E(collapse %)"),
         ("ν", "compressibility (the lung loses air)", "physics.material.nu", "0.30"),
         ("ρ̄", "mean density of the inflated lung (model)", "physics.tissue_density", "200 kg/m³ (ρ̄g 1.96 Pa/mm)"),
-        (sub("ρ̄_{CT}"), "the same measured on the CT (report only)", "physics.ct_density", "per patient, median 163 kg/m³"),
+        (sub("ρ̄_{CT}"), "the same measured on the CT", "physics.ct_density", "per patient, median 163 kg/m³"),
+        (sub("ε, f_e"), "emphysema: yes / no (user); its volume (CT LAA%)", "physics.(ct_)emphysema", "per patient"),
+        ("φ", "limit of compression (barrier)", "physics.barrier", "off; {\"phi\": \"ct\"}"),
         (sub("e_A, e_B"), "patient position: reference CT, collapse", "physics.gravity", "supine, supine"),
         ("A, σ", "chest wall: margin, smoothing of the field", "fem_setup.wall", "5 mm, 3 mm"),
         ("k", "chest wall: penalty stiffness", "physics.wall", "20 E/mm")]
 for i, (sym, meaning, key, default) in enumerate(rows):
-    y = 684 + 20 * i
+    y = T0 + 64 + 18 * i
     o.append(text(cols[0], y, sym, "m", "#3c3489"))
     o.append(text(cols[1], y, meaning, "l"))
     o.append(text(cols[2], y, key, "k"))
     o.append(text(cols[3], y, default, "l"))
-o.append(text(34, 846, sub("E rule (12 fitted patients, ν 0.30, ρ̄ 200 kg/m³):  log_{10} E [Pa] = 3.53 − 0.0135 × collapse %"
-                           "   →  ≈ 1.6 kPa at 25 %, 0.73 kPa at 50 %"), "l", "#3c3489"))
+o.append(text(34, T0 + 248, sub("E rule (13 fitted patients, ν 0.30, ρ̄ 200 kg/m³):  log_{10} E [Pa] = 3.54 − 0.0129 × collapse %"
+                                "   →  ≈ 1.6 kPa at 25 %, 0.78 kPa at 50 %"), "l", "#3c3489"))
 o.append("</svg>\n")
 open("collapse_model.svg", "w").write("\n".join(o))

@@ -280,16 +280,16 @@ def _barrier(raw, p):
     phi = b.get("phi", "ct")
     out = dict(stiffness=float(b.get("stiffness", 1.0)), onset=float(b.get("onset", 0.1)))
     if phi == "ct":
-        if p.ct_density is None:
-            raise ValueError('physics.barrier phi "ct" needs physics.ct_density: scripts/ct_density.py --config ... '
-                             '--write-config')
         if p.emphysema is None:
             raise ValueError('physics.barrier phi "ct" needs physics.emphysema: true or false, from the CT (does the '
                              'patient have emphysema?)')
-        if p.emphysema and p.ct_emphysema is None:
-            raise ValueError('physics.emphysema true needs physics.ct_emphysema (its volume, LAA%-950 %): '
-                             'scripts/ct_density.py --config ... --write-config')
-        td, tf = float(b.get("tissue_density", 1050.0)), float(b.get("trapped_fraction", 0.54))
+        if p.ct_density is None or (p.emphysema and p.ct_emphysema is None):
+            # the CT values come from the `ct` step (inputs.ct), which may run later in this process:
+            # resolved there (resolve_barrier); the solver refuses an unresolved barrier
+            return dict(out, phi=None, source="ct", pending=True, raw=dict(b))
+        from .ct import TISSUE_DENSITY, TRAPPED_FRACTION
+        td = float(b.get("tissue_density", TISSUE_DENSITY))
+        tf = float(b.get("trapped_fraction", TRAPPED_FRACTION))
         if td <= 0 or not 0.0 <= tf <= 1.0:
             raise ValueError("physics.barrier: tissue_density > 0, trapped_fraction in [0, 1]")
         phi_t = p.ct_density / td
@@ -304,6 +304,14 @@ def _barrier(raw, p):
         raise ValueError("physics.barrier: needs 0 < phi < 1 (got %.3f), stiffness > 0, 0 < onset < 1 - phi"
                          % out["phi"])
     return out
+
+
+def resolve_barrier(physics):
+    """Recompute a pending physics.barrier "ct" now that ct_density / ct_emphysema are known (the `ct` step)."""
+    b = physics.barrier
+    if b is not None and b.get("pending"):
+        physics.barrier = _barrier(b["raw"], physics)
+    return physics.barrier
 
 
 def _physics(raw):
@@ -452,6 +460,8 @@ class PipelineConfig:
     solver: SolverConfig
     collapse: CollapseConfig
     fit: FitConfig
+    ct: Path | None = None             # inputs.ct: the CT image (the `ct` step measures density and emphysema)
+    contralateral: list = field(default_factory=list)   # inputs.contralateral: surfaces of the other lung
     raw: dict | None = None            # the config as read, overrides applied (logged by runner.start)
 
     def solver_options(self, core=None):
@@ -469,6 +479,10 @@ class PipelineConfig:
             raise ValueError("solver '%s' has only the neo_hookean material (physics.material: %s)"
                              % (core or self.solver.core, self.physics.material))
         b = self.physics.barrier
+        if b is not None and b.get("pending"):
+            raise ValueError("physics.barrier \"ct\" needs physics.ct_density%s: give inputs.ct (the `ct` step "
+                             "measures them, also run by main_fit / main_predict before the model geometry) or "
+                             "set them in physics" % (" and ct_emphysema" if self.physics.emphysema else ""))
         if b is not None:
             if keys is not None and "barrier" not in keys:
                 raise ValueError("solver '%s' has no compression barrier (physics.barrier): use torch or warp"
@@ -516,7 +530,21 @@ def apply_overrides(raw, overrides):
 
 TOP = ("patient", "data_dir", "output_dir", "steps", "run_name", "inputs", "check_inputs", "geometry", "hilum",
        "fem_setup", "physics", "solver", "collapse", "fit")
-STEP_NAMES = ("check_inputs", "geometry", "hilum", "fem_setup", "collapse", "fit")
+STEP_NAMES = ("ct", "check_inputs", "geometry", "hilum", "fem_setup", "collapse", "fit")
+
+
+def _with_ct_values(physics_raw, output_dir):
+    """physics with ct_density / ct_emphysema from output_dir/ct/ct_values.json (the `ct` step) where the
+    config does not set them (a value in the config wins)."""
+    f = output_dir / "ct" / "ct_values.json"
+    if not isinstance(physics_raw, dict) or not f.is_file():
+        return physics_raw
+    v = json.loads(f.read_text())
+    out = dict(physics_raw)
+    for k in ("ct_density", "ct_emphysema"):
+        if out.get(k) is None and v.get(k) is not None:
+            out[k] = round(float(v[k]), 3)
+    return out
 
 
 def load_config(source, overrides=None, base_dir=None):
@@ -543,12 +571,15 @@ def load_config(source, overrides=None, base_dir=None):
     if not run_name or "/" in run_name or "\\" in run_name:
         raise ValueError("run_name must be a plain folder name")
 
-    inp = _clean(raw["inputs"], "inputs", ("inflated", "collapsed", "structures"))
+    inp = _clean(raw["inputs"], "inputs", ("inflated", "collapsed", "structures", "ct", "contralateral"))
     if "inflated" not in inp:
         raise ValueError("inputs.inflated (the inflated lung surface) is required")
     inflated = data_dir / inp["inflated"]
     collapsed = data_dir / inp["collapsed"] if inp.get("collapsed") else None
     structures = {k: data_dir / v for k, v in (inp.get("structures") or {}).items()}
+    ct = data_dir / inp["ct"] if inp.get("ct") else None
+    contra = inp.get("contralateral") or []
+    contralateral = [data_dir / f for f in ([contra] if isinstance(contra, str) else contra)]
 
     check = _section(CheckInputsConfig, raw.get("check_inputs", {}), "check_inputs")
     check.collapsed, check.inflated, check.structures = collapsed, inflated, dict(structures)
@@ -591,7 +622,7 @@ def load_config(source, overrides=None, base_dir=None):
     fem_setup.anchor = hilum.output
     fem_setup.workdir = output_dir / "fem" / "setup"
 
-    physics = _physics(raw.get("physics", {}))
+    physics = _physics(_with_ct_values(raw.get("physics", {}), output_dir))
     if physics.regions and fem_setup.regions is None:
         fem_setup.regions = list(physics.regions)           # the setup computes what the physics asks for
     if fem_setup.regions is not None and collapsed is None:
@@ -612,5 +643,5 @@ def load_config(source, overrides=None, base_dir=None):
                           run_dir=output_dir / "runs" / run_name, check_inputs=check, geometry=geometry,
                           hilum=hilum, fem_setup=fem_setup, physics=physics, solver=solver,
                           collapse=_section(CollapseConfig, raw.get("collapse", {}), "collapse"),
-                          fit=_section(FitConfig, raw.get("fit", {}), "fit"),
+                          fit=_section(FitConfig, raw.get("fit", {}), "fit"), ct=ct, contralateral=contralateral,
                           raw=dict(raw, data_dir=str(data_dir), output_dir=str(output_dir)))

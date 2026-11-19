@@ -7,12 +7,12 @@ Guidance for Claude Code in this repository. What lives where:
 | [README.md](README.md) | user quick-start: the model, steps, running, viewing |
 | [configs/README.md](configs/README.md) | every config key with meaning and range |
 | [METHODOLOGY.md](METHODOLOGY.md) | paper-style methods: geometry, physical model, equations, solver, forward and inverse problem, assumptions and what is not modelled, approaches abandoned |
-| `*.svg` (root), `scripts/figures/` | the three figures (workflow, physical model, forward / inverse) and the Python that draws them: `cd scripts/figures && python3 workflow.py && python3 model.py && python3 fit.py`, then copy the `.svg` to the root |
+| `*.svg`, `*.png` (root), `scripts/figures/` | the three figures (workflow, physical model with the compression limit, forward / inverse) and the Python that draws them: `cd scripts/figures && python3 workflow.py && python3 model.py && python3 fit.py`, then move the `.svg` to the root and export the `.png` at 2× (`inkscape <f>.svg --export-type=png --export-dpi=192`, Inkscape is on the Mac) |
 | [analysis/results.md](analysis/results.md) | results, evidence behind the design choices, problems found |
 | [NEXT.md](NEXT.md) | plan and to-do list |
-| [SLICER_EXTENSION.md](SLICER_EXTENSION.md) | design of the 3D Slicer extension (prediction only, separate repository; rewritten 2026-11-18): what the package provides, inputs, installation (pip from a git tag, torch from the PyTorch extension), the base config, architecture, the UI spec (Part 1) and the computation (Part 2), model questions, technical background (MPS / float32, linear solvers, dependencies and licenses) |
-| [REWRITE_PLAN.md](REWRITE_PLAN.md) | the plan of the rewrite on branch `refactoring_to_v2` (merged into `main`) (2026-11-16) and its status |
 | this file | how to work here, environments, commands, configs, code architecture, implementation notes |
+
+The 3D Slicer extension (prediction only) is a separate repository, `SlicerEurelapsLung`; it installs this package (`eurelaps_lung`, `predict.run`). The design notes of the extension and the plan of the 2026-11-16 rewrite were removed on 2026-11-19 (in git: `git show 8cc1308:SLICER_EXTENSION.md`, `git show 8cc1308:REWRITE_PLAN.md`).
 
 Read them instead of re-deriving, and keep them current: a new result goes in `analysis/results.md`, a method change in METHODOLOGY.md, a decision or task in NEXT.md. The code before the rewrite (regions fit, registration, the earlier versions of every doc including the long step descriptions of this file) is on `v1_version`: `git show v1_version:CLAUDE.md`, `git show v1_version:pipeline/collapse/fit.py`.
 
@@ -57,9 +57,11 @@ python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa -
 python scripts/summarize_runs.py <results folder> [--runs fit E1000] [--out analysis/runs_v2.csv]   # Mac or server
 python scripts/cavity_volumes.py --configs configs/*.json [--fit-run fitE_nu30] [--out analysis/cavity.csv]   # cavity vs contralateral lung volume, trachea shift, vs fitted E (server)
 python scripts/ct_density.py [--fit-run fitE_nu30] [--out analysis/ct_density.csv]   # lung mass / density from the CT (Input_CT/), Mac env lungct
-python scripts/ct_density.py --config configs/<p>.json --ct <file> [--write-config]   # one patient; without a collapsed lung: mean density of the inflated lung (air from the trachea)
+python scripts/ct_density.py --config configs/<p>.json --ct <file> [--write-config]   # (the pipeline's `ct` step does this from inputs.ct)   # one patient; without a collapsed lung: mean density of the inflated lung (air from the trachea)
 python scripts/predict_cohort.py --configs configs/*.json [--params FILE] [--run pred] [--frames 30] [--jobs 4]   # main_predict.py at each patient's own collapse % (built-in E rule or --params)
 python scripts/qa_segmentation.py [patient ...]   # Mac env lungct: dense voxels in the collapsed lung, tissue between lung and cavity -> results/<p>/qa_segmentation.nrrd
+python scripts/emphysema_map.py [patient ...]   # Mac env lungct: results/<p>/emphysema.nrrd (LAA < -950 HU, both lungs)
+# Slicer (Mac): PATIENT = "karl08"; p = r"<repo>/scripts/slicer_emphysema.py"; exec(open(p).read(), {"__file__": p, "PATIENT": PATIENT})   # CT + emphysema map
 # Slicer (Mac): PATIENT = "karl23"; p = r"<repo>/scripts/slicer_compare.py"; exec(open(p).read(), {"__file__": p, "PATIENT": PATIENT})   # CT + cavity + real collapsed + fit_final + pred
 python scripts/add_wall_field.py --config configs/<p>.json [--grid 1.5] [--smoothing 3]   # wall field into an existing problem.npz
 python scripts/init_output_dir.py --configs configs/*.json [--apply]   # new output_dir <- setup + v2 runs of the old one (dry run without --apply)
@@ -67,8 +69,6 @@ python scripts/check_jacobian.py --config configs/<p>.json [--set ...] [--solver
 python scripts/compare_warp_getfem.py --config configs/<p>.json [--core torch] [--timing] [--fit] [--wall-only]
 python scripts/wall_diagnose.py --config configs/<p>.json [--q 0.3] [--from-fit RUN] [--perturb r ...] [--set ...]
 python scripts/collapse_sequence.py --config configs/<p>.json [--frames 30] [--mode fem|linear] [--set run_name=...]
-python scripts/migrate_config.py OLD_wall_torch.json --out configs/      # old schema (v1_version) -> new
-python scripts/summarize_fits.py <results folder> [--out analysis]       # OLD layout only (fem/<run>/)
 python -m py_compile main_*.py eurelaps_lung/*.py eurelaps_lung/fem/*.py eurelaps_lung/fem/solvers/*.py scripts/*.py
 python3 tests/test_wall_field.py; python3 tests/test_wall_potential.py; python3 tests/test_steps.py; python3 tests/test_calibration.py; python3 tests/test_predict.py; python3 tests/test_barrier.py   # Mac
 ```
@@ -77,7 +77,7 @@ Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output. Man
 
 ## Configs
 
-- **One file per patient**, `configs/<p>.json` (16), made by `scripts/migrate_config.py` from the old `<p>_wall_torch.json`: gravity supine → supine, E 1.36 kPa with ρ̄ 200 kg/m³ (1.7 kPa with ρ̄ 250 until 2026-11-17: same load), q0 fitted (start 0.3, 0.5 before), ν 0.30 (0.40 until 2026-11-17), wall = the inflated surface with 5 mm margin, smooth-field wall (`solver.wall_update: "potential"`, grid 1.5 mm, σ 3 mm), torch core, steps `check_inputs` → `fit`. `output_dir` = `FEM_v2_{HD,CZ}/<p>` (2026-11-17): the geometry, hilum and `fem/setup/problem.npz` (with wall field) are copied there from the old `<p>_noreg_hilum_wall` by `init_output_dir.py`, so run `--steps fit` / `collapse` only; a patient whose old setup has no wall field needs `add_wall_field.py` first (patient_2 at least).
+- **One file per patient**, `configs/<p>.json` (16), made by `scripts/migrate_config.py` (removed 2026-11-19) from the old `<p>_wall_torch.json`: gravity supine → supine, E 1.36 kPa with ρ̄ 200 kg/m³ (1.7 kPa with ρ̄ 250 until 2026-11-17: same load), q0 fitted (start 0.3, 0.5 before), ν 0.30 (0.40 until 2026-11-17), wall = the inflated surface with 5 mm margin, smooth-field wall (`solver.wall_update: "potential"`, grid 1.5 mm, σ 3 mm), torch core, steps `check_inputs` → `fit`. `output_dir` = `FEM_v2_{HD,CZ}/<p>` (2026-11-17): the geometry, hilum and `fem/setup/problem.npz` (with wall field) are copied there from the old `<p>_noreg_hilum_wall` by `init_output_dir.py`, so run `--steps fit` / `collapse` only; a patient whose old setup has no wall field needs `add_wall_field.py` first (patient_2 at least).
 - **Patients:** left lung karl01, karl10, karl17, karl18, karl20, karl23, karl24, patient_1, patient_2, patient_3, patient_10; right lung karl02, karl04, karl06, karl08, karl19. karl = HD dataset, patient_* = CZ dataset. karl19 stops on its input (NEXT.md). patient_2 is included again (user, 2026-11-17; it had been left out of the old wall runs).
 - The old runs are reproduced with overrides: regions fit = `physics.gravity=null 'physics.perturbation={"regions":[1,4,8,14,25,40]}' fit.best_by=mean` (the existing `problem.npz` has those regions); free ap slope = `physics.gravity=null 'physics.perturbation={"gradient":["ap"]}'`; outer wall = `solver.wall_update=outer`.
 - **Volume mesher: Netgen** (`fem_setup.mesh_size_mm` = its maxh 10, `mesh_optsteps3d` 10, `mesh_timeout_s`); Gmsh removed (user, 2026-11-18) after the server comparison (analysis/results.md 7d: same fits, rule and leave-one-out, E ~2 % higher; LGPL instead of GPL for Slicer). The old keys `mesher`, `gmsh_timeout_s`, `netgen_*` raise an error. The server `FEM_v2_*` setups must be the Netgen ones (NEXT.md).
@@ -134,6 +134,7 @@ FEM cores (`eurelaps_lung/fem/solvers/`):
 
 Not obvious from the code; the reasons and numbers are in analysis/results.md.
 
+- **`ct` step** (`eurelaps_lung/ct.py`, 2026-11-19): from `inputs.ct` (+ `inputs.contralateral`) → `output_dir/ct/ct_values.json`; `load_config` fills `physics.ct_density` / `ct_emphysema` from it when the config does not set them (the cohort configs no longer set them); `physics.emphysema` (yes / no) is the user's. A barrier `{"phi": "ct"}` without the values yet is `pending` (resolved by the `ct` step in the same process, `config.resolve_barrier`; `solver_options` refuses a pending one). The numpy functions of `ct.py` (density, emphysema, `inflated_lung`, `barrier_phi`) are what the Slicer extension calls on its arrays; `scripts/ct_density.py` uses them for the cohort table.
 - **Compression barrier** (`physics.barrier`, 2026-11-19, METHODOLOGY.md 3.4.1): `nodal.barrier_terms` (closed-form force and tangent, J only) added in `_assemble_at` after the core's assembly, so torch, Warp and the numpy test core all get it, with any material; solver option `barrier` = {phi, stiffness, onset} (GetFEM refuses it: `config.solver_options` raises). J ≤ φ in a trial = rejected like an inverted tet. φ = "ct" needs `physics.ct_density` and `physics.emphysema` (yes / no, the user's visual reading: the index does not separate mild cases), plus `physics.ct_emphysema` (LAA%, `scripts/ct_density.py --write-config`) when yes; all three in every config. `barrier_report` → summary `compression`; `volume.vtk` has the cell field `VolumeRatio` (J).
 - **Load parametrisation:** the gravity term is `s_g · hn`, `hn = (h − h̄) / L` per triangle (`h` = −e_A · centroid, `L` its extent over the free triangles), `s_g = ρ̄ g L / E`. The fitted parameter is `gravity_slope` = s_g (same scale as q0), reported as E; the E bounds become slope bounds. The body force direction passed to the solver is `(e_B − e_A) / L`, its magnitude `s_g`, so one number scales both.
 - **Core regions:** one per free triangle when the load varies in space (gravity or slopes), else the Ward regions, else one. `Level` checks that the core regions resolve the field. GetFEM builds one brick per region: slow with gravity.
@@ -161,5 +162,5 @@ Open tasks and decisions are in NEXT.md, open problems in analysis/results.md se
 
 - Decided (user, 2026-11-17): `newton_maxit` 50 in the configs (30 was reached inside some solves with the `potential` wall), wall smoothing σ 3 mm kept (points leave the true wall by ~2.5 mm beyond the margin).
 - `level_min_improve` 0.005 may stop levels early (0.001–0.002 suggested). Seen 2026-11-17 on the synthetic test (`test_fit_recovers_parameters`, numpy core): truth E 1200 / start 2500 at density 200 stops on "level plateau" at ASSD 0.48 mm (E 1167, q0 0.344), while the same slopes at density 250 converge to 0.0006 mm; the test now uses E 960 / start 2000.
-- `scripts/summarize_fits.py` reads only the old layout; `summarize_runs.py` is the simple table for the new one (no pressure-pattern analysis, no plots).
+- `summarize_runs.py` is the table of the runs (no pressure-pattern analysis, no plots; the old layout's `summarize_fits.py` is in git history).
 - Possible speed-ups: torch assembly (`torch.compile`, closed-form Neo-Hookean tangent).

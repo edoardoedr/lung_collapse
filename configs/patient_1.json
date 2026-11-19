@@ -3,6 +3,7 @@
   "data_dir": "/home/jovyan/Dataset_Lungs/CZ_dataset/vtk_surfaces_CZ/patient_1",
   "output_dir": "/home/jovyan/Dataset_Lungs/CZ_dataset/FEM_v2_CZ/patient_1",
   "steps": [
+    "ct",
     "check_inputs",
     "geometry",
     "hilum",
@@ -11,14 +12,20 @@
   ],
   "run_name": "fit",
   "inputs": {
-    "_comment": "surfaces from 3D Slicer (data_dir). collapsed: null = no target (collapse step only)",
+    "_comment": "surfaces from 3D Slicer (data_dir). collapsed: null = no target (collapse step only). ct: the CT image (the ct step measures density and emphysema volume); contralateral: surfaces of the other lung (emphysema is measured there)",
     "inflated": "lung_left.vtk",
     "collapsed": "lung_left_collapsed.vtk",
     "structures": {
       "airways": "lung_airways.vtk",
       "arteries": "lung_arteries.vtk",
       "veins": "lung_veins.vtk"
-    }
+    },
+    "ct": "patient_1.nii.gz",
+    "contralateral": [
+      "lung_lower_lobe_right.vtk",
+      "lung_middle_lobe_right.vtk",
+      "lung_upper_lobe_right.vtk"
+    ]
   },
   "check_inputs": {
     "outside_tol_mm": 1.0,
@@ -86,8 +93,6 @@
     "E_Pa": 1360.0,
     "tissue_density": 200.0,
     "emphysema": false,
-    "ct_density": 113.8,
-    "ct_emphysema": 4.2,
     "gravity": {
       "reference": "supine",
       "collapse": "supine"

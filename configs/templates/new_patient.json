@@ -1,19 +1,20 @@
 {
-  "_how": "a new patient, prediction only (no collapsed lung): copy to configs/<patient>.json, set patient, data_dir, output_dir and the file names in inputs, then: python main_predict.py --config configs/<patient>.json --collapse 50 [--params calibration/<rule>.json] [--frames 30] [--run pred50]. The first run builds the geometry (geometry, hilum, fem_setup); without --params, E comes from the built-in rule physics.E_Pa {rule: collapse}",
+  "_how": "a new patient, prediction only (no collapsed lung): copy to configs/<patient>.json, set patient, data_dir, output_dir and the file names in inputs, then: python main_predict.py --config configs/<patient>.json --collapse 50 [--params calibration/<rule>.json] [--frames 30] [--run pred50]. The first run measures the CT (ct, with inputs.ct) and builds the geometry (geometry, hilum, fem_setup); without --params, E comes from the built-in rule physics.E_Pa {rule: collapse}",
   "patient": "new_patient",
   "data_dir": "/path/to/the/folder/with/the/vtk/surfaces",
   "output_dir": "/path/to/an/empty/output/folder",
   "steps": [],
   "run_name": "predict",
   "inputs": {
-    "_comment": "surfaces from 3D Slicer (data_dir), LPS: the inflated lung (lung_left.vtk or lung_right.vtk) and the three trees for the hilum. collapsed: null (prediction only)",
+    "_comment": "surfaces from 3D Slicer (data_dir), LPS: the inflated lung (lung_left.vtk or lung_right.vtk) and the three trees for the hilum. collapsed: null (prediction only). ct: the CT of the inflated lung (data_dir; .nii[.gz] / .nrrd): the ct step measures its density and emphysema volume (null = none: then no barrier)",
     "inflated": "lung_left.vtk",
     "collapsed": null,
     "structures": {
       "airways": "lung_airways.vtk",
       "arteries": "lung_arteries.vtk",
       "veins": "lung_veins.vtk"
-    }
+    },
+    "ct": null
   },
   "geometry": {
     "input_space": "auto",
@@ -84,9 +85,8 @@
       "eps": 0.5
     },
     "perturbation": null,
-    "_ct_density": "optional: \"ct_density\": <kg/m3 measured on the CT> to also report E and p0 at the patient's density",
-    "_emphysema": "for the compression barrier (barrier {\"phi\": \"ct\"}): \"emphysema\": true / false = does the CT show emphysema (your reading); with true, \"ct_emphysema\" (LAA%-950, scripts/ct_density.py --write-config) gives its volume",
-    "_collapse": "volume_ratio = V_collapsed / V_inflated to reach: 0.5 = 50 % collapse (rule calibrated on 23-86 %)"
+    "_collapse": "volume_ratio = V_collapsed / V_inflated to reach: 0.5 = 50 % collapse (rule calibrated on 23-86 %)",
+    "_emphysema": "emphysema yes / no is yours: add \"emphysema\": true or false after reading the CT; the rest (ct_density, ct_emphysema) the ct step derives from inputs.ct. For a surgical pressure add \"barrier\": {\"phi\": \"ct\"} (or main_predict.py --barrier)"
   },
   "solver": {
     "_comment": "core: torch | warp | getfem (validation); the rest are the core's options (eurelaps_lung/fem/solvers/nodal.py)",

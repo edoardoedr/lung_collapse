@@ -31,6 +31,7 @@ Each physical parameter is either **given** (a number) or **fitted** to the coll
 | Step | Code | What it does | Main output |
 |---|---|---|---|
 | segmentation | manual, 3D Slicer | surfaces of the lungs, airways and vessels | `<data_dir>/*.vtk` |
+| `ct` | [ct.py](eurelaps_lung/ct.py) | lung density and emphysema volume from the CT (`inputs.ct`); emphysema yes / no is yours (`physics.emphysema`) | `ct/ct_values.json` |
 | `check_inputs` | [check_inputs.py](eurelaps_lung/check_inputs.py) | finds segmentation problems before they break the meshing (needs the collapsed lung) | `checks/` |
 | `geometry` | [surface_mesh.py](eurelaps_lung/surface_mesh.py) | clean, uniform surface meshes (~480 nodes) of the inflated lung and, if given, of the collapsed one | `lung_inflated_mesh.vtp`, `lung_collapsed_mesh.vtp` |
 | `hilum` | [hilum.py](eurelaps_lung/hilum.py) | where airways, arteries and veins enter the lung | `hilum_anchor.mrk.json` |
@@ -101,7 +102,7 @@ python main_predict.py --config configs/karl04.json --collapse 50 --params calib
     --set 'physics.gravity={"reference": "supine", "collapse": "left_lateral"}' --run half_lateral
 ```
 
-**A new patient (no collapsed lung):** export from 3D Slicer the inflated lung and the airway, artery and vein trees as `.vtk`; copy `configs/templates/new_patient.json` to `configs/<patient>.json` and set `patient`, `data_dir`, `output_dir` and the file names; optionally the density from the CT, `python scripts/ct_density.py --config configs/<patient>.json --ct <ct.nii.gz> --write-config`; then `python main_predict.py --config configs/<patient>.json --collapse 50 [--params ...] --frames 30`. The first run builds the geometry (geometry → hilum → fem_setup); the next ones reuse it. Without `--params`, E comes from the built-in rule (`physics.E_Pa {"rule": "collapse"}`).
+**A new patient (no collapsed lung):** export from 3D Slicer the inflated lung and the airway, artery and vein trees as `.vtk`; copy `configs/templates/new_patient.json` to `configs/<patient>.json` and set `patient`, `data_dir`, `output_dir`, the file names and the CT (`inputs.ct`), and `physics.emphysema` (true / false: your reading of the CT); then `python main_predict.py --config configs/<patient>.json --collapse 50 [--params ...] --frames 30`. The first run measures the CT (`ct`: density and emphysema volume) and builds the geometry (geometry → hilum → fem_setup); the next ones reuse them. For a surgical pressure: `--p0 1600 --E 1200 --barrier`. Without `--params`, E comes from the built-in rule (`physics.E_Pa {"rule": "collapse"}`).
 
 **Several patients:** `JOBS=4 bash scripts/run_all.sh [case ...] [-- main_fit.py arguments]` (logs in `logs_run_all/`). One parameter shared by all patients, scanned over values: `python scripts/fit_cohort.py --configs configs/karl*.json --param physics.E_Pa --values 1000 1700 3000`. Every patient predicted at its own collapse %: `python scripts/predict_cohort.py --configs configs/*.json [--params ...]`. A table of all runs: `python scripts/summarize_runs.py <results folder>`.
 

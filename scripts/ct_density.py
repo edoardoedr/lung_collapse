@@ -52,6 +52,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from eurelaps_lung import ct as ctlib                                      # noqa: E402
 from eurelaps_lung.data_io import read_surface                             # noqa: E402
 
 
@@ -86,34 +87,6 @@ def find_ct(ct_dir, p):
         if f.is_file() and f.stat().st_size > 0:
             return f
     return None
-
-
-def denoised(a, mask):
-    """3x3x3 median filter of the CT over the bounding box of a mask (the standard noise reduction before
-    emphysema thresholds: on thin-slice scans the noise alone puts normal lung below -950 HU, e.g.
-    patient_10 LAA%-950 11.3 % raw, 1.0 % filtered). Returns the filtered values on the mask."""
-    from scipy.ndimage import median_filter
-    zz, yy, xx = np.nonzero(mask)
-    lo = np.maximum(np.array([zz.min(), yy.min(), xx.min()]) - 1, 0)
-    hi = np.array([zz.max(), yy.max(), xx.max()]) + 2
-    box = tuple(slice(l, h) for l, h in zip(lo, hi))
-    return median_filter(np.asarray(a[box], np.float32), size=3)[mask[box]]
-
-
-def emphysema(a, mask, hu_air, r_vox, exclude=None):
-    """Emphysema indices of a lung mask, on the HU scale calibrated on the scan's air (air -1000, water 0),
-    after a 3x3x3 median filter (denoised): LAA%-950 and LAA%-910 (% of voxels below), Perc15 (15th
-    percentile, HU). Computed 2 mm inside the border (partial volume) and outside `exclude` (the airway
-    lumen)."""
-    from scipy.ndimage import binary_erosion
-    core = binary_erosion(mask, iterations=r_vox)
-    if exclude is not None:
-        core &= ~exclude
-    if core.sum() < 100:
-        return dict(laa950=None, laa910=None, perc15=None, n_vox=int(core.sum()))
-    hu = (denoised(a, core) - hu_air) / (0.0 - hu_air) * 1000.0 - 1000.0                # calibrated HU
-    return dict(laa950=float(100 * (hu < -950).mean()), laa910=float(100 * (hu < -910).mean()),
-                perc15=float(np.percentile(hu, 15)), n_vox=int(core.sum()))
 
 
 def airway_mask(surf_dir, img):
@@ -157,17 +130,17 @@ def analyse(p, ct, surf_dir):
     for f in sorted(surf_dir.glob("lung_*_lobe_%s.vtk" % other)):
         m = mask_from_surface(read_surface(f), img)
         con |= m
-        lobes[f.stem.replace("lung_", "").replace("_lobe_%s" % other, "")] = emphysema(a, m, hu_air, r_vox, aw)
+        lobes[f.stem.replace("lung_", "").replace("_lobe_%s" % other, "")] = ctlib.emphysema(a, m, hu_air, img.GetSpacing(), aw)
     rho_con = V_exp = None
     if con.any():
         rho_con = float(np.clip((a[con].astype(np.float32) - hu_air) / (0.0 - hu_air), 0.0, 1.1).mean())
         V_exp = mass / rho_con
     # emphysema: indices of both lungs; low-attenuation (trapped) air still in the collapsed lung
-    e_con = emphysema(a, con, hu_air, r_vox, aw) if con.any() else dict(laa950=None, laa910=None, perc15=None)
-    e_col = emphysema(a, col, hu_air, r_vox, aw)
+    e_con = ctlib.emphysema(a, con, hu_air, img.GetSpacing(), aw) if con.any() else dict(laa950=None, laa910=None, perc15=None)
+    e_col = ctlib.emphysema(a, col, hu_air, img.GetSpacing(), aw)
     col_air = col if aw is None else col & ~aw
-    V_laa_col = float((denoised(a, col_air) < hu_air + 0.05 * (0.0 - hu_air)).sum() * vox)   # rho < 0.05, filtered
-    phi_t = mass / 1.05 / V_cav                                            # tissue volume / cavity (1050 kg/m3)
+    V_laa_col = ctlib.low_attenuation_volume(a, col_air, hu_air, img.GetSpacing())       # rho < 0.05, filtered
+    phi_t = mass / (ctlib.TISSUE_DENSITY / 1000.0) / V_cav                                            # tissue volume / cavity (1050 kg/m3)
     f_e = e_con["laa950"] / 100 if e_con["laa950"] is not None else None
     emph = dict(V_contra_mL=float(con.sum() * vox), laa950_contra=e_con["laa950"], laa910_contra=e_con["laa910"],
                 perc15_contra=e_con["perc15"], laa950_collapsed=e_col["laa950"], laa910_collapsed=e_col["laa910"],
@@ -192,38 +165,32 @@ def analyse(p, ct, surf_dir):
                 rho_ant=thirds[0], rho_mid=thirds[1], rho_post=thirds[2], **emph), None
 
 
+def ijk_to_lps(img):
+    """4x4 matrix from voxel (i, j, k) to LPS mm of a SimpleITK image."""
+    M = np.eye(4)
+    M[:3, :3] = np.array(img.GetDirection()).reshape(3, 3) * np.array(img.GetSpacing())
+    M[:3, 3] = img.GetOrigin()
+    return M
+
+
 def analyse_inflated(p, ct, inflated, airways=None):
-    """rho_bar of an inflated lung = its mean density on the CT (no pneumothorax)."""
+    """rho_bar and emphysema of an inflated lung (no pneumothorax): eurelaps_lung.ct.inflated_lung."""
     import SimpleITK as sitk
-    from scipy.ndimage import binary_erosion
     img = sitk.ReadImage(str(ct))
     a = sitk.GetArrayViewFromImage(img)
-    vox = float(np.prod(img.GetSpacing())) / 1000.0
     lung = mask_from_surface(read_surface(inflated), img)
     if not lung.any():
         return None, "surface outside the image"
-    hu_air, air_src = -1000.0, "nominal"
+    aw = None
     if airways is not None and Path(airways).is_file():
         aw = mask_from_surface(read_surface(airways), img)
-        if aw.any():
-            D = np.array(img.GetDirection()).reshape(3, 3)
-            zz, yy, xx = np.nonzero(aw)
-            z_lps = (np.array([xx, yy, zz]).T * np.array(img.GetSpacing())) @ D.T[:, 2] + img.GetOrigin()[2]
-            top = np.zeros_like(aw)
-            sel = z_lps > z_lps.max() - 30.0                           # trachea
-            top[zz[sel], yy[sel], xx[sel]] = True
-            core = binary_erosion(top, iterations=max(1, int(round(2.0 / min(img.GetSpacing())))))
-            if core.sum() > 200:
-                hu_air, air_src = float(np.median(a[core])), "trachea"
+        aw = aw if aw.any() else None
+    r = ctlib.inflated_lung(a, lung, img.GetSpacing(), airway_mask=aw, ijk_to_lps=ijk_to_lps(img))
     h = a[lung].astype(np.float32)
-    rho = np.clip((h - hu_air) / (0.0 - hu_air), 0.0, 1.1)
-    V = lung.sum() * vox
-    aw = airway_mask(Path(inflated).parent, img)
-    e = emphysema(a, lung, hu_air, max(1, int(round(2.0 / min(img.GetSpacing())))), aw)
-    return dict(patient=p, mode="inflated", V_inflated_mL=V, hu_air=hu_air, hu_air_source=air_src,
-                hu_lung_mean=float(h.mean()), hu_lung_median=float(np.median(h)), mass_g=float(rho.sum() * vox),
-                rho_bar_inflated=float(rho.mean()), laa950=e["laa950"], laa910=e["laa910"], perc15=e["perc15"],
-                phi_tissue=float(rho.mean()) / 1.05), None
+    return dict(patient=p, mode="inflated", V_inflated_mL=r["volume_mL"], hu_air=r["hu_air"],
+                hu_air_source=r["hu_air_source"], hu_lung_mean=float(h.mean()), hu_lung_median=float(np.median(h)),
+                mass_g=r["mass_g"], rho_bar_inflated=r["rho_bar_kg_m3"] / 1000.0, laa950=r["laa950"],
+                laa910=r["laa910"], perc15=r["perc15"], phi_tissue=r["phi_tissue"]), None
 
 
 def _f(v, fmt):

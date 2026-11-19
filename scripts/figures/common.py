@@ -56,8 +56,14 @@ def path(d, cls="a", marker="arrow"):
 
 
 def text(x, y, s, cls="l", fill=None, anchor=None, extra=""):
+    style = "fill:%s" % fill if fill else ""
+    if 'style="' in extra:                                       # one style attribute (two are invalid XML)
+        pre, rest = extra.split('style="', 1)
+        inner, post = rest.split('"', 1)
+        style = ";".join(v for v in (style, inner) if v)
+        extra = pre + post
     return '<text x="%g" y="%g" class="%s"%s%s%s>%s</text>' % (
-        x, y, cls, ' style="fill:%s"' % fill if fill else "", ' text-anchor="%s"' % anchor if anchor else "", extra, s)
+        x, y, cls, ' style="%s"' % style if style else "", ' text-anchor="%s"' % anchor if anchor else "", extra, s)
 
 
 def sub(expr):

@@ -28,7 +28,7 @@
 <text x="195" y="84.5" class="c" fill="#993c1d">fem/setup/problem.npz</text>
 <rect x="390" y="20" width="350" height="78" rx="8" fill="#eeedfe" stroke="#534ab7" stroke-width="0.8"/>
 <text x="565" y="33.5" class="t" fill="#3c3489">Physical parameters θ</text>
-<text x="565" y="50.5" class="s" fill="#534ab7">q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> (or p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan>, or volume ratio), E, ν, ρ̄, positions e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> → e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan></text>
+<text x="565" y="50.5" class="s" fill="#534ab7">q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> (or p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan>, or volume ratio), E, ν, ρ̄, positions e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> → e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan>, φ</text>
 <text x="565" y="67.5" class="s" fill="#534ab7">each one given, or marked “fit”</text>
 <text x="565" y="84.5" class="c" fill="#534ab7">physics</text>
 <path d="M195 98 L195 114 L330 114 L330 128" class="a" marker-end="url(#arrow)"/>
@@ -37,13 +37,13 @@
 <text x="380" y="143.5" class="t" fill="#3c3489">Load</text>
 <text x="380" y="160.5" class="s" fill="#534ab7">surface pressure  q(X) = q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> + γ (h(X) − h̄),   γ = ρ̄ g / E,   h = −e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan> · X</text>
 <text x="380" y="177.5" class="s" fill="#534ab7">body force  b = γ (e<tspan dy="4" font-size="72%">B</tspan><tspan dy="-4" font-size="1">​</tspan> − e<tspan dy="4" font-size="72%">A</tspan><tspan dy="-4" font-size="1">​</tspan>)  (only when the position changes)</text>
-<text x="380" y="194.5" class="c" fill="#534ab7">collapse/load.py</text>
+<text x="380" y="194.5" class="c" fill="#534ab7">fem/load.py</text>
 <line x1="380" y1="208" x2="380" y2="226" class="a" marker-end="url(#arrow)"/>
 <rect x="20" y="228" width="720" height="186" rx="12" class="grp"/>
 <text x="34" y="244" class="h" style="fill:#0c447c">Finite-element solve  R(U; θ) = 0   (PyTorch / Warp cores, P1 tetrahedra)</text>
 <rect x="34" y="258" width="220" height="64" rx="8" fill="#e6f1fb" stroke="#185fa5" stroke-width="0.8"/>
 <text x="144" y="273" class="t" fill="#0c447c">Elasticity</text>
-<text x="144" y="290" class="s" fill="#185fa5">compressible Neo-Hookean</text>
+<text x="144" y="290" class="s" fill="#185fa5">Neo-Hookean (+ barrier J ≥ φ)</text>
 <text x="144" y="307" class="s" fill="#185fa5">∫ P(F) : ∇δu dV</text>
 <rect x="270" y="258" width="220" height="64" rx="8" fill="#e6f1fb" stroke="#185fa5" stroke-width="0.8"/>
 <text x="380" y="273" class="t" fill="#0c447c">Pleural pressure</text>
@@ -71,8 +71,8 @@
 <text x="34" y="524" class="h" style="fill:#085041">Forward  (collapse)</text>
 <rect x="34" y="540" width="202" height="64" rx="8" fill="#e1f5ee" stroke="#0f6e56" stroke-width="0.8"/>
 <text x="135" y="555" class="t" fill="#085041">Parameters given</text>
-<text x="135" y="572" class="s" fill="#0f6e56">q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> or p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan>: one solve</text>
-<text x="135" y="589" class="s" fill="#0f6e56">no collapsed CT needed</text>
+<text x="135" y="572" class="s" fill="#0f6e56">q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan>, or p<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> (12 mmHg with the</text>
+<text x="135" y="589" class="s" fill="#0f6e56">barrier): one solve</text>
 <rect x="34" y="618" width="202" height="76" rx="8" fill="#e1f5ee" stroke="#0f6e56" stroke-width="0.8"/>
 <text x="135" y="630.5" class="t" fill="#085041">Volume ratio given</text>
 <text x="135" y="647.5" class="s" fill="#0f6e56">search q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> with V(q<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan>) / V<tspan dy="4" font-size="72%">0</tspan><tspan dy="-4" font-size="1">​</tspan> = r:</text>

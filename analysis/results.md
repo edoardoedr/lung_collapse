@@ -2,9 +2,7 @@
 
 Results of the fits, the evidence behind the design choices and the problems found. Methods and equations are in [METHODOLOGY.md](../METHODOLOGY.md), the plan in [NEXT.md](../NEXT.md). Written by hand until a script produces it.
 
-Updated 2026-11-16. Shape errors, collapse, rotation and pressure pattern measured by `scripts/summarize_fits.py` (same measure for every fit; output in `analysis/runs.csv`, `compare.csv`, `report.md`, `*.png`):
-
-    python scripts/summarize_fits.py results/*_noreg_hilum results/*_noreg_hilum_wall --out analysis
+Sections 1–4 (fits of the code before the 2026-11-16 rewrite) were measured by `scripts/summarize_fits.py` (removed 2026-11-19 with its outputs `analysis/runs.csv`, `compare.csv`, `report.md`, `*.png`; in git: `git show 8cc1308:scripts/summarize_fits.py`). Later runs: `scripts/summarize_runs.py` (`analysis/runs_v2.csv`, `runs_final.csv`).
 
 ASSD = mean of fitted → target and target → fitted surface distance, free points only; collapse = 1 − V_collapsed / V_inflated. Failed solves, K, times and stop reasons come from each fit's `result_summary.json`.
 
@@ -454,7 +452,7 @@ Not a server result: karl04 (`_wall` setup, 1355 nodes, 6777 tets) on the Mac wi
 - No wall rounds, no failed path. With the outer rounds on the server, karl04 at E 1 kPa needed the continuation and still stopped at 0.75 of the gravity term (section 5b).
 - Checks: wall tangent vs finite differences 1e-7 (336 nodes in contact), Jacobian with contact vs finite differences 3e-8 (with the outer rounds this check was meaningless).
 - Newton takes ~20–25 iterations per run, close to `newton_maxit` 30: watch `fail_maxit` on the server.
-- To confirm on the server with the torch core and the 1.5 mm grid (commands in REWRITE_PLAN.md Phase 1 / NEXT.md).
+- To confirm on the server with the torch core and the 1.5 mm grid (commands in NEXT.md at the time).
 
 **Server, torch core, grid 1.5 mm, σ 3 mm (2026-11-16, `fit_gE1700_pot`: E 1.7 kPa, only q0 fitted, cold start, no continuation, `JOBS=4`).** The E 1 kPa runs (`fit_gE1000_pot`) are not analysed yet (logs not received).
 
@@ -484,7 +482,7 @@ Not a server result: karl04 (`_wall` setup, 1355 nodes, 6777 tets) on the Mac wi
 
 ### 7c. Rewritten code (branch `refactoring_to_v2`, now `main`), local checks only (2026-11-16)
 
-karl04 on the Mac with the numpy test core and a 4 mm wall grid (`tests/test_steps.py`); the server runs of the new steps are still to do (REWRITE_PLAN.md, "Status").
+karl04 on the Mac with the numpy test core and a 4 mm wall grid (`tests/test_steps.py`); the server runs of the new steps are still to do (NEXT.md).
 
 | Check | Result |
 |---|---|

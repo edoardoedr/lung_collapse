@@ -1,6 +1,6 @@
 """The steps of the model and how the entry points (main_fit.py, main_predict.py) run them.
 
-    check_inputs -> geometry -> hilum -> fem_setup -> collapse (forward) | fit (inverse)
+    ct -> check_inputs -> geometry -> hilum -> fem_setup -> collapse (forward) | fit (inverse)
 
 Steps always run in this order, whatever order they are asked in. The segmentation is done by hand
 in 3D Slicer and is not here.
@@ -15,6 +15,7 @@ import time
 # step name -> (module with run(), what it gets from the config), in order. The modules are imported
 # only when their step runs (each needs its own libraries: itk, pyacvd, netgen, the FEM core).
 STEPS = {
+    "ct": ("ct", lambda c: c),                                    # CT density and emphysema volume (inputs.ct)
     "check_inputs": ("check_inputs", lambda c: c.check_inputs),   # sanity check of the input surfaces
     "geometry": ("surface_mesh", lambda c: c.geometry),           # surface meshes: inflated (+ collapsed)
     "hilum": ("hilum", lambda c: c.hilum),                        # hilum anchor from airways / vessels
@@ -22,7 +23,7 @@ STEPS = {
     "collapse": ("fem.forward", lambda c: c),                     # forward: physics given -> collapsed lung
     "fit": ("fem.fit", lambda c: c),                              # inverse: fit the marked parameters
 }
-PREPROCESSING = ("check_inputs", "geometry", "hilum", "fem_setup")
+PREPROCESSING = ("ct", "check_inputs", "geometry", "hilum", "fem_setup")
 
 log = logging.getLogger("eurelaps_lung")
 

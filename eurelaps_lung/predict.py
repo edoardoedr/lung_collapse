@@ -5,6 +5,8 @@ errors against it are reported. The entry point of main_predict.py and of the 3D
     python -m eurelaps_lung.predict --config work/config.json --collapse 40 [--frames 30]
     python -m eurelaps_lung.predict --config work/config.json --collapse target      # validation
     python -m eurelaps_lung.predict --config work/config.json --p0 330 --E 1300      # pressure given
+    python -m eurelaps_lung.predict --config work/config.json --p0 1600 --E 1200 --barrier \
+        --emphysema yes --ct-density 180 --ct-emphysema 20                          # surgery, 12 mmHg
     python -m eurelaps_lung.predict --estimate --collapse 40       # what the rules expect (no run, no config)
     python -m eurelaps_lung.predict --estimate --p0 330 --E 1300
 
@@ -16,6 +18,7 @@ Python:
                        "structures": {"airways": "airways.vtk", "arteries": "arteries.vtk", "veins": "veins.vtk"}})
     summary = predict.run(cfg, collapse=40, frames=30)        # collapse % given: E from the rule, q0 searched
     summary = predict.run(cfg, p0=330, E=1300)                # pressure given: the collapse % is the result
+    summary = predict.run(cfg, p0=1600, E=1200, barrier=True, emphysema=True, ct_density=180, ct_emphysema=20)
     predict.estimate(collapse=40)    # {collapse_percent, E_Pa, p0_Pa, q0, ...}: the rules' expectation
     predict.estimate(p0=330, E=1300)
     predict.rules()                  # the rules in use (eurelaps_lung/data/rules.json or $EURELAPS_RULES)
@@ -31,6 +34,12 @@ Parameters (later ones win):
   p0 P [Pa]        the released pressure instead of the collapse % (q0 = p0 / E): the collapse % is the
                    result. The E rule needs the collapse %, so with p0 give E too (or a number in the config)
   E [Pa]           E given (instead of the config's physics.E_Pa)
+  emphysema        True / False: does the CT show emphysema (the user's reading; physics.emphysema)
+  ct_density       [kg/m3] density of the inflated lung on the CT (physics.ct_density; eurelaps_lung.ct.inflated_lung)
+  ct_emphysema     [%] its emphysema volume, LAA%-950 (physics.ct_emphysema; the same function)
+  barrier          True: the compression limit J >= phi, phi = ct_density / 1050 [+ 0.54 ct_emphysema / 100
+                   if emphysema] (physics.barrier {"phi": "ct"}; needs ct_density and emphysema). Needed for
+                   surgical pressures (p0 1600 Pa = 12 mmHg); METHODOLOGY.md 3.4.1
   overrides        ["section.key=value", ...], any config key
 Without params / from_fit, E is the config's physics.E_Pa: in the defaults the rule {"rule": "collapse"}
 of the rule file in use (eurelaps_lung/data/rules.json, or $EURELAPS_RULES).
@@ -39,7 +48,8 @@ summary.json gets "prediction": how the run was driven (collapse % or p0), what 
 estimate for it (estimate()), to compare with what the run reached.
 
 The model geometry (geometry -> hilum -> fem_setup) is built first when output_dir/fem/setup/problem.npz
-is missing, or when `steps` asks for it. Output: output_dir/runs/<run>/ (surface.vtp, state.npz,
+is missing, or when `steps` asks for it; the `ct` step (density and emphysema volume, eurelaps_lung/ct.py)
+runs first when inputs.ct is given and output_dir/ct/ct_values.json is missing. Output: output_dir/runs/<run>/ (surface.vtp, state.npz,
 summary.json) and, with frames > 0, the collapse sequence (runs/<run>/sequence/).
 """
 
@@ -55,7 +65,7 @@ from .config import load_config
 from .runner import run_steps, start
 
 log = logging.getLogger("eurelaps_lung")
-GEOMETRY_STEPS = ("geometry", "hilum", "fem_setup")
+GEOMETRY_STEPS = ("ct", "geometry", "hilum", "fem_setup")
 DEFAULT_CONFIG = "predict_default.json"
 
 
@@ -114,6 +124,24 @@ def E_overrides(E):
     return ["physics.E_Pa=%.6g" % float(E)]
 
 
+def ct_overrides(emphysema=None, ct_density=None, ct_emphysema=None, barrier=None):
+    """--set items for the CT values, the emphysema yes / no and the compression barrier."""
+    out = []
+    if emphysema is not None:
+        out.append("physics.emphysema=%s" % ("true" if emphysema else "false"))
+    if ct_density is not None:
+        if not ct_density > 0:
+            raise ValueError("ct_density: kg/m3 > 0")
+        out.append("physics.ct_density=%.6g" % float(ct_density))
+    if ct_emphysema is not None:
+        if not 0.0 <= ct_emphysema <= 100.0:
+            raise ValueError("ct_emphysema: LAA%-950 in [0, 100] %")
+        out.append("physics.ct_emphysema=%.6g" % float(ct_emphysema))
+    if barrier is not None:
+        out.append('physics.barrier=%s' % ('{"phi": "ct"}' if barrier else "null"))
+    return out
+
+
 def lung_extent(cfg):
     """The lung's extent along gravity [mm] (rule sg_rho), from problem.npz."""
     from .fem.fit import hilum_position
@@ -138,13 +166,15 @@ def target_collapse_percent(cfg):
 
 
 def run(config, collapse=None, params=None, from_fit=None, frames=None, run_name="predict", steps=None,
-        overrides=(), base_dir=None, log_name="predict", p0=None, E=None):
+        overrides=(), base_dir=None, log_name="predict", p0=None, E=None, emphysema=None, ct_density=None,
+        ct_emphysema=None, barrier=None):
     """Prediction of one patient; returns the run's summary (dict).
 
     config: path of a JSON config, or a dict (e.g. default_config() filled in; relative data_dir /
     output_dir are then taken from base_dir, default the current folder). collapse (a % or "target") or
     p0 [Pa]: how the collapse is driven; E [Pa]: E given instead of the config's (needed with p0 when the
-    config has the E rule)."""
+    config has the E rule). emphysema (True / False, the user's reading of the CT), ct_density, ct_emphysema,
+    barrier (True = compression limit from them): see the module docstring."""
     if params is not None and from_fit is not None:
         raise ValueError("give params or from_fit, not both")
     if p0 is not None and collapse is not None:
@@ -156,14 +186,17 @@ def run(config, collapse=None, params=None, from_fit=None, frames=None, run_name
     if target and collapse != "target":
         raise ValueError("collapse: a percentage, 'target' or None")
     coll = [] if target else collapse_overrides(collapse)
-    overrides = list(overrides) + pressure_overrides(p0, E) + E_overrides(E)
+    overrides = (list(overrides) + pressure_overrides(p0, E) + E_overrides(E)
+                 + ct_overrides(emphysema, ct_density, ct_emphysema, barrier))
     cfg = load_config(config, base + coll + overrides, base_dir=base_dir)
     start(cfg, log_name, overrides)
 
     if target and cfg.collapsed is None:
         raise ValueError("collapse 'target' needs inputs.collapsed (the collapsed lung)")
     have = (cfg.setup_dir / "problem.npz").is_file()
-    steps = list(steps) if steps else ([] if have else list(GEOMETRY_STEPS))
+    steps = list(steps) if steps else ([] if have else [s for s in GEOMETRY_STEPS if s != "ct"])
+    if cfg.ct is not None and "ct" not in steps and not (cfg.output_dir / "ct" / "ct_values.json").is_file():
+        steps = ["ct"] + steps                                  # density and emphysema volume from the CT
     if steps:
         log.info("building the model geometry: %s", " -> ".join(steps))
         run_steps(cfg, steps)
@@ -213,7 +246,7 @@ def prediction_record(summary, collapse, p0, E, params):
     """How the run was driven, and the rules' estimate for it (to compare with what it reached)."""
     ph = summary.get("physics", {})
     rec = {"driven_by": "p0" if p0 is not None else "collapse", "collapse_asked": collapse, "p0_asked": p0,
-           "E_given": E}
+           "E_given": E, "emphysema": ph.get("emphysema"), "barrier": ph.get("barrier")}
     try:
         r = rules(params)
         rec["rules"] = r.get("source")
@@ -236,6 +269,11 @@ def main(argv=None):
                        help="collapse %% (100 * (1 - V_collapsed / V_inflated)), or 'target' = that of inputs.collapsed")
     drive.add_argument("--p0", type=float, metavar="PA", help="released pressure p0 [Pa]: the collapse %% is the result")
     ap.add_argument("--E", type=float, metavar="PA", help="E [Pa] instead of the config's (needed with --p0 and the E rule)")
+    ap.add_argument("--emphysema", choices=("yes", "no"), help="does the CT show emphysema (your reading)")
+    ap.add_argument("--ct-density", type=float, metavar="KG_M3", help="density of the inflated lung on the CT")
+    ap.add_argument("--ct-emphysema", type=float, metavar="PERCENT", help="emphysema volume on the CT, LAA%%-950")
+    ap.add_argument("--barrier", action="store_true",
+                    help="compression limit from the CT values (needed for surgical pressures, e.g. --p0 1600)")
     ap.add_argument("--estimate", action="store_true",
                     help="print the rules' estimate (E, p0, collapse %%) for --collapse or --p0 --E, and exit")
     src = ap.add_mutually_exclusive_group()
@@ -265,7 +303,9 @@ def main(argv=None):
             sys.exit("--collapse: a percentage or 'target'")
     try:
         run(args.config, collapse=collapse, params=args.params, from_fit=args.from_fit, frames=args.frames,
-            run_name=args.run, steps=args.steps, overrides=args.set, p0=args.p0, E=args.E)
+            run_name=args.run, steps=args.steps, overrides=args.set, p0=args.p0, E=args.E,
+            emphysema=None if args.emphysema is None else args.emphysema == "yes", ct_density=args.ct_density,
+            ct_emphysema=args.ct_emphysema, barrier=True if args.barrier else None)
     except ValueError as e:
         sys.exit(str(e))
 

@@ -5,7 +5,7 @@
 json / csv only (runs on the Mac). Per run: patient, run, kind (collapse / fit), the physical
 parameters (E, p0, q0, nu, gravity slope, what was fitted), collapse %, ASSD and errors against
 the collapsed lung, wall penetration, solves and failures. The old layout (fem/<run>/
-result_summary.json, from v1_version) is read by scripts/summarize_fits.py.
+result_summary.json, from v1_version) was read by scripts/summarize_fits.py (in git history).
 """
 
 import argparse
