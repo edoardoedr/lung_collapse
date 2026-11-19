@@ -26,6 +26,12 @@ options: the GetFEMSolver ones (order must be 1), plus
   adaptive_steps false: fixed sub-steps (load_steps ladders); true: load steps halve on failure and
                  double after success (common.adaptive_path), down to min_load_step of the path
   max_solve_s    None, or seconds after which one solve() gives up (counted as failed)
+  barrier        None, or {"phi": .., "stiffness": .., "onset": ..}: limit of compression
+                 (METHODOLOGY.md 3.4.1), J >= phi in every tet. Energy per reference volume
+                 kappa <J_on - J>+^3 / (J - phi), J_on = phi + onset (E = 1): zero above J_on
+                 (the material's own response), C2 there, unbounded at phi. Added here, after the
+                 core's assembly, so every core and material gets it (force and tangent analytic:
+                 barrier_terms); a Newton trial with J <= phi in a tet is rejected as an inverted one
 
 Body force (set_body): a constant force per unit reference volume, direction d, magnitude `body`
 passed to solve() (relative to E, per mm): R -= body * d * V_t / 4 on the nodes of every tet. It
@@ -72,7 +78,44 @@ class _QuietNvmath(logging.Filter):
 
 logging.getLogger().addFilter(_QuietNvmath())
 
-DEFAULTS = {**GETFEM_DEFAULTS, "linear_solver": None}
+DEFAULTS = {**GETFEM_DEFAULTS, "linear_solver": None, "barrier": None}
+
+
+def barrier_terms(F, G, V, phi, kappa, onset, compute_K):
+    """Compression barrier of the tets: energy kappa b(J) per reference volume, b = s^3 / d,
+    s = <J_on - J>+, d = J - phi, J_on = phi + onset. F (E, 3, 3), G (E, 4, 3) shape-function
+    gradients, V (E,) reference volumes. Returns (J, energy (E,), nodal forces (E, 4, 3), tangent
+    blocks (E, 4, 4, 3, 3) or None); None when J <= phi in a tet.
+
+        P = kappa b'(J) J F^-T,      dP/dF = kappa [b'' J^2 H (x) H + b' J (H (x) H - H [x] H)],  H = F^-T
+        b'  = -3 s^2 / d - s^3 / d^2,      b'' = 6 s / d + 6 s^2 / d^2 + 2 s^3 / d^3
+    so with h_a = H grad N_a: f_a = V kappa b' J h_a and
+    K[a, b] = V kappa [(b'' J^2 + b' J) h_a h_b^T - b' J h_b h_a^T]."""
+    J = np.linalg.det(F)
+    if not np.all(J > phi):
+        return J, None, None, None
+    s = np.maximum(phi + onset - J, 0.0)
+    d = J - phi
+    e = kappa * s ** 3 / d
+    b1 = -3.0 * s ** 2 / d - s ** 3 / d ** 2
+    act = s > 0.0
+    f = np.zeros(G.shape)
+    K = np.zeros((len(J), 4, 4, 3, 3)) if compute_K else None
+    if act.any():
+        H = np.linalg.inv(F[act]).transpose(0, 2, 1)
+        h = np.einsum("eij,eaj->eai", H, G[act])                # (A, 4, 3)
+        w = V[act] * kappa
+        Ja, b1a = J[act], b1[act]
+        f[act] = (w * b1a * Ja)[:, None, None] * h
+        if compute_K:
+            sa, da = s[act], d[act]
+            b2 = 6.0 * sa / da + 6.0 * sa ** 2 / da ** 2 + 2.0 * sa ** 3 / da ** 3
+            c1 = w * (b2 * Ja ** 2 + b1a * Ja)
+            c2 = w * b1a * Ja
+            K[act] = (c1[:, None, None, None, None] * np.einsum("eai,ebk->eabik", h, h)
+                      - c2[:, None, None, None, None] * np.einsum("ebi,eak->eabik", h, h))
+    return J, e, f, K
+
 
 # vertex rule (GetFEM IM_NC(2,1)): the wall force of a node depends on its own gap only
 NODAL_QUAD_B = np.eye(3)
@@ -166,6 +209,17 @@ class NodalSolver(ForwardSolver):
             raise RuntimeError("degenerate tetrahedra in the volume mesh")
         self.vol0 = det / 6.0
         self.X, self.tets, self.nn = X, T, len(X)
+        Bi = np.linalg.inv(self.Dm)                              # rows = gradients of N1..N3
+        self.Gr = np.concatenate([-Bi.sum(axis=1, keepdims=True), Bi], axis=1)   # (E, 4, 3)
+        self.barrier = None
+        if o["barrier"] is not None:
+            b = dict(o["barrier"])
+            unknown = sorted(set(b) - {"phi", "stiffness", "onset"})
+            if unknown or "phi" not in b:
+                raise ValueError("%s solver: barrier = {phi, stiffness, onset} (got %s)" % (self.name, sorted(b)))
+            self.barrier = (float(b["phi"]), float(b.get("stiffness", 1.0)), float(b.get("onset", 0.1)))
+            if not (0.0 < self.barrier[0] < 1.0 and self.barrier[1] > 0.0 and 0.0 < self.barrier[2] < 1.0 - self.barrier[0]):
+                raise ValueError("%s solver: barrier needs 0 < phi < 1, stiffness > 0, 0 < onset < 1 - phi" % self.name)
         self.ndof = 3 * self.nn
 
         # boundary faces = surface triangles, 1:1, oriented outward
@@ -417,6 +471,14 @@ class NodalSolver(ForwardSolver):
                     self.surf_pts + U.reshape(-1, 3)[self.surf_node]).all():
                 return None, None                                # a trial step left the grid: rejected
             R, A = self._assemble(U, compute_K, wall=self.field is None)
+            if self.barrier is not None and R is not None:
+                _, e, fb, Kb = self._barrier(U, compute_K)
+                if fb is None:
+                    return None, None                            # J <= phi: rejected like an inverted tet
+                R = R.copy()
+                np.add.at(R.reshape(-1, 3), self.tets.ravel(), fb.reshape(-1, 3))
+                if A is not None and Kb is not None and np.any(Kb):
+                    A = (A + self._csr(Kb, np.zeros((len(self.faces), 3, 3, 3, 3)))).tocsr()
             if self.body != 0.0 and R is not None:
                 R = R - self.body * self.body_vec
             if self.field is not None and R is not None:
@@ -430,6 +492,28 @@ class NodalSolver(ForwardSolver):
         finally:
             self.times["assembly_s"] += time.time() - t0
             self.times["assemblies"] += 1
+
+    def _barrier(self, U, compute_K):
+        """barrier_terms at the state U (self.barrier set)."""
+        phi, kappa, onset = self.barrier
+        F = np.eye(3) + np.einsum("eai,eaj->eij", U.reshape(-1, 3)[self.tets], self.Gr)
+        return barrier_terms(F, self.Gr, self.vol0, phi, kappa, onset, compute_K)
+
+    def barrier_report(self, U=None):
+        """Volume ratio of the tets at U (default: the last converged state) against the barrier:
+        {phi, onset, J_min, J_volume_mean, tets_active (J < J_on), volume_fraction_active}."""
+        U = self.U if U is None else np.asarray(U, float)
+        if U is None:
+            return None
+        F = np.eye(3) + np.einsum("eai,eaj->eij", U.reshape(-1, 3)[self.tets], self.Gr)
+        J = np.linalg.det(F)
+        out = dict(J_min=float(J.min()), J_volume_mean=float((J * self.vol0).sum() / self.vol0.sum()))
+        if self.barrier is not None:
+            phi, _, onset = self.barrier
+            act = J < phi + onset
+            out.update(phi=phi, onset=onset, tets_active=int(act.sum()),
+                       volume_fraction_active=float(self.vol0[act].sum() / self.vol0.sum()))
+        return out
 
     def _field_wall(self, U, compute_K):
         """Wall as a smooth field: force (N, 3) and tangent blocks (N, 3, 3) of the surface nodes."""
@@ -614,5 +698,8 @@ class NodalSolver(ForwardSolver):
 
     def export_volume(self, path, state):
         from ... import vtk_mesh as vm
-        g = vm.tet_grid(self.X, self.tets, {"Displacement": np.asarray(state, float).reshape(-1, 3)})
+        U = np.asarray(state, float).reshape(-1, 3)
+        F = np.eye(3) + np.einsum("eai,eaj->eij", U[self.tets], self.Gr)
+        g = vm.tet_grid(self.X, self.tets, {"Displacement": U},
+                        cell_data={"VolumeRatio": np.linalg.det(F)})   # J; density = reference density / J
         vm.write_grid(g, path, binary=False)

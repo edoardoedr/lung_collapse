@@ -85,6 +85,7 @@
     },
     "perturbation": null,
     "_ct_density": "optional: \"ct_density\": <kg/m3 measured on the CT> to also report E and p0 at the patient's density",
+    "_emphysema": "for the compression barrier (barrier {\"phi\": \"ct\"}): \"emphysema\": true / false = does the CT show emphysema (your reading); with true, \"ct_emphysema\" (LAA%-950, scripts/ct_density.py --write-config) gives its volume",
     "_collapse": "volume_ratio = V_collapsed / V_inflated to reach: 0.5 = 50 % collapse (rule calibrated on 23-86 %)"
   },
   "solver": {

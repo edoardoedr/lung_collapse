@@ -98,6 +98,13 @@ def write_run(cfg, problem, solver, state, kind, extra=None):
         res.update(wall_field_max_penetration_mm=float(max(np.nanmax(pen_f), 0.0)),
                    wall_field_points_beyond=int((pen_f > 0).sum()))
     res["solver_stats"] = solver.stats()
+    if hasattr(solver, "barrier_report") and state.get("solver_state") is not None:
+        rep = solver.barrier_report(state["solver_state"])     # volume ratio J of the tets (compression)
+        if rep is not None:
+            rho0 = ph.get("ct_density_kg_m3") or ph.get("tissue_density_kg_m3")
+            rep["density_mean_kg_m3"] = rho0 / rep["J_volume_mean"] if rho0 else None
+            rep["density_max_kg_m3"] = rho0 / rep["J_min"] if rho0 else None
+            res["compression"] = rep
     res.update(extra or {})
 
     write_surface(s, out / "surface.vtp", "LPS")
@@ -120,6 +127,10 @@ def write_run(cfg, problem, solver, state, kind, extra=None):
     if ph.get("ct_density_kg_m3"):
         log.info("with the CT density %.0f kg/m3 (model %.0f): E %.0f Pa, p0 %.0f Pa", ph["ct_density_kg_m3"],
                  ph["tissue_density_kg_m3"], ph["E_Pa_ct"], ph["p0_Pa_ct"])
+    c = res.get("compression")
+    if c and "phi" in c:
+        log.info("compression barrier phi %.3f (onset %.2f): J min %.3f, %d tets / %.1f %% of the volume below J_on",
+                 c["phi"], c["onset"], c["J_min"], c["tets_active"], 100 * c["volume_fraction_active"])
     log.info("collapsed to %.1f %% of the inflated volume (collapse %.1f %%); rigid part %.1f deg / %.1f mm",
              100 * res["volume_ratio"], res["collapse_percent"], res["rigid_rotation_deg"], res["rigid_shift_mm"])
     if problem.has_target:

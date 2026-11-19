@@ -64,4 +64,5 @@ Keep `JOBS` ≤ 4 (parallel jobs slow every solve). One fit takes 0.2–2 min on
 2. **Missing load:** on karl10, karl18, karl23 look where the fit misses (sequences in Slicer); candidate extra load terms (medial pressure, diaphragm), which are physics changes to discuss with the user first.
 3. Other free gradients (`perturbation: {"gradient": [...]}`) together with E, to see whether a medial-lateral or cranio-caudal slope explains the trend.
 4. Sensitivity to ν and to the wall margin / smoothing on a few patients.
+6. **Surgical insufflation (12 mmHg) in predictions** (NEXT.md): the cohort CTs were not acquired under insufflation, so p0 (≈ resting recoil) is not comparable with it; as p0 of a new lung it gives q0 1.2–3, far outside the cohort (0.18–0.90): near-total collapse where the model is not validated. Predictions stay driven by the collapse % (`volume_ratio`); a forward test at p0 1600 Pa on a few patients is listed.
 5. Pending validation: regions fit with the new code; `geometry` + `fem_setup` from scratch vs the copied setup.

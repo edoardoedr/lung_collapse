@@ -254,6 +254,7 @@ The CTs (`Input_CT/<p>.nii[.gz]`, one per patient, with the pneumothorax) are no
 - **Density by AP thirds** of the collapsed lung (posterior / anterior): 1.1–2.4 in 12 of 16 (dependent lung denser), < 1 on karl04, karl20, patient_10 and **karl10 (0.43, anterior third 0.94 g/mL)**: karl10 is one of the two patients that want no gravity gradient. To look at in Slicer.
 - **Does the measured ρ̄ help predict the load?** Prediction setting (user, 2026-11-17): inputs = inflated lung, collapse %, ρ̄; q0 from the volume, the gravity slope s_g = ρ̄ g L / E from a rule. Leave-one-out on the 12 `fitE_nu30` patients with E in bounds, error of the predicted log₁₀ s_g: rule E(collapse %) with ρ̄ = 250 for all rms 0.18 (×1.5); s_g(collapse %) 0.20; s_g(collapse %, ρ̄) 0.20 (coefficient of log ρ̄ −0.5, physics says +1); E(collapse %) with the measured ρ̄ 0.27 (×1.8), worse; no rule (constant s_g) 0.34 (×2.2). **The measured density makes the prediction worse**: the needed slope depends on the collapse %, not on the weight. log₁₀ s_g = −0.96 + 0.0141 × collapse % (0.25 at 25 %, 0.55 at 50 %).
 - **Inflated lung of a new patient** (`ct_density.py --config ... ` without a collapsed lung: mean density, air calibrated in the trachea): patient_6_1, the only real inflated lung (CT before the pneumothorax), **208 kg/m³** (1971 mL, −775 HU, 410 g). Check: karl04's cavity treated the same way gives 89 kg/m³ against 85 from the mass method. The cohort's ρ̄ (mass / cavity, median 163) is lower than this real lung: larger cavity, or a different breathing state.
+- **Mass of the two lungs (2026-11-19, contralateral volume = sum of its lobe surfaces):** collapsed-lung mass / contralateral mass (ρ_contra × V_contra) 0.24–1.88; expected ≈ 0.8 for a left and ≈ 1.2 for a right collapsed lung (patient_6 before the pneumothorax: 446 / 548 g = 0.81, densities 0.208 / 0.207 g/mL). Within ±30 % of the expectation on 9 of 16; off: karl19 0.24 (contralateral 0.37 g/mL), patient_2 0.63 (0.39 g/mL), karl08 1.88 (contralateral 0.089 g/mL), karl10 1.64 (heart in the collapsed segmentation, 5h), karl01 1.24, karl04 0.77. The contralateral density itself is physiological on most (median 0.17 g/mL, 0.13–0.29 on 13 of 16); the disagreement with ρ̄ = mass / cavity comes mostly from the cavity volume (cavity / contralateral lung 0.52–2.06: karl02 1.86, patient_2 2.06, karl18 0.52), i.e. from the reference, not from the densities. For the barrier, φ_t must be relative to the model's reference (tissue volume / V_cavity = mass / (1050 V_cavity)), which needs the mass; the contralateral density gives it only where the cavity equals the true lung volume.
 - **Use:** the shape fits do not change (only ρ̄ / E matters); the measured ρ̄ rescales the reported E and p0 = q0 E per patient, with ~±25 % uncertainty.
 
 ### 5f. Leave-one-out prediction from the collapse % (± the CT density) (2026-11-17)
@@ -328,6 +329,49 @@ p0 = q0 · E is the uniform transpulmonary pressure released by the pneumothorax
 - **The pressure scale comes from ρ̄.** Only q0 and ρ̄ / E are identified by the shape, so p0 = q0 ρ̄ g L / s_g is proportional to the assumed density, i.e. to the pleural gradient ρ̄g = 2.45 Pa/mm: p0 / (ρ̄ g) ≈ 150 mm, the mean recoil equals the pleural gradient over ~15 cm of height. With the measured gradient of Milic-Emili et al. (0.2 cmH₂O/cm, ρ̄ ≈ 200 kg/m³) p0 would be 0.8 × these values (median ≈ 3.0 cmH₂O); with the CT density (median 163 kg/m³) a median 187 Pa (1.9 cmH₂O). Both are still the order of the resting recoil.
 - **Change (user, 2026-11-17): ρ̄ = 200 kg/m³ in the model** (the measured gradient), E default 1360 Pa and E rule a = 3.5332: the shapes of every fit and prediction are unchanged, E and p0 of the runs above (all at ρ̄ 250) become × 0.8, i.e. p0 median 294 Pa = 3.0 cmH₂O (fit) and 306 Pa = 3.1 cmH₂O (prediction), still inside Turner's FRC range.
 - Caveats: the reference is taken stress-free (METHODOLOGY.md 7, item 1), so p0 is the released pressure to first order, without the prestress stiffening; surface tension is in E and ν, not separate; the "inflated lung" is the pneumothorax cavity (5d), and the breathing state of the CT is not known.
+
+### 5j. Emphysema from the CT, and the trapped air (2026-11-19, `scripts/ct_density.py`, `analysis/ct_density.csv`)
+
+Phase A of the plan "Emphysema and compression limit" (NEXT.md; METHODOLOGY.md 2 and 3.4.1). For both lungs: LAA%−950 / LAA%−910 (% of voxels below, HU calibrated on the pleural air of the scan) and Perc15, **after a 3×3×3 median filter**, 2 mm inside the border and outside the airway lumen (dilated by one voxel); the contralateral lung also per lobe. In the collapsed lung, the low-attenuation air (filtered ρ < 0.05 g/mL, i.e. < −950 HU) still in it: V_LAA,col, the air that did not leave. φ_tissue = mass / 1050 / V_cavity; φ_trapped,obs = V_LAA,col / V_cavity; retention r = V_LAA,col / (f_e,contra V_cavity). The columns of 5e are unchanged.
+
+**Noise.** A first version without the filter gave patient_10 11.3 %, but the user sees no emphysema on its CT. On thin-slice scans (0.8 mm: patient_10, patient_1, patient_3) the noise alone (SD ~100–130 HU in the pleural air) puts normal lung below −950 HU. Filtered: patient_10 11.3 → 1.0 %, patient_1 19.2 → 4.2 %, karl04 26.8 → 7.3 %, karl01 19.2 → 2.0 %, while the true emphysema stays (karl08 60.6 → 64.7 %, karl17 41.1 → 35.8, patient_3 39.6 → 32.8, karl06 34.5 → 22.8) and lies in clusters ≥ 65 mm³ (99 % of it, against scattered voxels before).
+
+| Patient | LAA%−950 contra | LAA%−950 collapsed | Perc15 contra (HU) | collapse | φ_tissue | φ_trapped,obs | r | E fit (Pa) |
+|---|---|---|---|---|---|---|---|---|
+| karl08 | **64.7** | 32.3 | −1001 | 28 % | 0.173 | 0.228 | 0.35 | 2599 |
+| karl17 | **35.8** | 27.1 | −977 | 24 % | 0.150 | 0.193 | 0.54 | 1460 |
+| patient_3 | **32.8** | 20.6 | −982 | 37 % | 0.128 | 0.131 | 0.40 | 1450 |
+| karl06 | **22.8** | 17.3 | −963 | 23 % | 0.165 | 0.136 | 0.60 | 2089 |
+| karl02 | 13.7 | 11.5 | −935 | 53 % | 0.162 | 0.054 | 0.39 | 1129 |
+| karl20 | 11.3 | 20.9 | −931 | 58 % | 0.115 | 0.080 | 0.70 | 446 |
+| karl04 | 7.3 | 7.0 | −938 | 51 % | 0.081 | 0.040 | 0.55 | 685 |
+| patient_1 | 4.2 | 0.6 | −933 | 59 % | 0.108 | 0.007 | – | 719 |
+| karl10 | 4.0 | 2.3 | −920 | 56 % | 0.271 | 0.010 | – | (bound) |
+| karl24 | 2.4 | 3.1 | −890 | 24 % | 0.182 | 0.030 | – | 3732 |
+| karl01 | 2.0 | 1.9 | −887 | 26 % | 0.280 | 0.024 | – | 1468 |
+| karl23 | 1.9 | 1.1 | −859 | 51 % | 0.219 | 0.007 | – | (bound) |
+| patient_10 | 1.0 | 0.3 | −912 | 47 % | 0.113 | 0.003 | – | 650 |
+| karl18 | 0.8 | 0.0 | −913 | 30 % | 0.237 | 0.001 | – | (bound) |
+| karl19 | 0.7 | 0.0 | −911 | 66 % | 0.093 | 0.000 | – | 728 |
+| patient_2 | 0.0 | 8.1 | −760 | 86 % | 0.114 | 0.011 | – | 403 |
+
+collapse = 1 − V_collapsed / V_cavity; E of `fit_final` (ρ̄ 250); r not given where f_e < 5 % (the ratio of two small numbers).
+
+- **7 of 16 emphysematous** (LAA%−950 ≥ 5 %): karl08 severe (65 %, upper lobe 77 %), karl17, patient_3, karl06 (23–36 %), karl02, karl20, karl04 (7–14 %); all karl but patient_3. The phase of the scan is unknown (the contralateral lung may or may not be ventilated during the pneumothorax): the ranking is more robust than the absolute values. To check against the clinical list (plan A3).
+- **Visual check (user, 2026-11-19, `analysis/emphysema_review.md`):** below 5 % the index does not separate emphysema from none: karl24 (2.4 %, bullae), patient_10 (1.0 %), karl10 (4.0 %, large peripheral bullae) have it; karl01 (2.0 %), patient_1 (4.2 %), karl18, karl19 and karl23 (1.9 %: dark clusters outside the lung, segmentation error) do not. Bullae are evident to the eye but small in volume (1–3 % of the lung). The model uses the volume fraction (φ changes by < 0.02 below 4 %); the yes / no label is visual.
+- **Bilateral:** LAA%−950 of the contralateral and of the collapsed lung, Spearman +0.82 (p 10⁻⁴). The collapsed lung **still holds emphysematous air**: 7–32 % of its voxels below −950 HU in the 7, ≤ 3 % in the others (patient_2 8 %: its collapsed lung is almost airless, −130 HU, these are small air pockets).
+- **Trapped fraction r** in the 7: median **0.54** (0.35–0.70): about half of the emphysematous air is still in the lung after the pneumothorax. Default of `physics.barrier.trapped_fraction`.
+- **Emphysema and collapse:** LAA%−950 against the collapse %, Spearman −0.46 (p 0.07): the emphysematous lungs collapse less (median 37 vs 51 %). Against the fitted E (13 in bounds) +0.49 (p 0.09): part of the E(collapse %) rule may be emphysema (a lung that keeps its air looks stiff). Against the fit ASSD −0.29 (p 0.27).
+- **Group medians (for the barrier):** emphysematous (n = 7): ρ̄_0 157 kg/m³, φ_tissue 0.150, f_e 0.23, r 0.54, φ_trapped,obs 0.13; the others (n = 9): ρ̄_0 191, φ_tissue 0.18, f_e 0.02, trapped 0.007.
+- **Bound check (plan A5):** φ = φ_tissue + 0.54 f_e is below the observed V_collapsed / V_cavity on all 16 (margin 0.02 on patient_2, 0.15–0.56 on the others). For the surgical collapse it gives a smallest volume of 0.10–0.52 of the cavity: at most 48 % collapse for karl08, 66–71 % for karl17 / patient_3 / karl06, 70–90 % for the others.
+- Caveats: r is measured at the end of a pneumothorax, not of a VATS deflation with an open bronchus and suction (probably less trapped air: r is then an upper value); φ_tissue has the ±25 % of the mass and the cavity-enlargement error of 5e.
+
+### 5k. Compression barrier, first checks (2026-11-19, Mac, numpy core, `tests/test_barrier.py`)
+
+`physics.barrier` (METHODOLOGY.md 3.4.1): energy κ⟨J_on − J⟩₊³/(J − φ), κ 1, onset 0.1. One tetrahedron: force and tangent against finite differences ~1e-9, zero above J_on, divergent at φ, J ≤ φ rejected. karl04 (smooth wall, gravity slope 1.4e-3 /mm, ν 0.30):
+- q0 0.2 with φ 0.10: no tet below J_on (J min 0.42), result identical to Neo-Hookean (difference 0): the barrier does not touch the cohort-like collapses.
+- **q0 1.2 (≈ 12 mmHg at E 1.36 kPa):** Neo-Hookean *does* converge (the clamp and the isochoric term hold it), but at **6.6 % of the volume, J min 0.005, 91 % of the volume below the tissue fraction**: unphysical. With the barrier (φ 0.15): **20.8 %**, J min 0.159, 91 % of the volume in the barrier zone, 70 Newton iterations; tangent with the barrier active vs FD 5e-7.
+- So at surgical pressures the final volume is set by φ (here 1.39 φ), not by E: what the barrier is for. Server checks (Phase C) pending.
 
 ## 6. Wall and tangential support
 

@@ -14,6 +14,8 @@ pressure on the surface / E  =  q0  +  γ (h − h_mean),      γ = density · g
 | ν | `physics.material.nu` | compressibility (the lung loses air) |
 | density | `physics.tissue_density` | mean density of the inflated lung in the model [kg/m³] (200: the pleural gradient 0.2 cmH₂O/cm / g) |
 | CT density | `physics.ct_density` | the same measured on the CT, report only: E and p0 also given rescaled to it |
+| emphysema | `physics.emphysema`, `physics.ct_emphysema` | yes / no, your reading of the CT; and its volume, LAA%−950 [%] from the CT (used by the barrier when yes) |
+| compression limit | `physics.barrier` | the lung cannot lose more volume than its air that can leave: J ≥ φ = tissue + trapped emphysematous air (from the CT); `null` = none. Needed for surgical pressures (12 mmHg) |
 | position | `physics.gravity` | patient position in the inflated CT and during the collapse (sets "up": h) |
 | q0 | `physics.collapse` | uniform pressure / E: it sets how much the lung collapses. Given as `q0`, as `p0_Pa`, or as the `volume_ratio` to reach |
 | wall | `fem_setup.wall`, `physics.wall` | the chest cavity the lung may not leave |

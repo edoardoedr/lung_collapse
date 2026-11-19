@@ -70,7 +70,7 @@ python scripts/collapse_sequence.py --config configs/<p>.json [--frames 30] [--m
 python scripts/migrate_config.py OLD_wall_torch.json --out configs/      # old schema (v1_version) -> new
 python scripts/summarize_fits.py <results folder> [--out analysis]       # OLD layout only (fem/<run>/)
 python -m py_compile main_*.py eurelaps_lung/*.py eurelaps_lung/fem/*.py eurelaps_lung/fem/solvers/*.py scripts/*.py
-python3 tests/test_wall_field.py; python3 tests/test_wall_potential.py; python3 tests/test_steps.py; python3 tests/test_calibration.py; python3 tests/test_predict.py   # Mac
+python3 tests/test_wall_field.py; python3 tests/test_wall_potential.py; python3 tests/test_steps.py; python3 tests/test_calibration.py; python3 tests/test_predict.py; python3 tests/test_barrier.py   # Mac
 ```
 
 Pass `2>&1 | tee <name>.txt` on the server so the user can paste the output. Many parallel jobs slow every solve (~15× with 28 jobs): use `JOBS` ≤ 4 when times or failures matter.
@@ -134,6 +134,7 @@ FEM cores (`eurelaps_lung/fem/solvers/`):
 
 Not obvious from the code; the reasons and numbers are in analysis/results.md.
 
+- **Compression barrier** (`physics.barrier`, 2026-11-19, METHODOLOGY.md 3.4.1): `nodal.barrier_terms` (closed-form force and tangent, J only) added in `_assemble_at` after the core's assembly, so torch, Warp and the numpy test core all get it, with any material; solver option `barrier` = {phi, stiffness, onset} (GetFEM refuses it: `config.solver_options` raises). J ≤ φ in a trial = rejected like an inverted tet. φ = "ct" needs `physics.ct_density` and `physics.emphysema` (yes / no, the user's visual reading: the index does not separate mild cases), plus `physics.ct_emphysema` (LAA%, `scripts/ct_density.py --write-config`) when yes; all three in every config. `barrier_report` → summary `compression`; `volume.vtk` has the cell field `VolumeRatio` (J).
 - **Load parametrisation:** the gravity term is `s_g · hn`, `hn = (h − h̄) / L` per triangle (`h` = −e_A · centroid, `L` its extent over the free triangles), `s_g = ρ̄ g L / E`. The fitted parameter is `gravity_slope` = s_g (same scale as q0), reported as E; the E bounds become slope bounds. The body force direction passed to the solver is `(e_B − e_A) / L`, its magnitude `s_g`, so one number scales both.
 - **Core regions:** one per free triangle when the load varies in space (gravity or slopes), else the Ward regions, else one. `Level` checks that the core regions resolve the field. GetFEM builds one brick per region: slow with gravity.
 - **Regions perturbation replaces q0:** the region values carry the mean; their start is the projection of the starting field. `describe` then reports q0 as the area-weighted mean.

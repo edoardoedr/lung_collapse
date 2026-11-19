@@ -176,6 +176,10 @@ class PhysicsConfig:
                                        # 0.2 cmH2O/cm (Milic-Emili 1966) / g; 250 until 2026-11-17
     ct_density: float | None = None    # the same measured on the patient's CT [kg/m3] (scripts/ct_density.py):
                                        # report only, E and p0 rescaled to it (only density / E is identified)
+    emphysema: bool | None = None      # the patient has emphysema: given by the user (visual check of the CT)
+    ct_emphysema: float | None = None  # emphysema index LAA%-950 of the patient's CT [%] (scripts/ct_density.py):
+                                       # its volume, used by the barrier only when emphysema is true
+    barrier: dict | None = None        # compression limit (METHODOLOGY.md 3.4.1): {phi, stiffness, onset, ...}
     E_rule: dict | None = None         # E from the collapse % (E_Pa {"rule": "collapse"}): {a, b, collapse_percent}
     gravity: dict | None = None        # None = no gravity term, else {"reference": e_A, "collapse": e_B,
                                        # "names": (..)}: unit vectors of gravity in LPS
@@ -267,9 +271,44 @@ def _E_rule(raw, volume_ratio):
     return 10.0 ** (a + b * c), dict(rule="collapse", a=a, b=b, collapse_percent=c)
 
 
+def _barrier(raw, p):
+    """physics.barrier -> {phi, stiffness, onset, source, ...}. phi a number, or "ct":
+    phi = ct_density / tissue_density [+ trapped_fraction * ct_emphysema / 100 if physics.emphysema]
+    (tissue + air trapped by emphysema). physics.emphysema (yes / no) is the user's call: the CT index
+    does not separate the mild cases (analysis/emphysema_review.md)."""
+    b = _clean(raw, "physics.barrier", ("phi", "tissue_density", "trapped_fraction", "stiffness", "onset"))
+    phi = b.get("phi", "ct")
+    out = dict(stiffness=float(b.get("stiffness", 1.0)), onset=float(b.get("onset", 0.1)))
+    if phi == "ct":
+        if p.ct_density is None:
+            raise ValueError('physics.barrier phi "ct" needs physics.ct_density: scripts/ct_density.py --config ... '
+                             '--write-config')
+        if p.emphysema is None:
+            raise ValueError('physics.barrier phi "ct" needs physics.emphysema: true or false, from the CT (does the '
+                             'patient have emphysema?)')
+        if p.emphysema and p.ct_emphysema is None:
+            raise ValueError('physics.emphysema true needs physics.ct_emphysema (its volume, LAA%-950 %): '
+                             'scripts/ct_density.py --config ... --write-config')
+        td, tf = float(b.get("tissue_density", 1050.0)), float(b.get("trapped_fraction", 0.54))
+        if td <= 0 or not 0.0 <= tf <= 1.0:
+            raise ValueError("physics.barrier: tissue_density > 0, trapped_fraction in [0, 1]")
+        phi_t = p.ct_density / td
+        phi_e = tf * p.ct_emphysema / 100.0 if p.emphysema else 0.0
+        out.update(phi=phi_t + phi_e, phi_tissue=phi_t, phi_trapped=phi_e, tissue_density=td, trapped_fraction=tf,
+                   source="ct")
+    else:
+        if set(b) & {"tissue_density", "trapped_fraction"}:
+            raise ValueError("physics.barrier: tissue_density / trapped_fraction only with phi \"ct\"")
+        out.update(phi=float(phi), source="given")
+    if not (0.0 < out["phi"] < 1.0 and out["stiffness"] > 0.0 and 0.0 < out["onset"] < 1.0 - out["phi"]):
+        raise ValueError("physics.barrier: needs 0 < phi < 1 (got %.3f), stiffness > 0, 0 < onset < 1 - phi"
+                         % out["phi"])
+    return out
+
+
 def _physics(raw):
-    raw = _clean(raw, "physics", ("material", "E_Pa", "tissue_density", "ct_density", "gravity", "collapse", "wall",
-                                  "perturbation"))
+    raw = _clean(raw, "physics", ("material", "E_Pa", "tissue_density", "ct_density", "emphysema", "ct_emphysema", "barrier",
+                                  "gravity", "collapse", "wall", "perturbation"))
     p = PhysicsConfig()
     mat = _clean(raw.get("material", {}), "physics.material", ("name", "nu", "params"))
     p.material, p.material_params = mat.get("name", "neo_hookean"), dict(mat.get("params", {}))
@@ -282,6 +321,16 @@ def _physics(raw):
         p.ct_density = float(raw["ct_density"])
         if p.ct_density <= 0:
             raise ValueError("physics.ct_density must be > 0 [kg/m3]")
+    if raw.get("emphysema") is not None:
+        if not isinstance(raw["emphysema"], bool):
+            raise ValueError("physics.emphysema: true or false (the user's reading of the CT)")
+        p.emphysema = raw["emphysema"]
+    if raw.get("ct_emphysema") is not None:
+        p.ct_emphysema = float(raw["ct_emphysema"])
+        if not 0.0 <= p.ct_emphysema <= 100.0:
+            raise ValueError("physics.ct_emphysema: LAA%-950 in [0, 100] %")
+    if raw.get("barrier") is not None:
+        p.barrier = _barrier(raw["barrier"], p)
     g = raw.get("gravity", "supine")
     if g is not None:
         if not isinstance(g, dict):
@@ -419,6 +468,12 @@ class PipelineConfig:
         elif self.physics.material != "neo_hookean" or self.physics.material_params:
             raise ValueError("solver '%s' has only the neo_hookean material (physics.material: %s)"
                              % (core or self.solver.core, self.physics.material))
+        b = self.physics.barrier
+        if b is not None:
+            if keys is not None and "barrier" not in keys:
+                raise ValueError("solver '%s' has no compression barrier (physics.barrier): use torch or warp"
+                                 % (core or self.solver.core))
+            o["barrier"] = dict(phi=b["phi"], stiffness=b["stiffness"], onset=b["onset"])
         return o
 
 
@@ -547,9 +602,9 @@ def load_config(source, overrides=None, base_dir=None):
         raise ValueError("'solver' must be a section {...}")
     s = {k: v for k, v in s.items() if not k.startswith("_")}       # the core rejects unknown options
     solver = SolverConfig(core=s.pop("core", "torch"), options=s)
-    for k in ("wall_stiffness", "wall_eps", "material", "material_params"):
+    for k in ("wall_stiffness", "wall_eps", "material", "material_params", "barrier"):
         if k in solver.options:
-            raise ValueError("solver.%s: set it in physics (wall.stiffness, wall.eps, material)" % k)
+            raise ValueError("solver.%s: set it in physics (wall.stiffness, wall.eps, material, barrier)" % k)
 
     return PipelineConfig(patient=raw["patient"], data_dir=data_dir, output_dir=output_dir, steps=steps,
                           source=path, run_name=run_name, inflated=inflated, collapsed=collapsed,

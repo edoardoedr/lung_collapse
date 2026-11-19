@@ -16,6 +16,13 @@ Checks of the alignment of CT and surfaces: the HU of the pleural air (should be
 of the collapsed lung. The contralateral lung (lung_*_lobe_<other side>.vtk, same CT, not collapsed)
 gives the density the lung had inflated, so V_expected = mass / rho_contra is the volume it filled
 before the pneumothorax and enlargement_mass = V_cavity / V_expected how much larger the cavity is.
+Emphysema (2026-11-19, METHODOLOGY.md 2 and 3.4.1): for both lungs (contralateral, also per lobe,
+and collapsed; the inflated lung in --config mode) LAA%-950 / LAA%-910 (% of voxels below, on the HU
+scale calibrated on the scan's air, after a 3x3x3 median filter against the noise) and Perc15,
+2 mm inside the border and outside the airway lumen;
+the low-attenuation air still in the collapsed lung (V_laa_collapsed_mL: trapped), the tissue
+fraction phi_tissue = mass / 1050 / V_cavity, phi_trapped_obs = V_laa_collapsed / V_cavity, and the
+retention = V_laa_collapsed / (LAA-950 fraction of the contralateral lung x V_cavity).
 Also the density of the collapsed lung by thirds of height (anterior,
 middle, posterior: the gravity axis of a supine patient), and, with --fit-run, E rescaled to the
 measured density: E_rho = E_fit * rho_bar / tissue_density of the fit (only rho_bar / E is fitted).
@@ -27,7 +34,8 @@ One patient from its config (also a new patient, CT of the INFLATED lung, no col
 With a collapsed lung in the config: as above. Without: rho_bar = the mean density inside the
 inflated lung, rho(HU) calibrated on the air in the trachea (top 30 mm of the airway tree, eroded
 by 2 mm; -1000 HU if there is no airway surface). --write-config sets physics.ct_density
-[kg/m3] in the config (report only: E and p0 are then also given at this density).
+[kg/m3] and physics.ct_emphysema (LAA%-950 [%]: of the lung itself, or of the contralateral lung
+with a collapsed lung) in the config (report only, unless physics.barrier phi is "ct").
 
 Needs SimpleITK and VTK (Mac env `lungct`, or the server). Images: <ct-dir>/<patient>.nii[.gz] (or
 .nrrd / .mha), read in LPS like the surfaces.
@@ -80,6 +88,44 @@ def find_ct(ct_dir, p):
     return None
 
 
+def denoised(a, mask):
+    """3x3x3 median filter of the CT over the bounding box of a mask (the standard noise reduction before
+    emphysema thresholds: on thin-slice scans the noise alone puts normal lung below -950 HU, e.g.
+    patient_10 LAA%-950 11.3 % raw, 1.0 % filtered). Returns the filtered values on the mask."""
+    from scipy.ndimage import median_filter
+    zz, yy, xx = np.nonzero(mask)
+    lo = np.maximum(np.array([zz.min(), yy.min(), xx.min()]) - 1, 0)
+    hi = np.array([zz.max(), yy.max(), xx.max()]) + 2
+    box = tuple(slice(l, h) for l, h in zip(lo, hi))
+    return median_filter(np.asarray(a[box], np.float32), size=3)[mask[box]]
+
+
+def emphysema(a, mask, hu_air, r_vox, exclude=None):
+    """Emphysema indices of a lung mask, on the HU scale calibrated on the scan's air (air -1000, water 0),
+    after a 3x3x3 median filter (denoised): LAA%-950 and LAA%-910 (% of voxels below), Perc15 (15th
+    percentile, HU). Computed 2 mm inside the border (partial volume) and outside `exclude` (the airway
+    lumen)."""
+    from scipy.ndimage import binary_erosion
+    core = binary_erosion(mask, iterations=r_vox)
+    if exclude is not None:
+        core &= ~exclude
+    if core.sum() < 100:
+        return dict(laa950=None, laa910=None, perc15=None, n_vox=int(core.sum()))
+    hu = (denoised(a, core) - hu_air) / (0.0 - hu_air) * 1000.0 - 1000.0                # calibrated HU
+    return dict(laa950=float(100 * (hu < -950).mean()), laa910=float(100 * (hu < -910).mean()),
+                perc15=float(np.percentile(hu, 15)), n_vox=int(core.sum()))
+
+
+def airway_mask(surf_dir, img):
+    """Airway lumen (lung_airways.vtk), dilated by one voxel, or None."""
+    from scipy.ndimage import binary_dilation
+    f = surf_dir / "lung_airways.vtk"
+    if not f.is_file():
+        return None
+    m = mask_from_surface(read_surface(f), img)
+    return binary_dilation(m, iterations=1) if m.any() else None
+
+
 def analyse(p, ct, surf_dir):
     import SimpleITK as sitk
     from scipy.ndimage import binary_erosion
@@ -106,12 +152,30 @@ def analyse(p, ct, surf_dir):
     # collapsed lung would have when inflated -> the volume the lung filled before the pneumothorax
     other = "right" if side == "left" else "left"
     con = np.zeros_like(col)
+    aw = airway_mask(surf_dir, img)
+    lobes = {}
     for f in sorted(surf_dir.glob("lung_*_lobe_%s.vtk" % other)):
-        con |= mask_from_surface(read_surface(f), img)
+        m = mask_from_surface(read_surface(f), img)
+        con |= m
+        lobes[f.stem.replace("lung_", "").replace("_lobe_%s" % other, "")] = emphysema(a, m, hu_air, r_vox, aw)
     rho_con = V_exp = None
     if con.any():
         rho_con = float(np.clip((a[con].astype(np.float32) - hu_air) / (0.0 - hu_air), 0.0, 1.1).mean())
         V_exp = mass / rho_con
+    # emphysema: indices of both lungs; low-attenuation (trapped) air still in the collapsed lung
+    e_con = emphysema(a, con, hu_air, r_vox, aw) if con.any() else dict(laa950=None, laa910=None, perc15=None)
+    e_col = emphysema(a, col, hu_air, r_vox, aw)
+    col_air = col if aw is None else col & ~aw
+    V_laa_col = float((denoised(a, col_air) < hu_air + 0.05 * (0.0 - hu_air)).sum() * vox)   # rho < 0.05, filtered
+    phi_t = mass / 1.05 / V_cav                                            # tissue volume / cavity (1050 kg/m3)
+    f_e = e_con["laa950"] / 100 if e_con["laa950"] is not None else None
+    emph = dict(V_contra_mL=float(con.sum() * vox), laa950_contra=e_con["laa950"], laa910_contra=e_con["laa910"],
+                perc15_contra=e_con["perc15"], laa950_collapsed=e_col["laa950"], laa910_collapsed=e_col["laa910"],
+                perc15_collapsed=e_col["perc15"], V_laa_collapsed_mL=V_laa_col,
+                phi_tissue=phi_t, phi_trapped_obs=V_laa_col / V_cav, phi_observed=V_col / V_cav,
+                retention=(V_laa_col / (f_e * V_cav)) if f_e else None,
+                laa950_lobes_contra=";".join("%s:%.1f" % (k, v["laa950"]) for k, v in lobes.items()
+                                             if v["laa950"] is not None))
     D = np.array(img.GetDirection()).reshape(3, 3)
     zz, yy, xx = np.nonzero(col)
     y_lps = (np.array([xx, yy, zz]).T * np.array(img.GetSpacing())) @ D.T[:, 1] + img.GetOrigin()[1]
@@ -125,7 +189,7 @@ def analyse(p, ct, surf_dir):
                 enlargement_mass=V_cav / V_exp if V_exp else None,
                 collapse_vs_cavity=100 * (1 - V_col / V_cav),
                 collapse_vs_expected=100 * (1 - V_col / V_exp) if V_exp else None,
-                rho_ant=thirds[0], rho_mid=thirds[1], rho_post=thirds[2]), None
+                rho_ant=thirds[0], rho_mid=thirds[1], rho_post=thirds[2], **emph), None
 
 
 def analyse_inflated(p, ct, inflated, airways=None):
@@ -154,9 +218,37 @@ def analyse_inflated(p, ct, inflated, airways=None):
     h = a[lung].astype(np.float32)
     rho = np.clip((h - hu_air) / (0.0 - hu_air), 0.0, 1.1)
     V = lung.sum() * vox
+    aw = airway_mask(Path(inflated).parent, img)
+    e = emphysema(a, lung, hu_air, max(1, int(round(2.0 / min(img.GetSpacing())))), aw)
     return dict(patient=p, mode="inflated", V_inflated_mL=V, hu_air=hu_air, hu_air_source=air_src,
                 hu_lung_mean=float(h.mean()), hu_lung_median=float(np.median(h)), mass_g=float(rho.sum() * vox),
-                rho_bar_inflated=float(rho.mean())), None
+                rho_bar_inflated=float(rho.mean()), laa950=e["laa950"], laa910=e["laa910"], perc15=e["perc15"],
+                phi_tissue=float(rho.mean()) / 1.05), None
+
+
+def _f(v, fmt):
+    return "-" if v is None else fmt % v
+
+
+def write_ct_values(config, rho, emph):
+    """Set physics.ct_density [kg/m3] and physics.ct_emphysema (LAA%-950 [%], if measured) in a config,
+    right after tissue_density."""
+    raw = json.loads(Path(config).read_text())
+    new = dict(ct_density=round(rho, 1))
+    if emph is not None:
+        new["ct_emphysema"] = round(float(emph), 1)
+    ph = {}
+    for k, v in raw["physics"].items():
+        if k in ("ct_density", "ct_emphysema"):
+            continue
+        ph[k] = v
+        if k == "tissue_density":
+            ph.update(new)
+    for k, v in new.items():
+        ph.setdefault(k, v)
+    raw["physics"] = ph
+    Path(config).write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
+    print("physics %s written to %s" % (", ".join("%s = %s" % kv for kv in new.items()), config))
 
 
 def one_config(args):
@@ -175,24 +267,16 @@ def one_config(args):
     rho = 1000.0 * r["rho_bar_inflated"]
     if r.get("mode") == "inflated":
         print("%s (inflated lung): volume %.0f mL, lung %.0f HU (median %.0f), air %.0f HU (%s), mass %.0f g -> "
-              "rho_bar %.1f kg/m3" % (cfg.patient, r["V_inflated_mL"], r["hu_lung_mean"], r["hu_lung_median"],
-                                      r["hu_air"], r["hu_air_source"], r["mass_g"], rho))
+              "rho_bar %.1f kg/m3; emphysema LAA%%-950 %s, LAA%%-910 %s, Perc15 %s HU; tissue fraction %.3f" % (
+                  cfg.patient, r["V_inflated_mL"], r["hu_lung_mean"], r["hu_lung_median"], r["hu_air"],
+                  r["hu_air_source"], r["mass_g"], rho, _f(r["laa950"], "%.1f"), _f(r["laa910"], "%.1f"),
+                  _f(r["perc15"], "%.0f"), r["phi_tissue"]))
     else:
         print("%s (cavity + collapsed lung): mass %.0f g / cavity %.0f mL -> rho_bar %.1f kg/m3" % (
             cfg.patient, r["mass_g"], r["V_cavity_mL"], rho))
     if args.write_config:
-        raw = json.loads(Path(args.config).read_text())
-        ph = {}
-        for k, v in raw["physics"].items():
-            if k == "ct_density":
-                continue
-            ph[k] = v
-            if k == "tissue_density":
-                ph["ct_density"] = round(rho, 1)
-        ph.setdefault("ct_density", round(rho, 1))
-        raw["physics"] = ph
-        Path(args.config).write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
-        print("physics.ct_density = %.1f written to %s" % (rho, args.config))
+        emph = r.get("laa950") if r.get("mode") == "inflated" else r.get("laa950_contra")   # the lung itself / contralateral
+        write_ct_values(args.config, rho, emph)
 
 
 def main():
@@ -241,6 +325,12 @@ def main():
                   "%.2f" % r["enlargement_mass"] if r["enlargement_mass"] else "-",
                   r["rho_ant"], r["rho_mid"], r["rho_post"],
                   "  E %.0f -> %.0f Pa" % (r["E_fit"], r["E_rho"]) if "E_rho" in r else ""), flush=True)
+        print("%-11s       emphysema LAA%%-950 contra %s / collapsed %s, Perc15 contra %s HU; trapped LAA air in the "
+              "collapsed lung %.0f mL; phi tissue %.3f + trapped %.3f (observed V_col/V_cav %.3f), retention %s; "
+              "lobes %s" % (p, _f(r["laa950_contra"], "%.1f"), _f(r["laa950_collapsed"], "%.1f"),
+                            _f(r["perc15_contra"], "%.0f"), r["V_laa_collapsed_mL"], r["phi_tissue"],
+                            r["phi_trapped_obs"], r["phi_observed"], _f(r["retention"], "%.2f"),
+                            r["laa950_lobes_contra"] or "-"), flush=True)
     if rows:
         rb = [1000 * r["rho_bar_inflated"] for r in rows]
         print("\nrho_bar (inflated): median %.0f, range %.0f-%.0f kg/m3 (%d patients)" % (np.median(rb), min(rb), max(rb), len(rows)))

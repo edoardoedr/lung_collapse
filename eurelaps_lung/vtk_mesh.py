@@ -379,7 +379,7 @@ def write_polydata(s, path, header=None):
     return path
 
 
-def tet_grid(nodes, tets, point_data=None, field_data=None):
+def tet_grid(nodes, tets, point_data=None, field_data=None, cell_data=None):
     """vtkUnstructuredGrid of linear tetrahedra."""
     g = vtkUnstructuredGrid()
     pts = vtkPoints()
@@ -390,6 +390,8 @@ def tet_grid(nodes, tets, point_data=None, field_data=None):
         g.GetPointData().AddArray(_vtk_array(name, a))
     for name, a in (field_data or {}).items():
         g.GetFieldData().AddArray(_vtk_array(name, a))
+    for name, a in (cell_data or {}).items():
+        g.GetCellData().AddArray(_vtk_array(name, a))
     return g
 
 

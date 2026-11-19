@@ -286,6 +286,11 @@ class LoadModel:
         if ph.ct_density is not None:                            # only density / E is identified: rescale
             out.update(ct_density_kg_m3=ph.ct_density, E_Pa_ct=float(E) * ph.ct_density / ph.tissue_density)
             out["p0_Pa_ct"] = q0 * out["E_Pa_ct"]
+        if ph.emphysema is not None:
+            out["emphysema"] = ph.emphysema
+        if ph.ct_emphysema is not None:
+            out["ct_emphysema_percent"] = ph.ct_emphysema
+        out["barrier"] = dict(ph.barrier) if ph.barrier is not None else None
         if ph.gravity is not None:
             s = vals.get("gravity_slope", self.slope_of_E(ph.E_Pa.value))
             out["gravity"] = dict(reference=list(ph.gravity["reference"]), collapse=list(ph.gravity["collapse"]),

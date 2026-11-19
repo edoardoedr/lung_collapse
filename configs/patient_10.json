@@ -85,7 +85,9 @@
     },
     "E_Pa": 1360.0,
     "tissue_density": 200.0,
+    "emphysema": true,
     "ct_density": 118.5,
+    "ct_emphysema": 1.0,
     "gravity": {
       "reference": "supine",
       "collapse": "supine"
